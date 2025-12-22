@@ -1,0 +1,56 @@
+app:
+  name: "bronivik-go"
+  environment: "staging"  # production/staging
+  version: "1.0.0"
+
+telegram:
+  bot_token: ${BOT_TOKEN}
+  webhook_url: ""  # если используем webhook
+  debug: true
+
+managers:
+  - 123456789
+  - 987654321
+
+blacklist:
+  - 111111111
+  - 222222222
+
+export:
+  path: "./exports"
+
+database:
+  path: "./bookings.db"
+  postgres:
+    host: "localhost"
+    port: 5432
+    user: ${BOT_USER}
+    password: ${BOT_PASSWORD}
+    dbname: ${POSTGRES_DB}
+    sslmode: "disable"
+    max_connections: 20
+    migration_table: "schema_migrations"
+
+redis:
+  address: "localhost:6379"
+  password: ""
+  db: 0
+  pool_size: 10
+
+backup:
+  enabled: true
+  schedule: "0 2 * * *"  # ежедневно в 2:00
+  retention_days: 30
+  storage_path: "/var/backups/bot"
+
+monitoring:
+  prometheus_enabled: true
+  prometheus_port: 9090
+  health_check_port: 8080
+  log_level: "info"  # debug/info/warn/error
+
+logging:
+  level: "info"
+  format: "json"  # json/text
+  output: "stdout" # stdout/file
+  file_path: "/var/log/bot/app.log"
