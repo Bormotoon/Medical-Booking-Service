@@ -2,6 +2,7 @@ package bot
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"bronivik/internal/models"
@@ -16,8 +17,15 @@ func (b *Bot) StartReminders(ctx context.Context) {
 	}
 
 	go func() {
-		// First wait until next 09:00 local time, then tick every 24h.
-		wait := timeUntilNextHour(models.ReminderHour)
+		// Parse reminder hour from config (default to 9 if invalid)
+		hour := 9
+		if b.config.Bot.ReminderTime != "" {
+			var m int
+			fmt.Sscanf(b.config.Bot.ReminderTime, "%d:%d", &hour, &m)
+		}
+
+		// First wait until next reminder time local time, then tick every 24h.
+		wait := timeUntilNextHour(hour)
 		timer := time.NewTimer(wait)
 		defer timer.Stop()
 

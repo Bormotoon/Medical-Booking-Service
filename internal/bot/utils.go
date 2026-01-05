@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"bronivik/internal/database"
-	"bronivik/internal/events"
 	"bronivik/internal/models"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -62,29 +61,6 @@ func (b *Bot) getItemByID(id int64) (models.Item, bool) {
 func (b *Bot) sendMessage(chatID int64, text string) {
 	msg := tgbotapi.NewMessage(chatID, text)
 	b.tgService.Send(msg)
-}
-
-func (b *Bot) publishBookingEvent(ctx context.Context, eventType string, booking models.Booking, changedBy string, changedByID int64) {
-	if b.eventBus == nil {
-		return
-	}
-
-	payload := events.BookingEventPayload{
-		BookingID:   booking.ID,
-		UserID:      booking.UserID,
-		UserName:    booking.UserName,
-		ItemID:      booking.ItemID,
-		ItemName:    booking.ItemName,
-		Status:      booking.Status,
-		Date:        booking.Date,
-		Comment:     booking.Comment,
-		ChangedBy:   changedBy,
-		ChangedByID: changedByID,
-	}
-
-	if err := b.eventBus.PublishJSON(eventType, payload); err != nil {
-		b.logger.Error().Err(err).Str("event_type", eventType).Int64("booking_id", booking.ID).Msg("publish event error")
-	}
 }
 
 // handleMainMenu - главное меню с контактами

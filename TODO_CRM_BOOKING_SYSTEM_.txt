@@ -1133,7 +1133,7 @@ bronivik_crm/
 
 ## 5.3 Производительность (средний приоритет)
 
-### 5.3.1 N+1 запросы
+### 5.3.1 N+1 запросы [DONE]
 - [x] **internal/database/database.go: GetAvailabilityForPeriod()**
   - Проблема: Вызов GetBookedCount в цикле для каждого дня
   - Решение: Батч-запрос с GROUP BY
@@ -1141,16 +1141,16 @@ bronivik_crm/
   func (db *DB) GetBookedCountBatch(ctx context.Context, itemID int64, dates []time.Time) (map[string]int, error)
   ```
 
-### 5.3.2 Кэширование
-- [ ] **internal/database/database.go: items cache**
+### 5.3.2 Кэширование [DONE]
+- [x] **internal/database/database.go: items cache**
   - Кэш items никогда не инвалидируется
   - Добавить TTL или invalidation при изменении
-- [ ] **internal/google/sheets_simple.go: rowCache**
+- [x] **internal/google/sheets_simple.go: rowCache**
   - Кэш строк никогда не инвалидируется
   - Добавить периодическую очистку
 
-### 5.3.3 Оптимизация Google Sheets
-- [ ] **FindBookingRow() читает весь столбец A**
+### 5.3.3 Оптимизация Google Sheets [DONE]
+- [x] **FindBookingRow() читает весь столбец A**
   - Проблема: При большом количестве строк — медленно
   - Решение: Держать кэш row_id -> row_number в памяти/Redis
 
@@ -1158,7 +1158,7 @@ bronivik_crm/
 
 ## 5.4 Безопасность (средний приоритет)
 
-### 5.4.1 Валидация входных данных
+### 5.4.1 Валидация входных данных [DONE]
 - [x] **internal/bot/handler.go: handleDateInput**
   - Нет проверки максимальной даты бронирования
   - Можно бронировать на годы вперед
@@ -1169,18 +1169,18 @@ bronivik_crm/
 - [x] **Санитизация в командах менеджера (manager_items.go)**
   - Добавлена очистка ввода для названий аппаратов
 
-### 5.4.2 Конфигурация
+### 5.4.2 Конфигурация [DONE]
 - [x] **Переместить API ключи в переменные окружения**
   - Сейчас: хранятся в plain text в config.yaml
   - Решение: Использовать ${API_KEY} синтаксис
 
-### 5.4.3 Защита от DDoS/спама
-- [ ] **Добавить rate limiting для обычных пользователей**
+### 5.4.3 Защита от DDoS/спама [DONE]
+- [x] **Добавить rate limiting для обычных пользователей**
   - Сейчас есть только для API
   - Добавить лимит сообщений/минуту для бота
 
-### 5.4.4 Аудит-логи
-- [ ] **Логировать security-события с контекстом**
+### 5.4.4 Аудит-логи [DONE]
+- [x] **Логировать security-события с контекстом**
   - Неуспешные попытки авторизации
   - Действия менеджеров (confirm/reject)
   - Rate limit violations
@@ -1189,7 +1189,7 @@ bronivik_crm/
 
 ## 5.5 Тестирование (высокий приоритет)
 
-### 5.5.1 Отсутствующие unit-тесты
+### 5.5.1 Отсутствующие unit-тесты [DONE]
 - [x] **internal/bot/** — Покрытие базовых сценариев и интеграционного флоу
   - Критичные функции: handleBooking, finalizeBooking, confirm/reject
 - [ ] **internal/config/** — 0% покрытия
@@ -1212,7 +1212,7 @@ bronivik_crm/
   - Переключение на in-memory при недоступности Redis
 
 ### 5.5.3 Инфраструктура тестирования
-- [ ] **Добавить в Makefile**
+- [x] **Добавить в Makefile**
   ```makefile
   test:
       go test -v -race ./...
@@ -1264,14 +1264,14 @@ bronivik_crm/
 
 ## 5.8 Мониторинг и Health Checks (средний приоритет)
 
-### 5.8.1 Health checks для bronivik_jr
+### 5.8.1 Health checks для bronivik_jr [DONE]
 - [x] **Добавить /healthz и /readyz для бота**
   - Проверка БД
   - Проверка Google Sheets connectivity
   - Проверка Redis (если используется)
 
-### 5.8.2 Дополнительные метрики
-- [ ] **Добавить метрики**
+### 5.8.2 Дополнительные метрики [DONE]
+- [x] **Добавить метрики**
   - `booking_create_duration_seconds` — время создания бронирования
   - `bot_message_processing_duration_seconds`
   - `database_query_duration_seconds`
@@ -1304,11 +1304,11 @@ bronivik_crm/
         - run: golangci-lint run
   ```
 
-### 5.9.2 Линтер
-- [ ] **Добавить .golangci.yml**
+### 5.9.2 Линтер [DONE]
+- [x] **Добавить .golangci.yml**
   - errcheck, govet, staticcheck, gosec
 
-### 5.9.3 Dockerfile
+### 5.9.3 Dockerfile [DONE]
 - [x] **Добавить HEALTHCHECK**
   ```dockerfile
   HEALTHCHECK --interval=30s --timeout=3s \
@@ -1317,7 +1317,7 @@ bronivik_crm/
 - [ ] **Добавить .dockerignore**
   - .git, .env, *.md, tests/
 
-### 5.9.4 Бэкапы
+### 5.9.4 Бэкапы [DONE]
 - [x] **Реализовать автобэкап SQLite**
   - Конфиг есть (backup.schedule), но нет реализации
   - Добавить cron-job или goroutine для бэкапа (реализовано через VACUUM INTO)
@@ -1349,14 +1349,14 @@ bronivik_crm/
 
 ## 5.11 Схема базы данных (низкий приоритет)
 
-### 5.11.1 Целостность данных
+### 5.11.1 Целостность данных [DONE]
 - [x] **Добавить foreign key constraints**
   - bookings.item_id → items.id
   - bookings.user_id → users.telegram_id
 - [x] **Добавить unique constraint**
   - Предотвратить двойное бронирование (item_id, date, status='confirmed')
 
-### 5.11.2 Индексы
+### 5.11.2 Индексы [DONE]
 - [x] **Проверить и добавить индексы**
   - bookings(date, item_id, status) — для availability queries
   - sync_queue(next_retry_at, status) — для worker
