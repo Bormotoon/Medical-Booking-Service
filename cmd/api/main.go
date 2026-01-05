@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -11,7 +13,9 @@ import (
 	"bronivik/internal/api"
 	"bronivik/internal/config"
 	"bronivik/internal/database"
+	"bronivik/internal/metrics"
 	"bronivik/internal/models"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"gopkg.in/yaml.v2"
 )
 
@@ -68,6 +72,14 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	if cfg.Monitoring.PrometheusEnabled {
+		metrics.Register()
+		if cfg.Monitoring.PrometheusPort == 0 {
+			cfg.Monitoring.PrometheusPort = 9090
+		}
+		go startMetricsServer(ctx, cfg.Monitoring.PrometheusPort)
+	}
+
 	go func() {
 		if err := grpcServer.Serve(); err != nil {
 			log.Printf("gRPC server stopped: %v", err)
@@ -93,4 +105,20 @@ func main() {
 	grpcServer.Shutdown(shutdownCtx)
 	_ = httpServer.Shutdown(shutdownCtx)
 	log.Println("API server stopped")
+}
+
+func startMetricsServer(ctx context.Context, port int) {
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", promhttp.Handler())
+
+	srv := &http.Server{Addr: fmt.Sprintf(":%d", port), Handler: mux}
+	go func() {
+		<-ctx.Done()
+		ctxShutdown, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(ctxShutdown)
+	}()
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Printf("metrics server error: %v", err)
+	}
 }

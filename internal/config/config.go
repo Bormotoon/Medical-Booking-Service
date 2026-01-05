@@ -169,6 +169,9 @@ func (c *Config) applyDefaults() {
 	if c.API.HTTP.Port == 0 {
 		c.API.HTTP.Port = 8080
 	}
+	if c.Monitoring.PrometheusEnabled && c.Monitoring.PrometheusPort == 0 {
+		c.Monitoring.PrometheusPort = 9090
+	}
 	// auth enabled by default when API is enabled
 	if !c.API.Auth.Enabled {
 		c.API.Auth.Enabled = true

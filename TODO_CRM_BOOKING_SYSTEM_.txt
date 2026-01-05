@@ -989,7 +989,7 @@ bronivik_crm/
 ## 4.1 Метрики
 
 ### 4.1.1 Prometheus метрики
-- [ ] **Метрики для bronivik_jr**
+- [x] **Метрики для bronivik_jr**
   - `bookings_total` — общее количество бронирований
   - `api_requests_total` — количество API запросов
   - `sheets_sync_duration_seconds` — время синхронизации

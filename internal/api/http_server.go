@@ -15,6 +15,7 @@ import (
 
 	"bronivik/internal/config"
 	"bronivik/internal/database"
+	"bronivik/internal/metrics"
 	"golang.org/x/time/rate"
 )
 
@@ -27,15 +28,15 @@ type HTTPServer struct {
 }
 
 func NewHTTPServer(cfg config.APIConfig, db *database.DB) *HTTPServer {
-	mux := http.NewServeMux()
+	apiMux := http.NewServeMux()
 	srv := &HTTPServer{cfg: cfg, db: db}
 	srv.auth = NewHTTPAuth(cfg)
 
-	mux.HandleFunc("/api/v1/availability/bulk", srv.handleAvailabilityBulk)
-	mux.HandleFunc("/api/v1/availability/", srv.handleAvailability)
-	mux.HandleFunc("/api/v1/items", srv.handleItems)
+	apiMux.HandleFunc("/api/v1/availability/bulk", srv.handleAvailabilityBulk)
+	apiMux.HandleFunc("/api/v1/availability/", srv.handleAvailability)
+	apiMux.HandleFunc("/api/v1/items", srv.handleItems)
 
-	handler := loggingMiddleware(corsMiddleware(srv.auth.Wrap(mux)))
+	handler := loggingMiddleware(corsMiddleware(srv.auth.Wrap(apiMux)))
 
 	srv.server = &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.HTTP.Port),
@@ -66,6 +67,7 @@ func (s *HTTPServer) Shutdown(ctx context.Context) error {
 }
 
 func (s *HTTPServer) handleAvailability(w http.ResponseWriter, r *http.Request) {
+	metrics.IncHTTP("availability")
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
@@ -111,6 +113,7 @@ func (s *HTTPServer) handleAvailability(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *HTTPServer) handleAvailabilityBulk(w http.ResponseWriter, r *http.Request) {
+	metrics.IncHTTP("availability_bulk")
 	if r.Method != http.MethodPost && r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
@@ -180,6 +183,7 @@ func (s *HTTPServer) handleAvailabilityBulk(w http.ResponseWriter, r *http.Reque
 }
 
 func (s *HTTPServer) handleItems(w http.ResponseWriter, r *http.Request) {
+	metrics.IncHTTP("items")
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
