@@ -305,7 +305,7 @@
   func (db *DB) DeactivateItem(ctx context.Context, id int64) error
   ```
 
-- [ ] **Команды бота для управления items (только для менеджеров)**
+- [x] **Команды бота для управления items (только для менеджеров)**
   - `/add_item <name> <quantity>` — добавить аппарат
   - `/edit_item <name> <new_quantity>` — изменить количество
   - `/list_items` — список аппаратов
