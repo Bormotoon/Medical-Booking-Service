@@ -1011,7 +1011,7 @@ bronivik_crm/
 ## 4.2 Логирование
 
 ### 4.2.1 Structured logging
-- [ ] **Внедрить structured logging (zerolog/zap)**
+- [x] **Внедрить structured logging (zerolog/zap)**
   - Request ID для трейсинга
   - Уровни логирования
   - JSON формат для продакшена

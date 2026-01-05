@@ -3,12 +3,13 @@ package api
 import (
 	"context"
 	"crypto/subtle"
-	"log"
 	"strings"
 	"sync"
 	"time"
 
 	"bronivik/internal/config"
+	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 	"golang.org/x/time/rate"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -177,8 +178,16 @@ func first(vals []string) string {
 	return strings.TrimSpace(vals[0])
 }
 
-func LoggingUnaryInterceptor() grpc.UnaryServerInterceptor {
+func LoggingUnaryInterceptor(logger *zerolog.Logger) grpc.UnaryServerInterceptor {
+	base := zerolog.Nop()
+	if logger != nil {
+		base = logger.With().Str("component", "grpc").Logger()
+	}
+
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		requestID := requestIDFromMetadata(ctx)
+		_ = grpc.SetHeader(ctx, metadata.Pairs(requestIDMetadataKey, requestID))
+
 		start := time.Now()
 		resp, err := handler(ctx, req)
 		dur := time.Since(start)
@@ -193,7 +202,28 @@ func LoggingUnaryInterceptor() grpc.UnaryServerInterceptor {
 			remote = p.Addr.String()
 		}
 
-		log.Printf("grpc method=%s remote=%s code=%s dur=%s", info.FullMethod, remote, code.String(), dur)
+		base.Info().
+			Str("request_id", requestID).
+			Str("method", info.FullMethod).
+			Str("remote", remote).
+			Str("code", code.String()).
+			Dur("duration", dur).
+			Msg("grpc request")
+
 		return resp, err
 	}
+}
+
+const requestIDMetadataKey = "x-request-id"
+
+func requestIDFromMetadata(ctx context.Context) string {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if ok {
+		if vals := md.Get(requestIDMetadataKey); len(vals) > 0 {
+			if id := strings.TrimSpace(vals[0]); id != "" {
+				return id
+			}
+		}
+	}
+	return uuid.NewString()
 }

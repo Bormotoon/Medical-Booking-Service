@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
-	"log"
 	"net"
 	"os"
 	"time"
@@ -13,6 +12,7 @@ import (
 	"bronivik/internal/api/gen/availability/v1"
 	"bronivik/internal/config"
 	"bronivik/internal/database"
+	"github.com/rs/zerolog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/reflection"
@@ -23,9 +23,10 @@ type GRPCServer struct {
 	db       *database.DB
 	server   *grpc.Server
 	listener net.Listener
+	log      zerolog.Logger
 }
 
-func NewGRPCServer(cfg config.APIConfig, db *database.DB) (*GRPCServer, error) {
+func NewGRPCServer(cfg config.APIConfig, db *database.DB, logger *zerolog.Logger) (*GRPCServer, error) {
 	addr := fmt.Sprintf(":%d", cfg.GRPC.Port)
 	lis, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -34,7 +35,7 @@ func NewGRPCServer(cfg config.APIConfig, db *database.DB) (*GRPCServer, error) {
 
 	auth := NewAuthInterceptor(cfg)
 	unary := ChainUnaryInterceptors(
-		LoggingUnaryInterceptor(),
+		LoggingUnaryInterceptor(logger),
 		auth.Unary(),
 	)
 
@@ -56,11 +57,17 @@ func NewGRPCServer(cfg config.APIConfig, db *database.DB) (*GRPCServer, error) {
 		reflection.Register(grpcServer)
 	}
 
+	var serverLogger zerolog.Logger
+	if logger != nil {
+		serverLogger = logger.With().Str("component", "grpc").Logger()
+	}
+
 	return &GRPCServer{
 		cfg:      cfg,
 		db:       db,
 		server:   grpcServer,
 		listener: lis,
+		log:      serverLogger,
 	}, nil
 }
 
@@ -106,7 +113,7 @@ func (s *GRPCServer) Addr() string {
 }
 
 func (s *GRPCServer) Serve() error {
-	log.Printf("gRPC API listening on %s", s.Addr())
+	s.log.Info().Str("addr", s.Addr()).Msg("gRPC API listening")
 	return s.server.Serve(s.listener)
 }
 
@@ -125,11 +132,11 @@ func (s *GRPCServer) Shutdown(ctx context.Context) {
 	case <-done:
 		return
 	case <-ctx.Done():
-		log.Printf("gRPC graceful shutdown timed out; forcing stop")
+		s.log.Warn().Msg("gRPC graceful shutdown timed out; forcing stop")
 		s.server.Stop()
 		return
 	case <-time.After(10 * time.Second):
-		log.Printf("gRPC graceful shutdown timed out; forcing stop")
+		s.log.Warn().Msg("gRPC graceful shutdown timed out; forcing stop")
 		s.server.Stop()
 		return
 	}
