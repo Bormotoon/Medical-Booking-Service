@@ -103,8 +103,8 @@ func TestCreateHourlyBookingWithChecks_BusySlot(t *testing.T) {
 	attempt := &models.HourlyBooking{
 		UserID:    user.ID,
 		CabinetID: cab.ID,
-		StartTime: time.Date(2026, 1, 5, 10, 30, 0, 0, time.Local),
-		EndTime:   time.Date(2026, 1, 5, 11, 30, 0, 0, time.Local),
+		StartTime: time.Date(2026, 1, 5, 10, 0, 0, 0, time.Local),
+		EndTime:   time.Date(2026, 1, 5, 11, 0, 0, 0, time.Local),
 		Status:    "pending",
 	}
 	if err := db.CreateHourlyBookingWithChecks(ctx, attempt, nil); err != ErrSlotNotAvailable {
