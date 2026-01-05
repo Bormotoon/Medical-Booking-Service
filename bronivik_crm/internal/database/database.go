@@ -31,8 +31,9 @@ type DB struct {
 
 // --- Users CRUD ---
 
-// GetOrCreateUserByTelegramID ensures a user row exists for given telegram id.
-func (db *DB) GetOrCreateUserByTelegramID(ctx context.Context, telegramID int64, username, firstName, lastName string) (*models.User, error) {
+// GetOrCreateUserByTelegramID ensures a user row exists for given telegram id and stores basic profile fields.
+// Phone can be empty; if provided, it will overwrite stored value.
+func (db *DB) GetOrCreateUserByTelegramID(ctx context.Context, telegramID int64, username, firstName, lastName, phone string) (*models.User, error) {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -47,7 +48,7 @@ func (db *DB) GetOrCreateUserByTelegramID(ctx context.Context, telegramID int64,
 	now := time.Now()
 	if err == sql.ErrNoRows {
 		res, err := tx.ExecContext(ctx, `INSERT INTO users (telegram_id, username, first_name, last_name, phone, is_manager, is_blacklisted, created_at, updated_at)
-			VALUES (?, ?, ?, ?, '', 0, 0, ?, ?)`, telegramID, username, firstName, lastName, now, now)
+			VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?)`, telegramID, username, firstName, lastName, phone, now, now)
 		if err != nil {
 			return nil, err
 		}
@@ -57,8 +58,13 @@ func (db *DB) GetOrCreateUserByTelegramID(ctx context.Context, telegramID int64,
 		}
 		u = &models.User{ID: id, TelegramID: telegramID, Username: username, FirstName: firstName, LastName: lastName, CreatedAt: now, UpdatedAt: now}
 	} else {
-		// best-effort update of profile fields
-		_, _ = tx.ExecContext(ctx, `UPDATE users SET username = ?, first_name = ?, last_name = ?, updated_at = ? WHERE id = ?`, username, firstName, lastName, now, u.ID)
+		// best-effort update of profile fields; phone only if provided
+		if phone != "" {
+			_, _ = tx.ExecContext(ctx, `UPDATE users SET username = ?, first_name = ?, last_name = ?, phone = ?, updated_at = ? WHERE id = ?`, username, firstName, lastName, phone, now, u.ID)
+			u.Phone = phone
+		} else {
+			_, _ = tx.ExecContext(ctx, `UPDATE users SET username = ?, first_name = ?, last_name = ?, updated_at = ? WHERE id = ?`, username, firstName, lastName, now, u.ID)
+		}
 		u.Username = username
 		u.FirstName = firstName
 		u.LastName = lastName

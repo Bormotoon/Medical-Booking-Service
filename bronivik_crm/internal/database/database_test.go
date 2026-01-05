@@ -18,7 +18,7 @@ func TestGetAvailableSlots_RespectsBookings(t *testing.T) {
 	defer db.Close()
 
 	ctx := context.Background()
-	user, err := db.GetOrCreateUserByTelegramID(ctx, 123, "u", "First", "Last")
+	user, err := db.GetOrCreateUserByTelegramID(ctx, 123, "u", "First", "Last", "")
 	if err != nil {
 		t.Fatalf("GetOrCreateUserByTelegramID: %v", err)
 	}
@@ -70,7 +70,7 @@ func TestCreateHourlyBookingWithChecks_BusySlot(t *testing.T) {
 	defer db.Close()
 
 	ctx := context.Background()
-	user, err := db.GetOrCreateUserByTelegramID(ctx, 123, "u", "First", "Last")
+	user, err := db.GetOrCreateUserByTelegramID(ctx, 123, "u", "First", "Last", "")
 	if err != nil {
 		t.Fatalf("GetOrCreateUserByTelegramID: %v", err)
 	}

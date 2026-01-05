@@ -774,7 +774,7 @@ bronivik_crm/
 
 - [ ] **Пользователи (CRM)**
   - [x] Get-or-create пользователя по `telegram_id` в БД
-  - [ ] Хранить `username/first_name/last_name/phone` (если доступно)
+  - [x] Хранить `username/first_name/last_name/phone` (если доступно)
 
 ### 2.4.4 Календарь и выбор времени
 - [x] **Создать `internal/bot/calendar.go`**

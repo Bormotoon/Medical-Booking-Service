@@ -346,7 +346,7 @@ func (b *Bot) handleMyBookings(ctx context.Context, msg *tgbotapi.Message) {
 	if msg == nil || msg.From == nil {
 		return
 	}
-	u, err := b.db.GetOrCreateUserByTelegramID(ctx, msg.From.ID, msg.From.UserName, msg.From.FirstName, msg.From.LastName)
+	u, err := b.db.GetOrCreateUserByTelegramID(ctx, msg.From.ID, msg.From.UserName, msg.From.FirstName, msg.From.LastName, "")
 	if err != nil {
 		b.reply(msg.Chat.ID, "Не удалось загрузить пользователя")
 		return
@@ -402,7 +402,7 @@ func (b *Bot) handleCancelBooking(ctx context.Context, msg *tgbotapi.Message) {
 		return
 	}
 
-	u, err := b.db.GetOrCreateUserByTelegramID(ctx, msg.From.ID, msg.From.UserName, msg.From.FirstName, msg.From.LastName)
+	u, err := b.db.GetOrCreateUserByTelegramID(ctx, msg.From.ID, msg.From.UserName, msg.From.FirstName, msg.From.LastName, "")
 	if err != nil {
 		b.reply(msg.Chat.ID, "Не удалось загрузить пользователя")
 		return
@@ -542,7 +542,7 @@ func (b *Bot) finalizeBooking(ctx context.Context, cq *tgbotapi.CallbackQuery, s
 		return fmt.Errorf("missing callback message")
 	}
 	// ensure user exists
-	u, err := b.db.GetOrCreateUserByTelegramID(ctx, cq.From.ID, cq.From.UserName, cq.From.FirstName, cq.From.LastName)
+	u, err := b.db.GetOrCreateUserByTelegramID(ctx, cq.From.ID, cq.From.UserName, cq.From.FirstName, cq.From.LastName, "")
 	if err != nil {
 		return err
 	}
