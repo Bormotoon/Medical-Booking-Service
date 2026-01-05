@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"bronivik/internal/events"
 	"bronivik/internal/models"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -54,6 +55,29 @@ func (b *Bot) isManager(userID int64) bool {
 func (b *Bot) sendMessage(chatID int64, text string) {
 	msg := tgbotapi.NewMessage(chatID, text)
 	b.bot.Send(msg)
+}
+
+func (b *Bot) publishBookingEvent(eventType string, booking models.Booking, changedBy string, changedByID int64) {
+	if b.eventBus == nil {
+		return
+	}
+
+	payload := events.BookingEventPayload{
+		BookingID:   booking.ID,
+		UserID:      booking.UserID,
+		UserName:    booking.UserName,
+		ItemID:      booking.ItemID,
+		ItemName:    booking.ItemName,
+		Status:      booking.Status,
+		Date:        booking.Date,
+		Comment:     booking.Comment,
+		ChangedBy:   changedBy,
+		ChangedByID: changedByID,
+	}
+
+	if err := b.eventBus.PublishJSON(eventType, payload); err != nil {
+		log.Printf("publish event %s for booking %d: %v", eventType, booking.ID, err)
+	}
 }
 
 // handleMainMenu - главное меню с контактами
@@ -321,6 +345,8 @@ func (b *Bot) finalizeBooking(update tgbotapi.Update) {
 		b.sendMessage(update.Message.Chat.ID, "Произошла ошибка при создании заявки. Попробуйте позже.")
 		return
 	}
+
+	b.publishBookingEvent(events.EventBookingCreated, booking, "user", update.Message.From.ID)
 
 	// Уведомляем менеджеров
 	b.notifyManagers(booking)

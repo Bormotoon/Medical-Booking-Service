@@ -193,7 +193,7 @@
   - `AppendBookingToSheets()` — вызывается синхронно
 
 ### 1.3.2 Внедрение паттерна "Event Sourcing Light"
-- [ ] **Создать файл `internal/events/events.go`**
+- [x] **Создать файл `internal/events/events.go`**
   ```go
   type Event struct {
       ID        int64
@@ -211,7 +211,12 @@
   type EventHandler func(event Event) error
   ```
 
-- [ ] **События для бронирований**
+- [x] **События для бронирований**
+  - `booking_created` — новое бронирование
+  - `booking_confirmed` — подтверждено менеджером
+  - `booking_cancelled` — отменено
+  - `booking_completed` — завершено
+  - `booking_item_changed` — изменен аппарат
   - `booking_created` — новое бронирование
   - `booking_confirmed` — подтверждено менеджером
   - `booking_cancelled` — отменено

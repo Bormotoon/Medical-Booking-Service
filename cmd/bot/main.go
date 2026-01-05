@@ -12,6 +12,7 @@ import (
 	"bronivik/internal/bot"
 	"bronivik/internal/config"
 	"bronivik/internal/database"
+	"bronivik/internal/events"
 	"bronivik/internal/google"
 	"bronivik/internal/models"
 	"bronivik/internal/repository"
@@ -123,8 +124,10 @@ func main() {
 		go sheetsWorker.Start(ctx)
 	}
 
+	eventBus := events.NewEventBus()
+
 	// Создание и запуск бота
-	telegramBot, err := bot.NewBot(cfg.Telegram.BotToken, cfg, itemsConfig.Items, db, sheetsService, sheetsWorker)
+	telegramBot, err := bot.NewBot(cfg.Telegram.BotToken, cfg, itemsConfig.Items, db, sheetsService, sheetsWorker, eventBus)
 	if err != nil {
 		log.Fatal("Ошибка создания бота:", err)
 	}
