@@ -1,0 +1,129 @@
+package api
+
+import (
+    "context"
+    "encoding/json"
+    "fmt"
+    "net/http"
+    "net/url"
+    "strings"
+    "time"
+)
+
+// BronivikClient is a simple HTTP client to call bronivik_jr availability APIs.
+type BronivikClient struct {
+    baseURL    string
+    apiKey     string
+    httpClient *http.Client
+}
+
+// AvailabilityResponse mirrors bronivik_jr availability response.
+type AvailabilityResponse struct {
+    Available   bool  `json:"available"`
+    BookedCount int   `json:"booked_count"`
+    Total       int   `json:"total"`
+}
+
+// Item describes an item entry from bronivik_jr API.
+type Item struct {
+    ID            int64  `json:"id"`
+    Name          string `json:"name"`
+    TotalQuantity int64  `json:"total_quantity"`
+}
+
+// NewBronivikClient constructs a client with baseURL and API key.
+func NewBronivikClient(baseURL, apiKey string) *BronivikClient {
+    return &BronivikClient{
+        baseURL: baseURL,
+        apiKey:  apiKey,
+        httpClient: &http.Client{Timeout: 10 * time.Second},
+    }
+}
+
+// GetAvailability fetches availability for item/date (YYYY-MM-DD).
+func (c *BronivikClient) GetAvailability(ctx context.Context, itemName, date string) (*AvailabilityResponse, error) {
+    endpoint := fmt.Sprintf("%s/api/v1/availability/%s?date=%s", c.baseURL, url.PathEscape(itemName), url.QueryEscape(date))
+    var resp AvailabilityResponse
+    if err := c.doGet(ctx, endpoint, &resp); err != nil {
+        return nil, err
+    }
+    return &resp, nil
+}
+
+// GetAvailabilityBulk fetches availability for multiple items/dates.
+type BulkAvailabilityRequest struct {
+    Items []string `json:"items"`
+    Dates []string `json:"dates"`
+}
+
+type BulkAvailabilityResponse struct {
+    Results []map[string]any `json:"results"`
+}
+
+func (c *BronivikClient) GetAvailabilityBulk(ctx context.Context, items, dates []string) (*BulkAvailabilityResponse, error) {
+    endpoint := fmt.Sprintf("%s/api/v1/availability/bulk", c.baseURL)
+    body := BulkAvailabilityRequest{Items: items, Dates: dates}
+    var resp BulkAvailabilityResponse
+    if err := c.doPost(ctx, endpoint, body, &resp); err != nil {
+        return nil, err
+    }
+    return &resp, nil
+}
+
+// ListItems returns all items.
+func (c *BronivikClient) ListItems(ctx context.Context) ([]Item, error) {
+    endpoint := fmt.Sprintf("%s/api/v1/items", c.baseURL)
+    var wrap struct {
+        Items []Item `json:"items"`
+    }
+    if err := c.doGet(ctx, endpoint, &wrap); err != nil {
+        return nil, err
+    }
+    return wrap.Items, nil
+}
+
+func (c *BronivikClient) doGet(ctx context.Context, endpoint string, out any) error {
+    req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+    if err != nil {
+        return err
+    }
+    c.addHeaders(req)
+    return c.do(req, out)
+}
+
+func (c *BronivikClient) doPost(ctx context.Context, endpoint string, body any, out any) error {
+    data, err := json.Marshal(body)
+    if err != nil {
+        return err
+    }
+    req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(string(data)))
+    if err != nil {
+        return err
+    }
+    req.Header.Set("Content-Type", "application/json")
+    c.addHeaders(req)
+    return c.do(req, out)
+}
+
+func (c *BronivikClient) do(req *http.Request, out any) error {
+    resp, err := c.httpClient.Do(req)
+    if err != nil {
+        return err
+    }
+    defer resp.Body.Close()
+
+    if resp.StatusCode >= 300 {
+        return fmt.Errorf("http %d", resp.StatusCode)
+    }
+    if out == nil {
+        return nil
+    }
+    dec := json.NewDecoder(resp.Body)
+    return dec.Decode(out)
+}
+
+func (c *BronivikClient) addHeaders(req *http.Request) {
+    if c.apiKey != "" {
+        req.Header.Set("x-api-key", c.apiKey)
+    }
+}
