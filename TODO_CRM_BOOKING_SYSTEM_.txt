@@ -1094,14 +1094,14 @@ bronivik_crm/
 ## 5.2 Качество кода (высокий приоритет)
 
 ### 5.2.1 Рефакторинг длинных функций
-- [ ] **internal/bot/handler.go: handleMessage() — 130+ строк**
-  - Разбить на отдельные обработчики по типу команды
-- [ ] **internal/bot/handler.go: handleCallbackQuery() — 140+ строк**
-  - Использовать паттерн Command или map[string]Handler
+- [x] **internal/bot/handler.go: handleMessage() — 130+ строк** [DONE]
+  - Разбит на отдельные обработчики в `user_handlers.go`
+- [x] **internal/bot/handler.go: handleCallbackQuery() — 140+ строк** [DONE]
+  - Разбит на отдельные обработчики в `callback_handlers.go`
 - [ ] **internal/bot/manager.go — 800+ строк**
   - Разбить на файлы: manager_bookings.go, manager_items.go, manager_users.go
-- [ ] **internal/database/database.go — 900+ строк**
-  - Разбить на: users.go, bookings.go, items.go, sync_queue.go
+- [x] **internal/database/database.go — 900+ строк** [DONE]
+  - Разбит на: users.go, bookings.go, items.go, sync_queue.go
 
 ### 5.2.2 Вынести константы [DONE]
 - [x] **Создать internal/models/constants.go** (бывший status.go)

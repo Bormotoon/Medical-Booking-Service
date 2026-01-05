@@ -9,14 +9,18 @@ import (
 )
 
 func (db *DB) SetItems(items []models.Item) {
-	db.items = make(map[int64]models.Item)
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	db.itemsCache = make(map[int64]models.Item)
 	for _, item := range items {
-		db.items[item.ID] = item
+		db.itemsCache[item.ID] = item
 	}
 }
 
 func (db *DB) itemByNameFromCache(name string) (*models.Item, bool) {
-	for _, item := range db.items {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+	for _, item := range db.itemsCache {
 		if item.Name == name {
 			return &item, true
 		}
@@ -50,7 +54,9 @@ func (db *DB) CreateItem(ctx context.Context, item *models.Item) error {
 	item.UpdatedAt = now
 
 	// Update cache
-	db.items[id] = *item
+	db.mu.Lock()
+	db.itemsCache[id] = *item
+	db.mu.Unlock()
 
 	return nil
 }
@@ -84,9 +90,11 @@ func (db *DB) GetItemAvailabilityByName(ctx context.Context, itemName string, da
 	}
 
 	return &models.AvailabilityInfo{
+		ItemName:    item.Name,
+		Date:        date,
 		Available:   bookedCount < int(item.TotalQuantity),
-		BookedCount: bookedCount,
-		Total:       int(item.TotalQuantity),
+		BookedCount: int64(bookedCount),
+		Total:       item.TotalQuantity,
 	}, nil
 }
 
@@ -118,7 +126,9 @@ func (db *DB) UpdateItem(ctx context.Context, item *models.Item) error {
 		return fmt.Errorf("failed to update item: %w", err)
 	}
 	item.UpdatedAt = now
-	db.items[item.ID] = *item
+	db.mu.Lock()
+	db.itemsCache[item.ID] = *item
+	db.mu.Unlock()
 	return nil
 }
 
@@ -135,8 +145,10 @@ func (db *DB) ReorderItem(ctx context.Context, id int64, newOrder int64) error {
 }
 
 func (db *DB) GetItems() []models.Item {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
 	var items []models.Item
-	for _, item := range db.items {
+	for _, item := range db.itemsCache {
 		items = append(items, item)
 	}
 	return items
