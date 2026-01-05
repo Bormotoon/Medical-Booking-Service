@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"os"
 	"os/signal"
@@ -125,6 +126,7 @@ func main() {
 	}
 
 	eventBus := events.NewEventBus()
+	subscribeBookingEvents(ctx, eventBus, db, sheetsWorker, log.Default())
 
 	// Создание и запуск бота
 	telegramBot, err := bot.NewBot(cfg.Telegram.BotToken, cfg, itemsConfig.Items, db, sheetsService, sheetsWorker, eventBus)
@@ -139,4 +141,72 @@ func main() {
 	log.Println("Shutdown signal received...")
 
 	telegramBot.Stop()
+}
+
+func subscribeBookingEvents(ctx context.Context, bus *events.EventBus, db *database.DB, sheetsWorker *worker.SheetsWorker, logger *log.Logger) {
+	if bus == nil || sheetsWorker == nil || db == nil {
+		return
+	}
+	if logger == nil {
+		logger = log.Default()
+	}
+
+	decode := func(ev events.Event) (events.BookingEventPayload, error) {
+		var payload events.BookingEventPayload
+		if err := json.Unmarshal(ev.Payload, &payload); err != nil {
+			return payload, err
+		}
+		return payload, nil
+	}
+
+	upsertHandler := func(ev events.Event) error {
+		payload, err := decode(ev)
+		if err != nil {
+			logger.Printf("event bus: decode payload for %s: %v", ev.Type, err)
+			return nil
+		}
+
+		booking, err := db.GetBooking(ctx, payload.BookingID)
+		if err != nil {
+			logger.Printf("event bus: load booking %d: %v", payload.BookingID, err)
+			return nil
+		}
+
+		if err := sheetsWorker.EnqueueTask(ctx, worker.SheetTask{Type: worker.TaskUpsert, BookingID: booking.ID, Booking: booking}); err != nil {
+			logger.Printf("event bus: enqueue upsert %d: %v", booking.ID, err)
+		}
+		return nil
+	}
+
+	statusHandler := func(ev events.Event) error {
+		payload, err := decode(ev)
+		if err != nil {
+			logger.Printf("event bus: decode payload for %s: %v", ev.Type, err)
+			return nil
+		}
+
+		status := payload.Status
+		if status == "" {
+			booking, err := db.GetBooking(ctx, payload.BookingID)
+			if err == nil {
+				status = booking.Status
+			}
+		}
+
+		if status == "" {
+			logger.Printf("event bus: missing status for booking %d", payload.BookingID)
+			return nil
+		}
+
+		if err := sheetsWorker.EnqueueTask(ctx, worker.SheetTask{Type: worker.TaskUpdateStatus, BookingID: payload.BookingID, Status: status}); err != nil {
+			logger.Printf("event bus: enqueue status %d: %v", payload.BookingID, err)
+		}
+		return nil
+	}
+
+	bus.Subscribe(events.EventBookingCreated, upsertHandler)
+	bus.Subscribe(events.EventBookingItemChange, upsertHandler)
+	bus.Subscribe(events.EventBookingConfirmed, statusHandler)
+	bus.Subscribe(events.EventBookingCancelled, statusHandler)
+	bus.Subscribe(events.EventBookingCompleted, statusHandler)
 }

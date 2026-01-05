@@ -217,6 +217,7 @@
   - `booking_cancelled` — отменено
   - `booking_completed` — завершено
   - `booking_item_changed` — изменен аппарат
+  - [x] Подписка EventBus -> SheetsWorker (upsert/status), замена прямых вызовов из бота
   - `booking_created` — новое бронирование
   - `booking_confirmed` — подтверждено менеджером
   - `booking_cancelled` — отменено

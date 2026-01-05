@@ -351,8 +351,6 @@ func (b *Bot) finalizeBooking(update tgbotapi.Update) {
 	// Уведомляем менеджеров
 	b.notifyManagers(booking)
 
-	b.enqueueBookingUpsert(booking)
-
 	msg := tgbotapi.NewMessage(update.Message.Chat.ID,
 		fmt.Sprintf("⏳ Ваша заявка #%d на позицию %s успешно создана. \nОжидайте подтверждения.", booking.ID, booking.ItemName))
 

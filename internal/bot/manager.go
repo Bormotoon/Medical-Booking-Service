@@ -74,12 +74,12 @@ func (b *Bot) handleManagerCommand(update tgbotapi.Update) bool {
 		b.handleMainMenu(update)
 
 	case text == "🔄 Синхронизировать бронирования (Google Sheets)":
-		b.SyncBookingsToSheets()
-		b.sendMessage(update.Message.Chat.ID, "✅ Бронирования синхронизированы с Google Таблицей")
+		b.sendMessage(update.Message.Chat.ID, "⏳ Запускаю фоновую синхронизацию бронирований...")
+		go b.SyncBookingsToSheets()
 
 	case text == "📅 Синхронизировать расписание (Google Sheets)":
-		b.SyncScheduleToSheets()
-		b.sendMessage(update.Message.Chat.ID, "✅ Расписание синхронизировано с Google Таблицей")
+		b.sendMessage(update.Message.Chat.ID, "⏳ Запускаю фоновую синхронизацию расписания...")
+		go b.SyncScheduleToSheets()
 	}
 
 	return false
@@ -135,12 +135,6 @@ func (b *Bot) handleManagerAction(update tgbotapi.Update) {
 		fmt.Sprintf("✅ Заявка #%d обработана\nДействие: %s", bookingID, action))
 	b.bot.Send(editMsg)
 
-	// СИНХРОНИЗИРУЕМ ВСЕ ИЗМЕНЕНИЯ
-	go func() {
-		time.Sleep(1 * time.Second) // Небольшая задержка для завершения операции в БД
-		b.SyncBookingsToSheets()
-		b.SyncScheduleToSheets()
-	}()
 }
 
 // startManagerBooking начало создания заявки менеджером
@@ -511,14 +505,9 @@ func (b *Bot) createManagerBookings(update tgbotapi.Update, state *models.UserSt
 	// Очищаем состояние
 	b.clearUserState(update.Message.From.ID)
 
-	// СИНХРОНИЗИРУЕМ ВСЕ ИЗМЕНЕНИЯ В GOOGLE SHEETS
 	if len(createdBookings) > 0 {
-		// СИНХРОНИЗИРУЕМ ВСЕ ИЗМЕНЕНИЯ
-		go func() {
-			time.Sleep(1 * time.Second) // Небольшая задержка для завершения операции в БД
-			b.SyncBookingsToSheets()
-			b.SyncScheduleToSheets()
-		}()
+		// Асинхронно обновляем расписание после пакетного создания
+		go b.SyncScheduleToSheets()
 	}
 
 	// Возвращаем в главное меню
@@ -750,9 +739,8 @@ func (b *Bot) handleChangeItem(update tgbotapi.Update) {
 
 	b.sendMessage(callback.Message.Chat.ID, "✅ Аппарат успешно изменен")
 
-	// Ставим задачу на обновление статуса в Google Sheets
-	b.enqueueBookingStatus(booking.ID, "confirmed")
-	b.SyncScheduleToSheets()
+	// Асинхронно обновляем расписание в Google Sheets
+	go b.SyncScheduleToSheets()
 
 	// ВМЕСТО ВЫЗОВА showManagerBookingDetail, который требует Message, используем sendManagerBookingDetail
 	updatedBooking, err := b.db.GetBooking(context.Background(), bookingID)
@@ -845,9 +833,8 @@ func (b *Bot) reopenBooking(booking *models.Booking, managerChatID int64) {
 	managerMsg := tgbotapi.NewMessage(managerChatID, "✅ Заявка возвращена в работу")
 	b.bot.Send(managerMsg)
 
-	// Ставим задачу на обновление статуса в Google Sheets
-	b.enqueueBookingStatus(booking.ID, "pending")
-	b.SyncScheduleToSheets()
+	// Асинхронно обновляем расписание в Google Sheets
+	go b.SyncScheduleToSheets()
 }
 
 // completeBooking завершение заявки
@@ -869,9 +856,8 @@ func (b *Bot) completeBooking(booking *models.Booking, managerChatID int64) {
 	managerMsg := tgbotapi.NewMessage(managerChatID, "✅ Заявка завершена")
 	b.bot.Send(managerMsg)
 
-	// Ставим задачу на обновление статуса в Google Sheets
-	b.enqueueBookingStatus(booking.ID, "completed")
-	b.SyncScheduleToSheets()
+	// Асинхронно обновляем расписание в Google Sheets
+	go b.SyncScheduleToSheets()
 }
 
 // SyncScheduleToSheets синхронизирует расписание в формате таблицы с Google Sheets
@@ -968,9 +954,8 @@ func (b *Bot) confirmBooking(booking *models.Booking, managerChatID int64) {
 	managerMsg := tgbotapi.NewMessage(managerChatID, "✅ Бронирование подтверждено")
 	b.bot.Send(managerMsg)
 
-	// Ставим задачу на обновление статуса в Google Sheets
-	b.enqueueBookingStatus(booking.ID, "confirmed")
-	b.SyncScheduleToSheets()
+	// Асинхронно обновляем расписание в Google Sheets
+	go b.SyncScheduleToSheets()
 }
 
 // rejectBooking отклонение бронирования менеджером
@@ -992,9 +977,8 @@ func (b *Bot) rejectBooking(booking *models.Booking, managerChatID int64) {
 	managerMsg := tgbotapi.NewMessage(managerChatID, "❌ Бронирование отменено")
 	b.bot.Send(managerMsg)
 
-	// Ставим задачу на обновление статуса в Google Sheets
-	b.enqueueBookingStatus(booking.ID, "cancelled")
-	b.SyncScheduleToSheets()
+	// Асинхронно обновляем расписание в Google Sheets
+	go b.SyncScheduleToSheets()
 }
 
 // rescheduleBooking предложение выбрать другую дату
@@ -1022,9 +1006,8 @@ func (b *Bot) rescheduleBooking(booking *models.Booking, managerChatID int64) {
 	managerMsg := tgbotapi.NewMessage(managerChatID, "🔄 Пользователю предложено выбрать другую дату")
 	b.bot.Send(managerMsg)
 
-	// Ставим задачу на обновление статуса в Google Sheets
-	b.enqueueBookingStatus(booking.ID, "rescheduled")
-	b.SyncScheduleToSheets()
+	// Асинхронно обновляем расписание в Google Sheets
+	go b.SyncScheduleToSheets()
 }
 
 // notifyManagers уведомление менеджеров о новой заявке
