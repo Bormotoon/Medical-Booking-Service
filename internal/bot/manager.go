@@ -125,6 +125,23 @@ func (b *Bot) handleManagerCallback(ctx context.Context, update tgbotapi.Update)
 		return true
 	}
 
+	// Проверяем пагинацию заявок
+	if strings.HasPrefix(data, "manager_bookings_page:") {
+		page, _ := strconv.Atoi(strings.TrimPrefix(data, "manager_bookings_page:"))
+		b.sendManagerBookingsPage(ctx, callback.Message.Chat.ID, callback.Message.MessageID, page)
+		return true
+	}
+
+	// Проверяем просмотр конкретной заявки из списка
+	if strings.HasPrefix(data, "show_booking:") {
+		id, _ := strconv.ParseInt(strings.TrimPrefix(data, "show_booking:"), 10, 64)
+		booking, err := b.db.GetBooking(ctx, id)
+		if err == nil {
+			b.sendManagerBookingDetail(ctx, callback.Message.Chat.ID, booking)
+		}
+		return true
+	}
+
 	// Проверяем выбор аппарата
 	if strings.HasPrefix(data, "manager_select_item:") {
 		b.handleManagerItemSelection(ctx, update)

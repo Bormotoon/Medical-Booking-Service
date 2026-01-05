@@ -744,11 +744,15 @@ func (b *Bot) handleDateInput(ctx context.Context, update tgbotapi.Update, dateS
 		return
 	}
 
-	// Проверяем максимальную дату (например, 1 год вперед)
-	maxDate := time.Now().AddDate(1, 0, 0)
+	// Проверяем максимальную дату (из конфига)
+	maxDays := b.config.Bot.MaxBookingDays
+	if maxDays == 0 {
+		maxDays = 365
+	}
+	maxDate := time.Now().AddDate(0, 0, maxDays)
 	if date.After(maxDate) {
 		msg := tgbotapi.NewMessage(update.Message.Chat.ID,
-			fmt.Sprintf("Нельзя бронировать более чем на год вперед (максимум до %s).", maxDate.Format("02.01.2006")))
+			fmt.Sprintf("Нельзя бронировать более чем на %d дней вперед (максимум до %s).", maxDays, maxDate.Format("02.01.2006")))
 		b.bot.Send(msg)
 		return
 	}

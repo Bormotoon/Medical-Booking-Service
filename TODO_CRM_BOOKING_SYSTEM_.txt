@@ -1134,7 +1134,7 @@ bronivik_crm/
 ## 5.3 Производительность (средний приоритет)
 
 ### 5.3.1 N+1 запросы
-- [ ] **internal/database/database.go: GetAvailabilityForPeriod()**
+- [x] **internal/database/database.go: GetAvailabilityForPeriod()**
   - Проблема: Вызов GetBookedCount в цикле для каждого дня
   - Решение: Батч-запрос с GROUP BY
   ```go
@@ -1159,16 +1159,16 @@ bronivik_crm/
 ## 5.4 Безопасность (средний приоритет)
 
 ### 5.4.1 Валидация входных данных
-- [ ] **internal/bot/handler.go: handleDateInput**
+- [x] **internal/bot/handler.go: handleDateInput**
   - Нет проверки максимальной даты бронирования
   - Можно бронировать на годы вперед
-- [ ] **internal/bot/manager.go: handleManagerClientName**
+- [x] **internal/bot/manager.go: handleManagerClientName**
   - Нет санитизации имени клиента
-- [ ] **internal/api/http_server.go: handleAvailability**
+- [x] **internal/api/http_server.go: handleAvailability**
   - Имя товара из URL не санитизируется
 
 ### 5.4.2 Конфигурация
-- [ ] **Переместить API ключи в переменные окружения**
+- [x] **Переместить API ключи в переменные окружения**
   - Сейчас: хранятся в plain text в config.yaml
   - Решение: Использовать ${API_KEY} синтаксис
 
@@ -1272,7 +1272,7 @@ bronivik_crm/
 ## 5.8 Мониторинг и Health Checks (средний приоритет)
 
 ### 5.8.1 Health checks для bronivik_jr
-- [ ] **Добавить /healthz и /readyz для бота**
+- [x] **Добавить /healthz и /readyz для бота**
   - Проверка БД
   - Проверка Google Sheets connectivity
   - Проверка Redis (если используется)
@@ -1316,7 +1316,7 @@ bronivik_crm/
   - errcheck, govet, staticcheck, gosec
 
 ### 5.9.3 Dockerfile
-- [ ] **Добавить HEALTHCHECK**
+- [x] **Добавить HEALTHCHECK**
   ```dockerfile
   HEALTHCHECK --interval=30s --timeout=3s \
     CMD wget --spider http://localhost:8081/healthz || exit 1
@@ -1357,14 +1357,14 @@ bronivik_crm/
 ## 5.11 Схема базы данных (низкий приоритет)
 
 ### 5.11.1 Целостность данных
-- [ ] **Добавить foreign key constraints**
+- [x] **Добавить foreign key constraints**
   - bookings.item_id → items.id
   - bookings.user_id → users.telegram_id
-- [ ] **Добавить unique constraint**
+- [x] **Добавить unique constraint**
   - Предотвратить двойное бронирование (item_id, date, status='confirmed')
 
 ### 5.11.2 Индексы
-- [ ] **Проверить и добавить индексы**
+- [x] **Проверить и добавить индексы**
   - bookings(date, item_id, status) — для availability queries
   - sync_queue(next_retry_at, status) — для worker
 

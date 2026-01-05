@@ -102,13 +102,68 @@ export BOT_TOKEN=your_token && go run main.go
 🚫 Черный список пользователей (configs/config.yaml: `blacklist`)  
 📊 Интеграция с Google Sheets через сервисный аккаунт  
 
-## Лицензия
+## API Documentation
+
+The bot provides a REST API for integration with other services (e.g., `bronivik_crm`).
+
+### Endpoints
+
+- `GET /api/v1/availability/{item_name}?date=YYYY-MM-DD` - Check availability for a specific item.
+- `GET /api/v1/availability/bulk` - Bulk check availability.
+- `GET /api/v1/items` - List all active items.
+- `GET /healthz` - Liveness probe.
+- `GET /readyz` - Readiness probe (checks DB and Redis).
+
+### Authentication
+
+All API requests must include the `x-api-key` header.
+
+```bash
+curl -H "x-api-key: your-secret-key" http://localhost:8080/api/v1/items
+```
+
+## Architecture
+
+The system consists of:
+
+- **Telegram Bot**: Main interface for users and managers.
+- **REST API**: Integration point for external services.
+- **SQLite**: Primary persistent storage for bookings and items.
+- **Redis**: State management and rate limiting.
+- **Google Sheets Worker**: Asynchronous synchronization of bookings to Google Sheets.
+- **Backup Service**: Automatic daily backups of the SQLite database.
+
+## Development
+
+```bash
+# Run tests
+make test
+
+# Check coverage
+make test-coverage
+
+# Run linter
+make lint
+```
+
+## Deployment
+
+1. Configure `.env` file with your tokens and credentials.
+2. Ensure `credentials.json` for Google API is present.
+3. Run using Docker Compose:
+
+```bash
+docker-compose up -d
+```
+
+## License
 
 [МПЛ 2.0](https://www.apache.org/licenses/LICENSE-2.0)
 
 ---
 
 ! Важно: перед деплоем в production:
+
 1. Установите `environment: production`
 2. Отключите `telegram.debug`
 3. Настройте SSL для PostgreSQL

@@ -63,6 +63,12 @@ google:
   users_spreadsheet_id: ${USERS_SPREADSHEET_ID}
   bookings_spreadsheet_id: ${BOOKINGS_SPREADSHEET_ID}
 
+bot:
+  reminder_time: "09:00"
+  pagination_size: 8
+  max_booking_days: 365
+  min_booking_advance: 0 # hours
+
 api:
   enabled: true
   http:
