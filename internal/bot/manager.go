@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"bronivik/internal/events"
 	"bronivik/internal/models"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -481,6 +482,8 @@ func (b *Bot) createManagerBookings(update tgbotapi.Update, state *models.UserSt
 			failedDates = append(failedDates, date.Format("02.01.2006"))
 		} else {
 			createdBookings = append(createdBookings, booking)
+			b.publishBookingEvent(events.EventBookingCreated, *booking, "manager", update.Message.From.ID)
+			b.publishBookingEvent(events.EventBookingConfirmed, *booking, "manager", update.Message.From.ID)
 		}
 	}
 
@@ -735,6 +738,11 @@ func (b *Bot) handleChangeItem(update tgbotapi.Update) {
 		log.Printf("Error updating booking status: %v", err)
 	}
 
+	booking.ItemID = selectedItem.ID
+	booking.ItemName = selectedItem.Name
+	booking.Status = "changed"
+	b.publishBookingEvent(events.EventBookingItemChange, *booking, "manager", callback.From.ID)
+
 	// Уведомляем пользователя
 	userMsg := tgbotapi.NewMessage(booking.UserID,
 		fmt.Sprintf("🔄 В вашей заявке #%d изменен аппарат на: %s", bookingID, selectedItem.Name))
@@ -850,6 +858,9 @@ func (b *Bot) completeBooking(booking *models.Booking, managerChatID int64) {
 		return
 	}
 
+	booking.Status = "completed"
+	b.publishBookingEvent(events.EventBookingCompleted, *booking, "manager", managerChatID)
+
 	// Уведомляем пользователя
 	userMsg := tgbotapi.NewMessage(booking.UserID,
 		fmt.Sprintf("🏁 Ваша заявка #%d завершена. Спасибо за использование наших услуг!", booking.ID))
@@ -944,6 +955,9 @@ func (b *Bot) confirmBooking(booking *models.Booking, managerChatID int64) {
 		return
 	}
 
+	booking.Status = "confirmed"
+	b.publishBookingEvent(events.EventBookingConfirmed, *booking, "manager", managerChatID)
+
 	// Уведомляем пользователя
 	userMsg := tgbotapi.NewMessage(booking.UserID,
 		fmt.Sprintf("✅ Ваша заявка на %s %s подтверждена!",
@@ -966,6 +980,9 @@ func (b *Bot) rejectBooking(booking *models.Booking, managerChatID int64) {
 		log.Printf("Error rejecting booking: %v", err)
 		return
 	}
+
+	booking.Status = "cancelled"
+	b.publishBookingEvent(events.EventBookingCancelled, *booking, "manager", managerChatID)
 
 	// Уведомляем пользователя
 	userMsg := tgbotapi.NewMessage(booking.UserID,

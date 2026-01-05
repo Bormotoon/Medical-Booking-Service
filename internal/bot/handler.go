@@ -12,6 +12,7 @@ import (
 
 	"bronivik/internal/config"
 	"bronivik/internal/database"
+	"bronivik/internal/events"
 	"bronivik/internal/google"
 	"bronivik/internal/models"
 	"bronivik/internal/worker"
@@ -26,12 +27,17 @@ type Bot struct {
 	userStates    map[int64]*models.UserState
 	sheetsService *google.SheetsService
 	sheetsWorker  *worker.SheetsWorker
+	eventBus      *events.EventBus
 }
 
-func NewBot(token string, config *config.Config, items []models.Item, db *database.DB, googleService *google.SheetsService, sheetsWorker *worker.SheetsWorker) (*Bot, error) {
+func NewBot(token string, config *config.Config, items []models.Item, db *database.DB, googleService *google.SheetsService, sheetsWorker *worker.SheetsWorker, eventBus *events.EventBus) (*Bot, error) {
 	botAPI, err := tgbotapi.NewBotAPI(token)
 	if err != nil {
 		return nil, err
+	}
+
+	if eventBus == nil {
+		eventBus = events.NewEventBus()
 	}
 
 	return &Bot{
@@ -42,6 +48,7 @@ func NewBot(token string, config *config.Config, items []models.Item, db *databa
 		userStates:    make(map[int64]*models.UserState),
 		sheetsService: googleService,
 		sheetsWorker:  sheetsWorker,
+		eventBus:      eventBus,
 	}, nil
 }
 
