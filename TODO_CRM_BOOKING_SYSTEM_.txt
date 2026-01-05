@@ -1314,7 +1314,7 @@ bronivik_crm/
   HEALTHCHECK --interval=30s --timeout=3s \
     CMD wget --spider http://localhost:8081/healthz || exit 1
   ```
-- [ ] **Добавить .dockerignore**
+- [x] **Добавить .dockerignore**
   - .git, .env, *.md, tests/
 
 ### 5.9.4 Бэкапы [DONE]
@@ -1367,15 +1367,15 @@ bronivik_crm/
 
 ## Критические (исправить в течение недели)
 1. [x] Race condition в userStates (mutex)
-2. [ ] Дубликаты ID в items.yaml
+2. [x] Дубликаты ID в items.yaml
 3. [x] Unit-тесты для database package
 4. [x] Валидация конфигурации
 
 ## Высокий приоритет (2-3 недели)
 5. [x] Сохранение userStates в Redis
 6. [x] Рефакторинг длинных функций
-7. [ ] Вынести константы статусов
-8. [ ] CI/CD pipeline с линтером
+7. [x] Вынести константы статусов
+8. [x] CI/CD pipeline с линтером
 9. [x] Батч-запросы для availability
 
 ## Средний приоритет (1-2 месяца)
