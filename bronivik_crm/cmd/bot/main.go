@@ -14,6 +14,8 @@ import (
 	crmapi "bronivik/bronivik_crm/internal/api"
 	"bronivik/bronivik_crm/internal/bot"
 	"bronivik/bronivik_crm/internal/database"
+	"bronivik/bronivik_crm/internal/metrics"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
 	"gopkg.in/yaml.v3"
 )
@@ -41,7 +43,9 @@ type Config struct {
 	} `yaml:"api"`
 
 	Monitoring struct {
-		HealthCheckPort int `yaml:"health_check_port"`
+		HealthCheckPort   int  `yaml:"health_check_port"`
+		PrometheusEnabled bool `yaml:"prometheus_enabled"`
+		PrometheusPort    int  `yaml:"prometheus_port"`
 	} `yaml:"monitoring"`
 
 	Booking struct {
@@ -104,6 +108,14 @@ func main() {
 	}
 	go startHealthServer(ctx, cfg.Monitoring.HealthCheckPort, db, rdb)
 
+	if cfg.Monitoring.PrometheusEnabled {
+		if cfg.Monitoring.PrometheusPort == 0 {
+			cfg.Monitoring.PrometheusPort = 9090
+		}
+		metrics.Register()
+		go startMetricsServer(ctx, cfg.Monitoring.PrometheusPort)
+	}
+
 	log.Println("CRM bot started")
 	b.Start(ctx)
 }
@@ -152,5 +164,21 @@ func startHealthServer(ctx context.Context, port int, db *database.DB, rdb *redi
 	}()
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Printf("health server error: %v", err)
+	}
+}
+
+func startMetricsServer(ctx context.Context, port int) {
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", promhttp.Handler())
+
+	srv := &http.Server{Addr: fmt.Sprintf(":%d", port), Handler: mux}
+	go func() {
+		<-ctx.Done()
+		ctxShutdown, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(ctxShutdown)
+	}()
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Printf("metrics server error: %v", err)
 	}
 }
