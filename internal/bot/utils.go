@@ -567,7 +567,7 @@ func (b *Bot) requestSpecificDate(ctx context.Context, update tgbotapi.Update) {
 	msg := tgbotapi.NewMessage(update.Message.Chat.ID,
 		"Введите дату в формате ДД.ММ.ГГГГ (например, 25.12.2025):")
 
-	b.setUserState(ctx, update.Message.From.ID, "waiting_specific_date", nil)
+	b.setUserState(ctx, update.Message.From.ID, models.StateWaitingSpecificDate, nil)
 	b.tgService.Send(msg)
 }
 

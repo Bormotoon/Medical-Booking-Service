@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 
+	"bronivik/internal/models"
+
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
@@ -43,28 +45,28 @@ func (b *Bot) handleManagerCommand(ctx context.Context, update tgbotapi.Update) 
 			}
 		}
 
-	case state != nil && state.CurrentStep == "manager_waiting_client_name":
+	case state != nil && state.CurrentStep == models.StateManagerWaitingClientName:
 		b.handleManagerClientName(ctx, update, text, state)
 
-	case state != nil && state.CurrentStep == "manager_waiting_client_phone":
+	case state != nil && state.CurrentStep == models.StateManagerWaitingClientPhone:
 		b.handleManagerClientPhone(ctx, update, text, state)
 
-	case state != nil && state.CurrentStep == "manager_waiting_single_date":
+	case state != nil && state.CurrentStep == models.StateManagerWaitingSingleDate:
 		b.handleManagerSingleDate(ctx, update, text, state)
 
-	case state != nil && state.CurrentStep == "manager_waiting_start_date":
+	case state != nil && state.CurrentStep == models.StateManagerWaitingStartDate:
 		b.handleManagerStartDate(ctx, update, text, state)
 
-	case state != nil && state.CurrentStep == "manager_waiting_end_date":
+	case state != nil && state.CurrentStep == models.StateManagerWaitingEndDate:
 		b.handleManagerEndDate(ctx, update, text, state)
 
-	case state != nil && state.CurrentStep == "manager_waiting_comment":
+	case state != nil && state.CurrentStep == models.StateManagerWaitingComment:
 		b.handleManagerComment(ctx, update, text, state)
 
-	case state != nil && state.CurrentStep == "manager_confirm_booking" && text == "✅ Подтвердить создание":
+	case state != nil && state.CurrentStep == models.StateManagerConfirmBooking && text == "✅ Подтвердить создание":
 		b.createManagerBookings(ctx, update, state)
 
-	case state != nil && state.CurrentStep == "manager_confirm_booking" && text == "❌ Отмена":
+	case state != nil && state.CurrentStep == models.StateManagerConfirmBooking && text == "❌ Отмена":
 		b.clearUserState(ctx, update.Message.From.ID)
 		b.sendMessage(update.Message.Chat.ID, "❌ Создание заявки отменено")
 		b.handleMainMenu(ctx, update)

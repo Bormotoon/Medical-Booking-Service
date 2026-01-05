@@ -130,6 +130,10 @@ func (b *Bot) processUpdate(ctx context.Context, update tgbotapi.Update) {
 				b.logger.Warn().Int64("user_id", userID).Msg("Rate limit exceeded")
 				if update.Message != nil {
 					b.sendMessage(update.Message.Chat.ID, "⚠️ Вы отправляете сообщения слишком часто. Пожалуйста, подождите немного.")
+				} else if update.CallbackQuery != nil {
+					callbackConfig := tgbotapi.NewCallback(update.CallbackQuery.ID, "⚠️ Слишком много запросов. Подождите немного.")
+					callbackConfig.ShowAlert = true
+					b.tgService.Request(callbackConfig)
 				}
 				return
 			}

@@ -292,30 +292,39 @@ func (s *SheetsService) FindBookingRow(ctx context.Context, bookingID int64) (in
 		return row, nil
 	}
 
+	// Cache miss - do a full scan and update cache for EVERYTHING to prevent future misses
 	resp, err := s.service.Spreadsheets.Values.Get(s.bookingsSheetID, "Bookings!A:A").Context(ctx).Do()
 	if err != nil {
 		return 0, err
 	}
 
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+
+	foundRow := 0
 	for i, row := range resp.Values {
 		if len(row) == 0 {
 			continue
 		}
+		var id int64
 		switch v := row[0].(type) {
 		case float64:
-			if int64(v) == bookingID {
-				rowIdx := i + 1 // Values are zero-based; sheet rows are 1-based
-				s.setCachedRow(bookingID, rowIdx)
-				return rowIdx, nil
-			}
+			id = int64(v)
 		case string:
-			// if ID stored as string
-			if v == fmt.Sprintf("%d", bookingID) {
-				rowIdx := i + 1
-				s.setCachedRow(bookingID, rowIdx)
-				return rowIdx, nil
+			fmt.Sscanf(v, "%d", &id)
+		}
+
+		if id > 0 {
+			rowIdx := i + 1
+			s.rowCache[id] = rowIdx
+			if id == bookingID {
+				foundRow = rowIdx
 			}
 		}
+	}
+
+	if foundRow > 0 {
+		return foundRow, nil
 	}
 
 	return 0, sqlErrNotFound
@@ -654,7 +663,7 @@ func (s *SheetsService) getItemNamesFormat(sheetId int64, itemCount int) *sheets
 			},
 			Cell: &sheets.CellData{
 				UserEnteredFormat: &sheets.CellFormat{
-					TextFormat: &sheets.TextFormat{Bold: true},
+					TextFormat:      &sheets.TextFormat{Bold: true},
 					BackgroundColor: &sheets.Color{Red: 0.89, Green: 0.94, Blue: 0.85},
 				},
 			},

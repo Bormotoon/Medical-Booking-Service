@@ -23,7 +23,7 @@ func (b *Bot) startManagerBooking(ctx context.Context, update tgbotapi.Update) {
 	msg := tgbotapi.NewMessage(update.Message.Chat.ID,
 		"📋 Создание заявки от имени клиента\n\nВведите Имя клиента:")
 
-	b.setUserState(ctx, update.Message.From.ID, "manager_waiting_client_name", map[string]interface{}{
+	b.setUserState(ctx, update.Message.From.ID, models.StateManagerWaitingClientName, map[string]interface{}{
 		"is_manager_booking": true,
 	})
 	b.tgService.Send(msg)
@@ -32,7 +32,7 @@ func (b *Bot) startManagerBooking(ctx context.Context, update tgbotapi.Update) {
 // handleManagerClientName обработка ввода имени клиента
 func (b *Bot) handleManagerClientName(ctx context.Context, update tgbotapi.Update, text string, state *models.UserState) {
 	state.TempData["client_name"] = b.sanitizeInput(text)
-	b.setUserState(ctx, update.Message.From.ID, "manager_waiting_client_phone", state.TempData)
+	b.setUserState(ctx, update.Message.From.ID, models.StateManagerWaitingClientPhone, state.TempData)
 
 	msg := tgbotapi.NewMessage(update.Message.Chat.ID, "📱 Введите телефон клиента:")
 	b.tgService.Send(msg)
@@ -48,7 +48,7 @@ func (b *Bot) handleManagerClientPhone(ctx context.Context, update tgbotapi.Upda
 	}
 
 	state.TempData["client_phone"] = normalizedPhone
-	b.setUserState(ctx, update.Message.From.ID, "manager_waiting_item_selection", state.TempData)
+	b.setUserState(ctx, update.Message.From.ID, models.StateManagerWaitingItemSelection, state.TempData)
 
 	// Показываем выбор аппарата с пагинацией
 	b.sendManagerItemsPage(ctx, update.Message.Chat.ID, 0, 0)
@@ -95,7 +95,7 @@ func (b *Bot) handleManagerItemSelection(ctx context.Context, update tgbotapi.Up
 	}
 
 	state.TempData["item_id"] = selectedItem.ID
-	b.setUserState(ctx, callback.From.ID, "manager_waiting_date_type", state.TempData)
+	b.setUserState(ctx, callback.From.ID, models.StateManagerWaitingDateType, state.TempData)
 
 	// Спрашиваем тип даты (одна дата или интервал)
 	msg := tgbotapi.NewMessage(callback.Message.Chat.ID, "📅 Выберите тип бронирования:")
@@ -122,7 +122,7 @@ func (b *Bot) handleManagerDateType(ctx context.Context, update tgbotapi.Update,
 
 	if dateType == "single" {
 		state.TempData["date_type"] = "single"
-		b.setUserState(ctx, callback.From.ID, "manager_waiting_single_date", state.TempData)
+		b.setUserState(ctx, callback.From.ID, models.StateManagerWaitingSingleDate, state.TempData)
 
 		editMsg := tgbotapi.NewEditMessageText(
 			callback.Message.Chat.ID,
@@ -132,7 +132,7 @@ func (b *Bot) handleManagerDateType(ctx context.Context, update tgbotapi.Update,
 		b.tgService.Send(editMsg)
 	} else {
 		state.TempData["date_type"] = "range"
-		b.setUserState(ctx, callback.From.ID, "manager_waiting_start_date", state.TempData)
+		b.setUserState(ctx, callback.From.ID, models.StateManagerWaitingStartDate, state.TempData)
 
 		editMsg := tgbotapi.NewEditMessageText(
 			callback.Message.Chat.ID,
@@ -160,7 +160,7 @@ func (b *Bot) handleManagerSingleDate(ctx context.Context, update tgbotapi.Updat
 	}
 
 	state.TempData["dates"] = []time.Time{date}
-	b.setUserState(ctx, update.Message.From.ID, "manager_waiting_comment", state.TempData)
+	b.setUserState(ctx, update.Message.From.ID, models.StateManagerWaitingComment, state.TempData)
 
 	b.sendMessage(update.Message.Chat.ID, "💬 Введите комментарий к заявке (например: 'Техническое обслуживание', 'Обучение персонала' или любой другой текст):")
 }
@@ -180,7 +180,7 @@ func (b *Bot) handleManagerStartDate(ctx context.Context, update tgbotapi.Update
 	}
 
 	state.TempData["start_date"] = startDate
-	b.setUserState(ctx, update.Message.From.ID, "manager_waiting_end_date", state.TempData)
+	b.setUserState(ctx, update.Message.From.ID, models.StateManagerWaitingEndDate, state.TempData)
 
 	b.sendMessage(update.Message.Chat.ID, "📅 Введите конечную дату интервала в формате ДД.ММ.ГГГГ:")
 }
@@ -220,7 +220,7 @@ func (b *Bot) handleManagerEndDate(ctx context.Context, update tgbotapi.Update, 
 	}
 
 	state.TempData["dates"] = dates
-	b.setUserState(ctx, update.Message.From.ID, "manager_waiting_comment", state.TempData)
+	b.setUserState(ctx, update.Message.From.ID, models.StateManagerWaitingComment, state.TempData)
 
 	b.sendMessage(update.Message.Chat.ID, fmt.Sprintf("💬 Введите комментарий к заявке (будет применен ко всем %d дням):", len(dates)))
 }
@@ -228,7 +228,7 @@ func (b *Bot) handleManagerEndDate(ctx context.Context, update tgbotapi.Update, 
 // handleManagerComment обработка ввода комментария
 func (b *Bot) handleManagerComment(ctx context.Context, update tgbotapi.Update, comment string, state *models.UserState) {
 	state.TempData["comment"] = b.sanitizeInput(comment)
-	b.setUserState(ctx, update.Message.From.ID, "manager_confirm_booking", state.TempData)
+	b.setUserState(ctx, update.Message.From.ID, models.StateManagerConfirmBooking, state.TempData)
 
 	// Показываем подтверждение
 	b.showManagerBookingConfirmation(ctx, update, state)
@@ -270,7 +270,7 @@ func (b *Bot) showManagerBookingConfirmation(ctx context.Context, update tgbotap
 		),
 	)
 	msg.ReplyMarkup = keyboard
-	msg.ParseMode = "Markdown"
+	msg.ParseMode = models.ParseModeMarkdown
 
 	b.tgService.Send(msg)
 }
@@ -810,7 +810,7 @@ func (b *Bot) handleCallButton(ctx context.Context, update tgbotapi.Update) {
 	}
 
 	msg := tgbotapi.NewMessage(callback.Message.Chat.ID, message)
-	msg.ParseMode = "Markdown"
+	msg.ParseMode = models.ParseModeMarkdown
 
 	// Создаем клавиатуру с быстрыми действиями
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(

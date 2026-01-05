@@ -232,18 +232,18 @@ func (c *Config) applyDefaults() {
 
 	// Bot defaults
 	if c.Bot.ReminderTime == "" {
-		c.Bot.ReminderTime = "09:00"
+		c.Bot.ReminderTime = fmt.Sprintf("%02d:00", models.ReminderHour)
 	}
 	if c.Bot.PaginationSize == 0 {
-		c.Bot.PaginationSize = 8
+		c.Bot.PaginationSize = models.DefaultPaginationSize
 	}
 	if c.Bot.MaxBookingDays == 0 {
 		c.Bot.MaxBookingDays = 365
 	}
 	if c.Bot.RateLimitMessages == 0 {
-		c.Bot.RateLimitMessages = 20
+		c.Bot.RateLimitMessages = models.RateLimitMessages
 	}
 	if c.Bot.RateLimitWindow == 0 {
-		c.Bot.RateLimitWindow = 60
+		c.Bot.RateLimitWindow = models.RateLimitWindow
 	}
 }

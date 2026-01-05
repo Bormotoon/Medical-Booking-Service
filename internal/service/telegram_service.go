@@ -2,6 +2,8 @@ package service
 
 import (
 	"bronivik/internal/domain"
+	"bronivik/internal/models"
+
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
@@ -30,7 +32,7 @@ func (s *TelegramService) SendMessage(chatID int64, text string) (tgbotapi.Messa
 
 func (s *TelegramService) SendMarkdown(chatID int64, text string) (tgbotapi.Message, error) {
 	msg := tgbotapi.NewMessage(chatID, text)
-	msg.ParseMode = "Markdown"
+	msg.ParseMode = models.ParseModeMarkdown
 	return s.bot.Send(msg)
 }
 
@@ -49,11 +51,11 @@ func (s *TelegramService) SendWithInlineKeyboard(chatID int64, text string, keyb
 func (s *TelegramService) EditMessage(chatID int64, messageID int, text string, keyboard *tgbotapi.InlineKeyboardMarkup) (tgbotapi.Message, error) {
 	if keyboard != nil {
 		msg := tgbotapi.NewEditMessageTextAndMarkup(chatID, messageID, text, *keyboard)
-		msg.ParseMode = "Markdown"
+		msg.ParseMode = models.ParseModeMarkdown
 		return s.bot.Send(msg)
 	}
 	msg := tgbotapi.NewEditMessageText(chatID, messageID, text)
-	msg.ParseMode = "Markdown"
+	msg.ParseMode = models.ParseModeMarkdown
 	return s.bot.Send(msg)
 }
 

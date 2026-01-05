@@ -90,7 +90,7 @@ func (b *Bot) getUserStats(ctx context.Context, update tgbotapi.Update) {
 	}
 
 	msg := tgbotapi.NewMessage(update.Message.Chat.ID, message.String())
-	msg.ParseMode = "Markdown"
+	msg.ParseMode = models.ParseModeMarkdown
 
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(

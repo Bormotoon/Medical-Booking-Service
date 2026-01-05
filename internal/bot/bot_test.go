@@ -45,7 +45,7 @@ func (m *mockTelegramService) SendMessage(chatID int64, text string) (tgbotapi.M
 
 func (m *mockTelegramService) SendMarkdown(chatID int64, text string) (tgbotapi.Message, error) {
 	msg := tgbotapi.NewMessage(chatID, text)
-	msg.ParseMode = "Markdown"
+	msg.ParseMode = models.ParseModeMarkdown
 	m.sentMessages = append(m.sentMessages, msg)
 	return tgbotapi.Message{}, nil
 }
