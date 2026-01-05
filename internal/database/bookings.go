@@ -172,8 +172,8 @@ func (db *DB) UpdateBookingStatusWithVersion(ctx context.Context, id int64, from
 }
 
 func (db *DB) GetBookingsByDateRange(ctx context.Context, startDate, endDate time.Time) ([]models.Booking, error) {
-	query := `SELECT id, user_id, user_name, user_nickname, phone, item_id, item_name, date, status, comment, created_at, updated_at, version 
-              FROM bookings WHERE date BETWEEN ? AND ? ORDER BY date ASC`
+	query := `SELECT id, user_id, user_name, user_nickname, phone, item_id, item_name, date(date), status, comment, created_at, updated_at, version 
+              FROM bookings WHERE date(date) >= ? AND date(date) <= ? ORDER BY date ASC`
 	rows, err := db.QueryContext(ctx, query, startDate.Format("2006-01-02"), endDate.Format("2006-01-02"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get bookings by date range: %w", err)
