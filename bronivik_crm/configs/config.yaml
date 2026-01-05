@@ -22,6 +22,10 @@ api:
   api_key: "secret-key-for-crm-bot"
   cache_ttl_seconds: 300
 
+booking:
+  min_advance_minutes: 60
+  max_advance_days: 30
+
 managers:
   - 123456789
 
