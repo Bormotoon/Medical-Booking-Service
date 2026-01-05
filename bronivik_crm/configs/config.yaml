@@ -12,14 +12,15 @@ database:
   path: "data/bronivik_crm.db"
 
 redis:
-  address: ""
+  address: "redis:6379"
   password: ""
   db: 0
   pool_size: 10
 
 api:
-  base_url: "http://localhost:8080"  # bronivik_jr HTTP API base
-  api_key: "secret-key-for-crm-bot"
+  base_url: "http://grpc-api:8080"  # bronivik_jr HTTP API base inside docker-compose network
+  api_key: ${CRM_API_KEY}
+  api_extra: ${CRM_API_EXTRA}
   cache_ttl_seconds: 300
 
 booking:

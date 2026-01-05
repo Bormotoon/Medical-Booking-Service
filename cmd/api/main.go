@@ -12,10 +12,13 @@ import (
 	"bronivik/internal/api"
 	"bronivik/internal/config"
 	"bronivik/internal/database"
+	"bronivik/internal/google"
 	"bronivik/internal/logging"
 	"bronivik/internal/metrics"
 	"bronivik/internal/models"
+
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 	"gopkg.in/yaml.v2"
 )
@@ -74,12 +77,46 @@ func main() {
 		logger.Warn().Msg("API is disabled in config, but starting API application. Check your config.")
 	}
 
+	// Инициализация Redis (опционально для health checks)
+	var redisClient *redis.Client
+	if cfg.Redis.Address != "" {
+		redisClient = redis.NewClient(&redis.Options{
+			Addr:     cfg.Redis.Address,
+			Password: cfg.Redis.Password,
+			DB:       cfg.Redis.DB,
+			PoolSize: cfg.Redis.PoolSize,
+		})
+		if _, err := redisClient.Ping(context.Background()).Result(); err != nil {
+			logger.Warn().Err(err).Msg("redis connection failed, continuing without redis")
+			redisClient = nil
+		} else {
+			defer redisClient.Close()
+			logger.Info().Str("addr", cfg.Redis.Address).Msg("redis connected")
+		}
+	}
+
+	// Инициализация Google Sheets (опционально для health checks)
+	var sheetsService *google.SheetsService
+	if cfg.Google.GoogleCredentialsFile != "" && cfg.Google.BookingSpreadSheetId != "" {
+		sheetsService, err = google.NewSimpleSheetsService(
+			cfg.Google.GoogleCredentialsFile,
+			cfg.Google.UsersSpreadSheetId,
+			cfg.Google.BookingSpreadSheetId,
+		)
+		if err != nil {
+			logger.Warn().Err(err).Msg("google sheets init failed, continuing without sheets")
+			sheetsService = nil
+		} else {
+			logger.Info().Msg("google sheets connected")
+		}
+	}
+
 	grpcServer, err := api.NewGRPCServer(cfg.API, db, &logger)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("create grpc server")
 	}
 
-	httpServer := api.NewHTTPServer(cfg.API, db, &logger)
+	httpServer := api.NewHTTPServer(cfg.API, db, redisClient, sheetsService, &logger)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
