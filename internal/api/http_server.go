@@ -5,7 +5,6 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net"
 	"net/http"
 	"sort"
@@ -16,6 +15,8 @@ import (
 	"bronivik/internal/config"
 	"bronivik/internal/database"
 	"bronivik/internal/metrics"
+	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 	"golang.org/x/time/rate"
 )
 
@@ -25,18 +26,22 @@ type HTTPServer struct {
 	db     *database.DB
 	server *http.Server
 	auth   *HTTPAuth
+	log    zerolog.Logger
 }
 
-func NewHTTPServer(cfg config.APIConfig, db *database.DB) *HTTPServer {
+func NewHTTPServer(cfg config.APIConfig, db *database.DB, logger *zerolog.Logger) *HTTPServer {
 	apiMux := http.NewServeMux()
 	srv := &HTTPServer{cfg: cfg, db: db}
+	if logger != nil {
+		srv.log = logger.With().Str("component", "http").Logger()
+	}
 	srv.auth = NewHTTPAuth(cfg)
 
 	apiMux.HandleFunc("/api/v1/availability/bulk", srv.handleAvailabilityBulk)
 	apiMux.HandleFunc("/api/v1/availability/", srv.handleAvailability)
 	apiMux.HandleFunc("/api/v1/items", srv.handleItems)
 
-	handler := loggingMiddleware(corsMiddleware(srv.auth.Wrap(apiMux)))
+	handler := srv.loggingMiddleware(corsMiddleware(srv.auth.Wrap(apiMux)))
 
 	srv.server = &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.HTTP.Port),
@@ -52,7 +57,7 @@ func (s *HTTPServer) Start() error {
 	if s.server == nil {
 		return fmt.Errorf("http server is not initialized")
 	}
-	log.Printf("HTTP API listening on %s", s.server.Addr)
+	s.log.Info().Str("addr", s.server.Addr).Msg("HTTP API listening")
 	if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return err
 	}
@@ -366,14 +371,47 @@ func (a *HTTPAuth) getLimiter(key string) *rate.Limiter {
 	return lim
 }
 
-func loggingMiddleware(next http.Handler) http.Handler {
+func (s *HTTPServer) loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqID := requestIDFromHeader(r)
+		ctx := context.WithValue(r.Context(), requestIDKey{}, reqID)
+		r = r.WithContext(ctx)
+		w.Header().Set(requestIDHeader, reqID)
+
 		start := time.Now()
 		recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(recorder, r)
 		dur := time.Since(start)
-		log.Printf("http method=%s path=%s status=%d dur=%s", r.Method, r.URL.Path, recorder.status, dur)
+
+		s.log.Info().
+			Str("request_id", reqID).
+			Str("method", r.Method).
+			Str("path", r.URL.Path).
+			Str("remote", clientIP(r.RemoteAddr)).
+			Int("status", recorder.status).
+			Dur("duration", dur).
+			Str("user_agent", r.UserAgent()).
+			Msg("http request")
 	})
+}
+
+const requestIDHeader = "X-Request-ID"
+
+type requestIDKey struct{}
+
+func requestIDFromHeader(r *http.Request) string {
+	if id := strings.TrimSpace(r.Header.Get(requestIDHeader)); id != "" {
+		return id
+	}
+	return uuid.NewString()
+}
+
+func clientIP(remoteAddr string) string {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		return remoteAddr
+	}
+	return host
 }
 
 func writeJSON(w http.ResponseWriter, statusCode int, payload any) {
