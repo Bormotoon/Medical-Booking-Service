@@ -996,6 +996,7 @@ bronivik_crm/
   - `sheets_sync_errors_total` — ошибки синхронизации
 
 - [ ] **Метрики для bronivik_crm**
+- [x] **Метрики для bronivik_crm**
   - `hourly_bookings_total`
   - `cabinet_occupancy_rate`
   - `bronivik_api_requests_total`

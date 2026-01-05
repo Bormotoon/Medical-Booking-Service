@@ -11,6 +11,7 @@ import (
 
 	crmapi "bronivik/bronivik_crm/internal/api"
 	"bronivik/bronivik_crm/internal/database"
+	"bronivik/bronivik_crm/internal/metrics"
 	"bronivik/bronivik_crm/internal/models"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -277,6 +278,7 @@ func (b *Bot) handleCallback(ctx context.Context, cq *tgbotapi.CallbackQuery) {
 			return
 		}
 		_ = b.db.UpdateHourlyBookingStatus(ctx, bid, "approved", "")
+		metrics.IncManagerDecision("approved")
 		b.reply(chatID, fmt.Sprintf("Бронирование #%d подтверждено", bid))
 		b.notifyBookingStatus(ctx, bid, "approved")
 		return
@@ -291,6 +293,7 @@ func (b *Bot) handleCallback(ctx context.Context, cq *tgbotapi.CallbackQuery) {
 			return
 		}
 		_ = b.db.UpdateHourlyBookingStatus(ctx, bid, "rejected", "")
+		metrics.IncManagerDecision("rejected")
 		b.reply(chatID, fmt.Sprintf("Бронирование #%d отклонено", bid))
 		b.notifyBookingStatus(ctx, bid, "rejected")
 		return
@@ -411,6 +414,7 @@ func (b *Bot) handleCancelBooking(ctx context.Context, msg *tgbotapi.Message) {
 	switch err := b.db.CancelUserBooking(ctx, id, u.ID); {
 	case err == nil:
 		b.reply(msg.Chat.ID, fmt.Sprintf("Бронирование #%d отменено", id))
+		metrics.IncBookingCancelled()
 	case errors.Is(err, database.ErrBookingNotFound):
 		b.reply(msg.Chat.ID, "Бронирование не найдено")
 	case errors.Is(err, database.ErrBookingForbidden):
@@ -583,6 +587,7 @@ func (b *Bot) finalizeBooking(ctx context.Context, cq *tgbotapi.CallbackQuery, s
 	if err := b.db.CreateHourlyBookingWithChecks(ctx, bk, b.api); err != nil {
 		return err
 	}
+	metrics.IncBookingCreated(bk.Status)
 
 	item := bk.ItemName
 	if item == "" {
