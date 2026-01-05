@@ -3,8 +3,10 @@ package google
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"bronivik/internal/models"
@@ -17,6 +19,8 @@ type SheetsService struct {
 	service         *sheets.Service
 	usersSheetID    string
 	bookingsSheetID string
+	rowCache        map[int64]int
+	cacheMu         sync.RWMutex
 }
 
 func NewSimpleSheetsService(credentialsFile, usersSheetID, bookingsSheetID string) (*SheetsService, error) {
@@ -47,6 +51,7 @@ func NewSimpleSheetsService(credentialsFile, usersSheetID, bookingsSheetID strin
 		service:         srv,
 		usersSheetID:    usersSheetID,
 		bookingsSheetID: bookingsSheetID,
+		rowCache:        make(map[int64]int),
 	}, nil
 }
 
@@ -145,6 +150,145 @@ func (s *SheetsService) AppendBooking(booking *models.Booking) error {
 		Do()
 
 	return err
+}
+
+// UpsertBooking updates an existing booking row or appends a new one if not found.
+func (s *SheetsService) UpsertBooking(booking *models.Booking) error {
+	if booking == nil {
+		return fmt.Errorf("booking is nil")
+	}
+
+	rowIdx, err := s.FindBookingRow(booking.ID)
+	if err != nil {
+		if errors.Is(err, sqlErrNotFound) {
+			return s.AppendBooking(booking)
+		}
+		return err
+	}
+
+	rangeData := fmt.Sprintf("Bookings!A%d:J%d", rowIdx, rowIdx)
+	valueRange := &sheets.ValueRange{
+		Values: [][]interface{}{bookingRowValues(booking)},
+	}
+
+	_, err = s.service.Spreadsheets.Values.Update(s.bookingsSheetID, rangeData, valueRange).
+		ValueInputOption("RAW").
+		Do()
+	return err
+}
+
+// DeleteBookingRow removes the row that corresponds to bookingID.
+func (s *SheetsService) DeleteBookingRow(bookingID int64) error {
+	rowIdx, err := s.FindBookingRow(bookingID)
+	if err != nil {
+		return err
+	}
+
+	rangeData := fmt.Sprintf("Bookings!A%d:J%d", rowIdx, rowIdx)
+	_, err = s.service.Spreadsheets.Values.Clear(s.bookingsSheetID, rangeData, &sheets.ClearValuesRequest{}).Do()
+	if err == nil {
+		s.deleteCacheRow(bookingID)
+	}
+	return err
+}
+
+// UpdateBookingStatus updates status (and UpdatedAt) for a booking row.
+func (s *SheetsService) UpdateBookingStatus(bookingID int64, status string) error {
+	rowIdx, err := s.FindBookingRow(bookingID)
+	if err != nil {
+		return err
+	}
+
+	now := time.Now().Format("2006-01-02 15:04:05")
+
+	statusRange := fmt.Sprintf("Bookings!E%d:E%d", rowIdx, rowIdx)
+	_, err = s.service.Spreadsheets.Values.Update(s.bookingsSheetID, statusRange, &sheets.ValueRange{
+		Values: [][]interface{}{{status}},
+	}).ValueInputOption("RAW").Do()
+	if err != nil {
+		return err
+	}
+
+	updatedRange := fmt.Sprintf("Bookings!J%d:J%d", rowIdx, rowIdx)
+	_, err = s.service.Spreadsheets.Values.Update(s.bookingsSheetID, updatedRange, &sheets.ValueRange{
+		Values: [][]interface{}{{now}},
+	}).ValueInputOption("RAW").Do()
+	return err
+}
+
+// FindBookingRow locates row index (1-based) for booking_id in column A with cache.
+func (s *SheetsService) FindBookingRow(bookingID int64) (int, error) {
+	if bookingID == 0 {
+		return 0, fmt.Errorf("booking id is required")
+	}
+
+	if row, ok := s.getCachedRow(bookingID); ok {
+		return row, nil
+	}
+
+	resp, err := s.service.Spreadsheets.Values.Get(s.bookingsSheetID, "Bookings!A:A").Do()
+	if err != nil {
+		return 0, err
+	}
+
+	for i, row := range resp.Values {
+		if len(row) == 0 {
+			continue
+		}
+		switch v := row[0].(type) {
+		case float64:
+			if int64(v) == bookingID {
+				rowIdx := i + 1 // Values are zero-based; sheet rows are 1-based
+				s.setCachedRow(bookingID, rowIdx)
+				return rowIdx, nil
+			}
+		case string:
+			// if ID stored as string
+			if v == fmt.Sprintf("%d", bookingID) {
+				rowIdx := i + 1
+				s.setCachedRow(bookingID, rowIdx)
+				return rowIdx, nil
+			}
+		}
+	}
+
+	return 0, sqlErrNotFound
+}
+
+var sqlErrNotFound = errors.New("booking row not found")
+
+func (s *SheetsService) getCachedRow(id int64) (int, bool) {
+	s.cacheMu.RLock()
+	defer s.cacheMu.RUnlock()
+	row, ok := s.rowCache[id]
+	return row, ok
+}
+
+func (s *SheetsService) setCachedRow(id int64, row int) {
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+	s.rowCache[id] = row
+}
+
+func (s *SheetsService) deleteCacheRow(id int64) {
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+	delete(s.rowCache, id)
+}
+
+func bookingRowValues(booking *models.Booking) []interface{} {
+	return []interface{}{
+		booking.ID,
+		booking.UserID,
+		booking.ItemID,
+		booking.Date.Format("2006-01-02"),
+		booking.Status,
+		booking.UserName,
+		booking.Phone,
+		booking.ItemName,
+		booking.CreatedAt.Format("2006-01-02 15:04:05"),
+		booking.UpdatedAt.Format("2006-01-02 15:04:05"),
+	}
 }
 
 // UpdateBookingsSheet обновляет всю таблицу бронирований

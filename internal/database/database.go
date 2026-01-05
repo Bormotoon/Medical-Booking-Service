@@ -97,6 +97,22 @@ func createTables(db *sql.DB) error {
 		// Индексы для items
 		`CREATE INDEX IF NOT EXISTS idx_items_sort ON items(sort_order, id)`,
 
+		// Очередь синхронизации в Sheets
+		`CREATE TABLE IF NOT EXISTS sync_queue (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			task_type TEXT NOT NULL,
+			booking_id INTEGER NOT NULL,
+			payload TEXT,
+			status TEXT DEFAULT 'pending',
+			retry_count INTEGER DEFAULT 0,
+			last_error TEXT,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			processed_at DATETIME,
+			next_retry_at DATETIME
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_sync_queue_status ON sync_queue(status)`,
+		`CREATE INDEX IF NOT EXISTS idx_sync_queue_next_retry ON sync_queue(next_retry_at)`,
+
 		// Существующие индексы для бронирований
 		`CREATE INDEX IF NOT EXISTS idx_bookings_date ON bookings(date)`,
 		`CREATE INDEX IF NOT EXISTS idx_bookings_status ON bookings(status)`,
@@ -815,4 +831,162 @@ func (db *DB) GetActiveUsers(ctx context.Context, days int) ([]models.User, erro
 
 func (db *DB) Close() error {
 	return db.DB.Close()
+}
+
+// Sync queue helpers
+
+// CreateSyncTask persists a new synchronization task.
+func (db *DB) CreateSyncTask(ctx context.Context, task *models.SyncTask) error {
+	if task == nil {
+		return fmt.Errorf("task is nil")
+	}
+
+	if task.Status == "" {
+		task.Status = "pending"
+	}
+
+	now := time.Now()
+	if task.CreatedAt.IsZero() {
+		task.CreatedAt = now
+	}
+	if task.NextRetryAt == nil {
+		in := now
+		task.NextRetryAt = &in
+	}
+
+	var processed interface{}
+	if task.ProcessedAt != nil {
+		processed = *task.ProcessedAt
+	}
+	var nextRetry interface{}
+	if task.NextRetryAt != nil {
+		nextRetry = *task.NextRetryAt
+	}
+
+	var lastErr interface{}
+	if task.LastError != nil && strings.TrimSpace(*task.LastError) != "" {
+		lastErr = *task.LastError
+	}
+
+	res, err := db.ExecContext(ctx, `INSERT INTO sync_queue (task_type, booking_id, payload, status, retry_count, last_error, created_at, processed_at, next_retry_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		task.TaskType, task.BookingID, task.Payload, task.Status, task.RetryCount, lastErr, task.CreatedAt, processed, nextRetry)
+	if err != nil {
+		return err
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return err
+	}
+	task.ID = id
+	return nil
+}
+
+// GetPendingSyncTasks returns due tasks up to limit ordered by id.
+func (db *DB) GetPendingSyncTasks(ctx context.Context, limit int) ([]models.SyncTask, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+
+	rows, err := db.QueryContext(ctx, `SELECT id, task_type, booking_id, payload, status, retry_count, last_error, created_at, processed_at, next_retry_at
+		FROM sync_queue
+		WHERE status IN ('pending','retry') AND (next_retry_at IS NULL OR next_retry_at <= ?)
+		ORDER BY id
+		LIMIT ?`, time.Now(), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tasks []models.SyncTask
+	for rows.Next() {
+		task, err := scanSyncTaskRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		tasks = append(tasks, task)
+	}
+
+	return tasks, rows.Err()
+}
+
+// UpdateSyncTaskStatus updates task status and retry bookkeeping.
+func (db *DB) UpdateSyncTaskStatus(ctx context.Context, id int64, status string, errMsg string, nextRetryAt *time.Time) error {
+	now := time.Now()
+
+	var processedAt interface{}
+	if status == "completed" || status == "failed" {
+		processedAt = now
+	} else {
+		processedAt = nil
+	}
+
+	var nextRetry interface{}
+	if nextRetryAt != nil {
+		nextRetry = *nextRetryAt
+	} else {
+		nextRetry = nil
+	}
+
+	_, err := db.ExecContext(ctx, `UPDATE sync_queue
+		SET status = ?,
+		    retry_count = CASE WHEN ? = 'retry' THEN retry_count + 1 ELSE retry_count END,
+		    last_error = ?,
+		    processed_at = ?,
+		    next_retry_at = ?
+		WHERE id = ?`, status, status, nullableString(errMsg), processedAt, nextRetry, id)
+	return err
+}
+
+// GetFailedSyncTasks returns tasks that permanently failed.
+func (db *DB) GetFailedSyncTasks(ctx context.Context) ([]models.SyncTask, error) {
+	rows, err := db.QueryContext(ctx, `SELECT id, task_type, booking_id, payload, status, retry_count, last_error, created_at, processed_at, next_retry_at
+		FROM sync_queue WHERE status = 'failed' ORDER BY id DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tasks []models.SyncTask
+	for rows.Next() {
+		task, err := scanSyncTaskRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		tasks = append(tasks, task)
+	}
+	return tasks, rows.Err()
+}
+
+func scanSyncTaskRow(scanner interface{ Scan(dest ...any) error }) (models.SyncTask, error) {
+	var task models.SyncTask
+	var lastErr sql.NullString
+	var processedAt sql.NullTime
+	var nextRetry sql.NullTime
+
+	if err := scanner.Scan(&task.ID, &task.TaskType, &task.BookingID, &task.Payload, &task.Status, &task.RetryCount, &lastErr, &task.CreatedAt, &processedAt, &nextRetry); err != nil {
+		return task, err
+	}
+
+	if lastErr.Valid {
+		s := lastErr.String
+		task.LastError = &s
+	}
+	if processedAt.Valid {
+		t := processedAt.Time
+		task.ProcessedAt = &t
+	}
+	if nextRetry.Valid {
+		t := nextRetry.Time
+		task.NextRetryAt = &t
+	}
+
+	return task, nil
+}
+
+func nullableString(s string) interface{} {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	return s
 }
