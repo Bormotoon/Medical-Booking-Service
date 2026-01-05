@@ -357,7 +357,7 @@ bronivik_crm/
 ### 2.1.2 Основные сущности
 
 #### Кабинеты (Cabinets)
-- [ ] **Создать файл `internal/models/cabinet. go`**
+- [x] **Создать файл `internal/models/cabinet. go`**
   ```go
   package models
   
@@ -374,7 +374,7 @@ bronivik_crm/
   ```
 
 #### Расписание кабинетов (Cabinet Schedule)
-- [ ] **Создать файл `internal/models/cabinet_schedule. go`**
+- [x] **Создать файл `internal/models/cabinet_schedule. go`**
   ```go
   package models
   
@@ -406,7 +406,7 @@ bronivik_crm/
   ```
 
 #### Почасовое бронирование
-- [ ] **Создать файл `internal/models/hourly_booking.go`**
+- [x] **Создать файл `internal/models/hourly_booking.go`**
   ```go
   package models
   
