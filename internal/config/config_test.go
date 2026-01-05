@@ -95,16 +95,61 @@ t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
 }
 
 func TestApplyDefaults(t *testing.T) {
-cfg := &Config{}
-cfg.applyDefaults()
+	cfg := &Config{}
+	cfg.applyDefaults()
 
-if cfg.Bot.ReminderTime != "09:00" {
-t.Errorf("expected default reminder time 09:00, got %s", cfg.Bot.ReminderTime)
+	expectedReminder := "09:00"
+	if cfg.Bot.ReminderTime != expectedReminder {
+		t.Errorf("expected default reminder time %s, got %s", expectedReminder, cfg.Bot.ReminderTime)
+	}
+	if cfg.Bot.PaginationSize != models.DefaultPaginationSize {
+		t.Errorf("expected default pagination size %d, got %d", models.DefaultPaginationSize, cfg.Bot.PaginationSize)
+	}
+	if cfg.API.GRPC.Port != 8081 {
+		t.Errorf("expected default gRPC port 8081, got %d", cfg.API.GRPC.Port)
+	}
+	if cfg.Bot.RateLimitMessages != models.RateLimitMessages {
+		t.Errorf("expected default rate limit messages %d, got %d", models.RateLimitMessages, cfg.Bot.RateLimitMessages)
+	}
 }
-if cfg.Bot.PaginationSize != 8 {
-t.Errorf("expected default pagination size 8, got %d", cfg.Bot.PaginationSize)
-}
-if cfg.API.GRPC.Port != 8081 {
-t.Errorf("expected default gRPC port 8081, got %d", cfg.API.GRPC.Port)
-}
+
+func TestValidateItems(t *testing.T) {
+	tests := []struct {
+		name    string
+		items   []models.Item
+		wantErr bool
+	}{
+		{
+			name: "Valid items",
+			items: []models.Item{
+				{ID: 1, Name: "Item 1"},
+				{ID: 2, Name: "Item 2"},
+			},
+			wantErr: false,
+		},
+		{
+			name: "Duplicate ID",
+			items: []models.Item{
+				{ID: 1, Name: "Item 1"},
+				{ID: 1, Name: "Item 2"},
+			},
+			wantErr: true,
+		},
+		{
+			name: "ID 0",
+			items: []models.Item{
+				{ID: 0, Name: "Item 1"},
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateItems(tt.items)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateItems() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
 }
