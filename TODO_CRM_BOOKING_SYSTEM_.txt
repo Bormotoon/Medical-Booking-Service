@@ -16,7 +16,7 @@
 - [x] **Создать файл `internal/api/server.go`**
   - [x] Инициализация HTTP-сервера (gin/chi/стандартный net/http)
   - [x] Настройка middleware для логирования
-  - [ ] Настройка CORS (если нужно)
+  - [x] Настройка CORS (если нужно)
   - [x] Graceful shutdown
 
 - [x] **Создать файл `internal/api/handlers. go`**

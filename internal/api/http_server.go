@@ -35,7 +35,7 @@ func NewHTTPServer(cfg config.APIConfig, db *database.DB) *HTTPServer {
 	mux.HandleFunc("/api/v1/availability/", srv.handleAvailability)
 	mux.HandleFunc("/api/v1/items", srv.handleItems)
 
-	handler := loggingMiddleware(srv.auth.Wrap(mux))
+	handler := loggingMiddleware(corsMiddleware(srv.auth.Wrap(mux)))
 
 	srv.server = &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.HTTP.Port),
@@ -194,6 +194,22 @@ func (s *HTTPServer) handleItems(w http.ResponseWriter, r *http.Request) {
 	})
 
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+// corsMiddleware adds permissive CORS headers for simple API consumption.
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, x-api-key, x-api-extra")
+
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }
 
 // HTTPAuth provides API-key auth and per-key rate limiting for HTTP endpoints.
