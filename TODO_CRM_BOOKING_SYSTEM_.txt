@@ -966,6 +966,10 @@ bronivik_crm/
   - `api_test.go` — тесты endpoints
   - `auth_test.go` — тесты авторизации
 
+- [x] **Тесты для API**
+  - `api_test.go` — тесты endpoints
+  - `auth_test.go` — тесты авторизации
+
 - [ ] **Тесты для worker**
   - `worker_test.go` — тесты очереди задач
   - `retry_test.go` — тесты retry логики
