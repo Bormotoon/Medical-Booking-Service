@@ -10,8 +10,8 @@ type User struct {
 type UserState struct {
 	UserID  int64
 	Command string
-	Step    int
-	Data    map[string]string
+	Step    string
+	Data    map[string]interface{}
 }
 
 type WaterCalculation struct {

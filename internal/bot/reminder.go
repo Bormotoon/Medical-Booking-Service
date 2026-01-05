@@ -2,7 +2,6 @@ package bot
 
 import (
 	"context"
-	"log"
 	"time"
 
 	"bronivik/internal/models"
@@ -39,7 +38,7 @@ func (b *Bot) sendTomorrowReminders(ctx context.Context) {
 
 	bookings, err := b.db.GetBookingsByDateRange(ctx, start, end)
 	if err != nil {
-		log.Printf("reminder: get bookings: %v", err)
+		b.logger.Error().Err(err).Time("start", start).Time("end", end).Msg("reminder: get bookings error")
 		return
 	}
 
@@ -50,7 +49,7 @@ func (b *Bot) sendTomorrowReminders(ctx context.Context) {
 
 		user, err := b.db.GetUserByID(ctx, booking.UserID)
 		if err != nil {
-			log.Printf("reminder: load user %d: %v", booking.UserID, err)
+			b.logger.Error().Err(err).Int64("user_id", booking.UserID).Msg("reminder: load user error")
 			continue
 		}
 		if user.TelegramID == 0 {
@@ -60,7 +59,7 @@ func (b *Bot) sendTomorrowReminders(ctx context.Context) {
 		msgText := formatReminderMessage(booking)
 		msg := tgbotapi.NewMessage(user.TelegramID, msgText)
 		if _, err := b.bot.Send(msg); err != nil {
-			log.Printf("reminder: send to %d: %v", user.TelegramID, err)
+			b.logger.Error().Err(err).Int64("telegram_id", user.TelegramID).Msg("reminder: send error")
 		}
 	}
 }

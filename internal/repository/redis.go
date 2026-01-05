@@ -2,11 +2,19 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"time"
 
 	"bronivik/internal/config"
+	"bronivik/internal/domain"
 	"github.com/redis/go-redis/v9"
 )
+
+type RedisStateRepository struct {
+	client *redis.Client
+	ttl    time.Duration
+}
 
 // NewRedisClient создает новый клиент Redis на основе конфигурации
 func NewRedisClient(cfg config.RedisConfig) *redis.Client {
@@ -15,17 +23,58 @@ func NewRedisClient(cfg config.RedisConfig) *redis.Client {
 		Password: cfg.Password,
 		DB:       cfg.DB,
 		PoolSize: cfg.PoolSize,
-		// MinIdleConns: cfg.MinIdleConns,
-		// DialTimeout:  time.Duration(cfg.DialTimeout) * time.Second,
-		// ReadTimeout:  time.Duration(cfg.ReadTimeout) * time.Second,
-		// WriteTimeout: time.Duration(cfg.WriteTimeout) * time.Second,
-		// PoolTimeout:  time.Duration(cfg.PoolTimeout) * time.Second,
-		// IdleTimeout:  time.Duration(cfg.IdleTimeout) * time.Minute,
 	}
 
 	client := redis.NewClient(options)
 
 	return client
+}
+
+func NewRedisStateRepository(client *redis.Client, ttl time.Duration) *RedisStateRepository {
+	return &RedisStateRepository{
+		client: client,
+		ttl:    ttl,
+	}
+}
+
+func (r *RedisStateRepository) GetState(ctx context.Context, userID int64) (*domain.UserState, error) {
+	key := fmt.Sprintf("user_state:%d", userID)
+	val, err := r.client.Get(ctx, key).Result()
+	if err == redis.Nil {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get state from redis: %w", err)
+	}
+
+	var state domain.UserState
+	if err := json.Unmarshal([]byte(val), &state); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal state: %w", err)
+	}
+
+	return &state, nil
+}
+
+func (r *RedisStateRepository) SetState(ctx context.Context, state *domain.UserState) error {
+	key := fmt.Sprintf("user_state:%d", state.UserID)
+	data, err := json.Marshal(state)
+	if err != nil {
+		return fmt.Errorf("failed to marshal state: %w", err)
+	}
+
+	if err := r.client.Set(ctx, key, data, r.ttl).Err(); err != nil {
+		return fmt.Errorf("failed to set state in redis: %w", err)
+	}
+
+	return nil
+}
+
+func (r *RedisStateRepository) ClearState(ctx context.Context, userID int64) error {
+	key := fmt.Sprintf("user_state:%d", userID)
+	if err := r.client.Del(ctx, key).Err(); err != nil {
+		return fmt.Errorf("failed to delete state from redis: %w", err)
+	}
+	return nil
 }
 
 // Ping проверяет соединение с Redis

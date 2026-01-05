@@ -3,7 +3,6 @@ package bot
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"time"
@@ -13,14 +12,14 @@ import (
 )
 
 // exportToExcel создает Excel файл с данными о бронированиях
-func (b *Bot) exportToExcel(startDate, endDate time.Time) (string, error) {
+func (b *Bot) exportToExcel(ctx context.Context, startDate, endDate time.Time) (string, error) {
 	// Создаем папку для экспорта, если не существует
 	if err := os.MkdirAll(b.config.Exports.Path, 0755); err != nil {
 		return "", fmt.Errorf("error creating export directory: %v", err)
 	}
 
 	// Получаем данные из БД
-	dailyBookings, err := b.db.GetDailyBookings(context.Background(), startDate, endDate)
+	dailyBookings, err := b.db.GetDailyBookings(ctx, startDate, endDate)
 	if err != nil {
 		return "", fmt.Errorf("error getting bookings: %v", err)
 	}
@@ -99,9 +98,9 @@ func (b *Bot) exportToExcel(startDate, endDate time.Time) (string, error) {
 			itemBookings := bookingsByItem[item.ID]
 
 			// Получаем количество занятых аппаратов (только активные заявки)
-			bookedCount, err := b.db.GetBookedCount(context.Background(), item.ID, parseDate(dateKey))
+			bookedCount, err := b.db.GetBookedCount(ctx, item.ID, parseDate(dateKey))
 			if err != nil {
-				log.Printf("Error getting booked count: %v", err)
+				b.logger.Error().Err(err).Int64("item_id", item.ID).Str("date", dateKey).Msg("Error getting booked count")
 				bookedCount = 0
 			}
 
@@ -169,7 +168,7 @@ func (b *Bot) exportToExcel(startDate, endDate time.Time) (string, error) {
 		return "", fmt.Errorf("error saving file: %v", err)
 	}
 
-	log.Printf("Excel file created: %s", filePath)
+	b.logger.Info().Str("file_path", filePath).Msg("Excel file created")
 	return filePath, nil
 }
 
@@ -272,7 +271,7 @@ func getLastColumn(colCount int) string {
 }
 
 // exportUsersToExcel создает Excel файл с данными пользователей
-func (b *Bot) exportUsersToExcel(users []models.User) (string, error) {
+func (b *Bot) exportUsersToExcel(ctx context.Context, users []models.User) (string, error) {
 	// Создаем папку для экспорта, если не существует
 	if err := os.MkdirAll(b.config.Exports.Path, 0755); err != nil {
 		return "", fmt.Errorf("error creating export directory: %v", err)
@@ -336,7 +335,7 @@ func (b *Bot) exportUsersToExcel(users []models.User) (string, error) {
 		return "", fmt.Errorf("error saving file: %v", err)
 	}
 
-	log.Printf("Users Excel file created: %s", filePath)
+	b.logger.Info().Str("file_path", filePath).Msg("Users Excel file created")
 	return filePath, nil
 }
 

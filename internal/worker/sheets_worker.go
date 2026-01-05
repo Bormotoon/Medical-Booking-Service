@@ -37,9 +37,9 @@ type sheetTaskPayload struct {
 
 // SheetsWorker consumes sync_queue tasks and applies them to Google Sheets.
 type SheetsClient interface {
-	UpsertBooking(*models.Booking) error
-	DeleteBookingRow(int64) error
-	UpdateBookingStatus(int64, string) error
+	UpsertBooking(context.Context, *models.Booking) error
+	DeleteBookingRow(context.Context, int64) error
+	UpdateBookingStatus(context.Context, int64, string) error
 }
 
 type SheetsWorker struct {
@@ -235,17 +235,17 @@ func (w *SheetsWorker) handleSheetTask(ctx context.Context, taskType string, pay
 		if payload.Booking == nil {
 			return errors.New("booking payload missing")
 		}
-		return w.sheets.UpsertBooking(payload.Booking)
+		return w.sheets.UpsertBooking(ctx, payload.Booking)
 	case TaskDelete:
 		if payload.BookingID == 0 {
 			return errors.New("booking id missing")
 		}
-		return w.sheets.DeleteBookingRow(payload.BookingID)
+		return w.sheets.DeleteBookingRow(ctx, payload.BookingID)
 	case TaskUpdateStatus:
 		if payload.BookingID == 0 || payload.Status == "" {
 			return errors.New("booking id or status missing")
 		}
-		return w.sheets.UpdateBookingStatus(payload.BookingID, payload.Status)
+		return w.sheets.UpdateBookingStatus(ctx, payload.BookingID, payload.Status)
 	default:
 		return fmt.Errorf("unknown task type: %s", taskType)
 	}
