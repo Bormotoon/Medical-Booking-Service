@@ -540,7 +540,7 @@ bronivik_crm/
   ```
 
 ### 2.2.4 Методы для почасового бронирования
-- [ ] **Проверка доступности слота**
+- [x] **Проверка доступности слота**
   ```go
   // CheckSlotAvailability проверяет доступность временного слота
   func (db *DB) CheckSlotAvailability(ctx context.Context, cabinetID int64, date time.Time, startTime, endTime string) (bool, error) {
@@ -560,7 +560,7 @@ bronivik_crm/
   }
   ```
 
-- [ ] **Создание бронирования с проверками**
+- [x] **Создание бронирования с проверками**
   ```go
   func (db *DB) CreateHourlyBookingWithChecks(ctx context.Context, booking *models.HourlyBooking, bronivikClient *api.BronivikClient) error {
       tx, err := db. BeginTx(ctx, nil)
