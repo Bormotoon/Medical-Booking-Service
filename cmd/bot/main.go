@@ -160,6 +160,12 @@ func main() {
 		defer apiServer.Shutdown(context.Background())
 	}
 
+	// Инициализация сервиса бэкапов
+	if cfg.Backup.Enabled {
+		backupService := database.NewBackupService(cfg.Database.Path, cfg.Backup, &logger)
+		go backupService.Start(ctx)
+	}
+
 	// Создание и запуск бота
 	telegramBot, err := bot.NewBot(cfg.Telegram.BotToken, cfg, itemsConfig.Items, db, stateService, sheetsService, sheetsWorker, eventBus, &logger)
 	if err != nil {

@@ -134,14 +134,38 @@ func (db *DB) UpdateItem(ctx context.Context, item *models.Item) error {
 
 func (db *DB) DeactivateItem(ctx context.Context, id int64) error {
 	query := `UPDATE items SET is_active = 0, updated_at = ? WHERE id = ?`
-	_, err := db.ExecContext(ctx, query, time.Now(), id)
-	return err
+	now := time.Now()
+	_, err := db.ExecContext(ctx, query, now, id)
+	if err != nil {
+		return err
+	}
+
+	db.mu.Lock()
+	if item, ok := db.itemsCache[id]; ok {
+		item.IsActive = false
+		item.UpdatedAt = now
+		db.itemsCache[id] = item
+	}
+	db.mu.Unlock()
+	return nil
 }
 
 func (db *DB) ReorderItem(ctx context.Context, id int64, newOrder int64) error {
 	query := `UPDATE items SET sort_order = ?, updated_at = ? WHERE id = ?`
-	_, err := db.ExecContext(ctx, query, newOrder, time.Now(), id)
-	return err
+	now := time.Now()
+	_, err := db.ExecContext(ctx, query, newOrder, now, id)
+	if err != nil {
+		return err
+	}
+
+	db.mu.Lock()
+	if item, ok := db.itemsCache[id]; ok {
+		item.SortOrder = newOrder
+		item.UpdatedAt = now
+		db.itemsCache[id] = item
+	}
+	db.mu.Unlock()
+	return nil
 }
 
 func (db *DB) GetItems() []models.Item {

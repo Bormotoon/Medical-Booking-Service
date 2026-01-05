@@ -47,12 +47,21 @@ func NewSimpleSheetsService(credentialsFile, usersSheetID, bookingsSheetID strin
 		return nil, fmt.Errorf("unable to create Sheets service: %v", err)
 	}
 
-	return &SheetsService{
+	service := &SheetsService{
 		service:         srv,
 		usersSheetID:    usersSheetID,
 		bookingsSheetID: bookingsSheetID,
 		rowCache:        make(map[int64]int),
-	}, nil
+	}
+
+	// Warm up cache in background
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		service.WarmUpCache(ctx)
+	}()
+
+	return service, nil
 }
 
 // TestConnection проверяет подключение к таблице
@@ -123,6 +132,35 @@ func (s *SheetsService) UpdateUsersSheet(ctx context.Context, users []*models.Us
 		Do()
 
 	return err
+}
+
+// WarmUpCache populates the row index cache by reading the entire ID column.
+func (s *SheetsService) WarmUpCache(ctx context.Context) error {
+	resp, err := s.service.Spreadsheets.Values.Get(s.bookingsSheetID, "Bookings!A:A").Context(ctx).Do()
+	if err != nil {
+		return err
+	}
+
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+	s.rowCache = make(map[int64]int)
+
+	for i, row := range resp.Values {
+		if len(row) == 0 {
+			continue
+		}
+		var id int64
+		switch v := row[0].(type) {
+		case float64:
+			id = int64(v)
+		case string:
+			fmt.Sscanf(v, "%d", &id)
+		}
+		if id > 0 {
+			s.rowCache[id] = i + 1
+		}
+	}
+	return nil
 }
 
 // AppendBooking добавляет новое бронирование
@@ -773,6 +811,13 @@ func (s *SheetsService) ReplaceBookingsSheet(ctx context.Context, bookings []*mo
 		return fmt.Errorf("failed to update bookings sheet: %v", err)
 	}
 
-	s.ClearCache()
+	// Re-populate cache
+	s.cacheMu.Lock()
+	s.rowCache = make(map[int64]int)
+	for i, b := range bookings {
+		s.rowCache[b.ID] = i + 2 // +2 because data starts at row 2
+	}
+	s.cacheMu.Unlock()
+
 	return nil
 }

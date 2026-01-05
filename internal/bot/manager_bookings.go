@@ -164,10 +164,14 @@ func (b *Bot) handleManagerSingleDate(ctx context.Context, update tgbotapi.Updat
 		return
 	}
 
-	// Проверяем максимальную дату (например, 1 год вперед)
-	maxDate := time.Now().AddDate(1, 0, 0)
+	// Проверяем максимальную дату (из конфига)
+	maxDays := b.config.Bot.MaxBookingDays
+	if maxDays == 0 {
+		maxDays = 365
+	}
+	maxDate := time.Now().AddDate(0, 0, maxDays)
 	if date.After(maxDate) {
-		b.sendMessage(update.Message.Chat.ID, fmt.Sprintf("Нельзя бронировать более чем на год вперед (максимум до %s).", maxDate.Format("02.01.2006")))
+		b.sendMessage(update.Message.Chat.ID, fmt.Sprintf("Нельзя бронировать более чем на %d дней вперед (максимум до %s).", maxDays, maxDate.Format("02.01.2006")))
 		return
 	}
 
@@ -191,10 +195,14 @@ func (b *Bot) handleManagerStartDate(ctx context.Context, update tgbotapi.Update
 		return
 	}
 
-	// Проверяем максимальную дату (например, 1 год вперед)
-	maxDate := time.Now().AddDate(1, 0, 0)
+	// Проверяем максимальную дату (из конфига)
+	maxDays := b.config.Bot.MaxBookingDays
+	if maxDays == 0 {
+		maxDays = 365
+	}
+	maxDate := time.Now().AddDate(0, 0, maxDays)
 	if startDate.After(maxDate) {
-		b.sendMessage(update.Message.Chat.ID, fmt.Sprintf("Нельзя бронировать более чем на год вперед (максимум до %s).", maxDate.Format("02.01.2006")))
+		b.sendMessage(update.Message.Chat.ID, fmt.Sprintf("Нельзя бронировать более чем на %d дней вперед (максимум до %s).", maxDays, maxDate.Format("02.01.2006")))
 		return
 	}
 
@@ -220,10 +228,14 @@ func (b *Bot) handleManagerEndDate(ctx context.Context, update tgbotapi.Update, 
 		return
 	}
 
-	// Проверяем максимальную дату (например, 1 год вперед)
-	maxDate := time.Now().AddDate(1, 0, 0)
+	// Проверяем максимальную дату (из конфига)
+	maxDays := b.config.Bot.MaxBookingDays
+	if maxDays == 0 {
+		maxDays = 365
+	}
+	maxDate := time.Now().AddDate(0, 0, maxDays)
 	if endDate.After(maxDate) {
-		b.sendMessage(update.Message.Chat.ID, fmt.Sprintf("Нельзя бронировать более чем на год вперед (максимум до %s).", maxDate.Format("02.01.2006")))
+		b.sendMessage(update.Message.Chat.ID, fmt.Sprintf("Нельзя бронировать более чем на %d дней вперед (максимум до %s).", maxDays, maxDate.Format("02.01.2006")))
 		return
 	}
 
@@ -393,62 +405,43 @@ func (b *Bot) createManagerBookings(ctx context.Context, update tgbotapi.Update,
 	b.handleMainMenu(ctx, update)
 }
 
-// showManagerBookings показывает все заявки менеджеру
+// showManagerBookings показывает все заявки менеджеру с пагинацией
 func (b *Bot) showManagerBookings(ctx context.Context, update tgbotapi.Update) {
 	if !b.isManager(update.Message.From.ID) {
 		return
 	}
 
+	b.sendManagerBookingsPage(ctx, update.Message.Chat.ID, 0, 0)
+}
+
+// sendManagerBookingsPage отправляет страницу с заявками для менеджера
+func (b *Bot) sendManagerBookingsPage(ctx context.Context, chatID int64, messageID int, page int) {
 	// Получаем все заявки за период: один месяц назад и два месяца вперед
-	startDate := time.Now().AddDate(0, 0, -7) // 7 дней месяц назад
+	startDate := time.Now().AddDate(0, 0, -7) // 7 дней назад
 	endDate := time.Now().AddDate(0, 2, 0)    // 2 месяца вперед
 
 	bookings, err := b.db.GetBookingsByDateRange(ctx, startDate, endDate)
 	if err != nil {
 		b.logger.Error().Err(err).Time("start_date", startDate).Time("end_date", endDate).Msg("Error getting bookings")
-		b.sendMessage(update.Message.Chat.ID, "Ошибка при получении заявок")
+		b.sendMessage(chatID, "Ошибка при получении заявок")
 		return
-	}
-
-	b.logger.Info().Int("count", len(bookings)).Msg("Получено заявок из БД")
-
-	if bookings == nil {
-		b.logger.Warn().Msg("Bookings is nil")
-		b.sendMessage(update.Message.Chat.ID, "Ошибка при получении заявок bookings")
-		return
-	}
-
-	var message strings.Builder
-	message.WriteString("📊 Все заявки на квартал вперед:\n\n")
-
-	for _, booking := range bookings {
-		statusEmoji := "⏳"
-		switch booking.Status {
-		case models.StatusConfirmed:
-			statusEmoji = "✅"
-		case models.StatusCancelled:
-			statusEmoji = "❌"
-		case models.StatusChanged:
-			statusEmoji = "🔄"
-		case "rescheduled":
-			statusEmoji = "🔄"
-		case models.StatusCompleted:
-			statusEmoji = "🏁"
-		}
-
-		message.WriteString(fmt.Sprintf("%s Заявка #%d\n", statusEmoji, booking.ID))
-		message.WriteString(fmt.Sprintf("   👤 %s\n", booking.UserName))
-		message.WriteString(fmt.Sprintf("   🏢 %s\n", booking.ItemName))
-		message.WriteString(fmt.Sprintf("   📅 %s\n", booking.Date.Format("02.01.2006")))
-		message.WriteString(fmt.Sprintf("   📱 %s\n", booking.Phone))
-		message.WriteString(fmt.Sprintf("   🔗 /manager_booking_%d\n\n", booking.ID))
 	}
 
 	if len(bookings) == 0 {
-		message.WriteString("Заявок не найдено")
+		b.sendMessage(chatID, "Заявок не найдено")
+		return
 	}
 
-	b.sendMessage(update.Message.Chat.ID, message.String())
+	b.renderPaginatedBookings(PaginationParams{
+		Ctx:          ctx,
+		ChatID:       chatID,
+		MessageID:    messageID,
+		Page:         page,
+		Title:        "📊 *Все заявки на квартал вперед:*",
+		ItemPrefix:   "show_booking:",
+		PagePrefix:   "manager_bookings_page:",
+		BackCallback: "back_to_main",
+	}, bookings)
 }
 
 // showManagerBookingDetail показывает детали заявки менеджеру
@@ -665,6 +658,11 @@ func (b *Bot) reopenBooking(ctx context.Context, booking *models.Booking, manage
 
 // completeBooking завершение заявки
 func (b *Bot) completeBooking(ctx context.Context, booking *models.Booking, managerChatID int64) {
+	b.logger.Info().
+		Int64("booking_id", booking.ID).
+		Int64("manager_id", managerChatID).
+		Msg("Manager completed booking")
+
 	err := b.db.UpdateBookingStatusWithVersion(ctx, booking.ID, booking.Version, models.StatusCompleted)
 	if err != nil {
 		if err == database.ErrConcurrentModification {
@@ -694,6 +692,11 @@ func (b *Bot) completeBooking(ctx context.Context, booking *models.Booking, mana
 
 // confirmBooking подтверждение бронирования менеджером
 func (b *Bot) confirmBooking(ctx context.Context, booking *models.Booking, managerChatID int64) {
+	b.logger.Info().
+		Int64("booking_id", booking.ID).
+		Int64("manager_id", managerChatID).
+		Msg("Manager confirmed booking")
+
 	err := b.db.UpdateBookingStatusWithVersion(ctx, booking.ID, booking.Version, models.StatusConfirmed)
 	if err != nil {
 		if err == database.ErrConcurrentModification {
@@ -725,6 +728,11 @@ func (b *Bot) confirmBooking(ctx context.Context, booking *models.Booking, manag
 
 // rejectBooking отклонение бронирования менеджером
 func (b *Bot) rejectBooking(ctx context.Context, booking *models.Booking, managerChatID int64) {
+	b.logger.Info().
+		Int64("booking_id", booking.ID).
+		Int64("manager_id", managerChatID).
+		Msg("Manager rejected booking")
+
 	err := b.db.UpdateBookingStatusWithVersion(ctx, booking.ID, booking.Version, models.StatusCancelled)
 	if err != nil {
 		if err == database.ErrConcurrentModification {

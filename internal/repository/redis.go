@@ -77,6 +77,20 @@ func (r *RedisStateRepository) ClearState(ctx context.Context, userID int64) err
 	return nil
 }
 
+func (r *RedisStateRepository) CheckRateLimit(ctx context.Context, userID int64, limit int, window time.Duration) (bool, error) {
+	key := fmt.Sprintf("rate_limit:%d", userID)
+	count, err := r.client.Incr(ctx, key).Result()
+	if err != nil {
+		return false, fmt.Errorf("failed to increment rate limit: %w", err)
+	}
+
+	if count == 1 {
+		r.client.Expire(ctx, key, window)
+	}
+
+	return count <= int64(limit), nil
+}
+
 // Ping проверяет соединение с Redis
 func Ping(ctx context.Context, client *redis.Client) error {
 	_, err := client.Ping(ctx).Result()

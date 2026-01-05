@@ -25,6 +25,14 @@ type Config struct {
 	Items            []models.Item    `yaml:"items"`
 	Exports          ExportConfig     `yaml:"exports"`
 	Google           GoogleConfig     `yaml:"google"`
+	Bot              BotConfig        `yaml:"bot"`
+}
+
+type BotConfig struct {
+	ReminderTime      string `yaml:"reminder_time"`
+	PaginationSize    int    `yaml:"pagination_size"`
+	MaxBookingDays    int    `yaml:"max_booking_days"`
+	MinBookingAdvance int    `yaml:"min_booking_advance"`
 }
 
 type APIConfig struct {
@@ -217,5 +225,16 @@ func (c *Config) applyDefaults() {
 	}
 	if c.API.Auth.HeaderExtra == "" {
 		c.API.Auth.HeaderExtra = "x-api-extra"
+	}
+
+	// Bot defaults
+	if c.Bot.ReminderTime == "" {
+		c.Bot.ReminderTime = "09:00"
+	}
+	if c.Bot.PaginationSize == 0 {
+		c.Bot.PaginationSize = 8
+	}
+	if c.Bot.MaxBookingDays == 0 {
+		c.Bot.MaxBookingDays = 365
 	}
 }

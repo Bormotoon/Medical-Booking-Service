@@ -62,3 +62,7 @@ func (s *StateService) UpdateUserStateData(ctx context.Context, userID int64, ke
 
 	return s.stateRepo.SetState(ctx, state)
 }
+
+func (s *StateService) CheckRateLimit(ctx context.Context, userID int64, limit int, window time.Duration) (bool, error) {
+	return s.stateRepo.CheckRateLimit(ctx, userID, limit, window)
+}

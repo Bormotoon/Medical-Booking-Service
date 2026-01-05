@@ -93,7 +93,28 @@ func (b *Bot) Start(ctx context.Context) {
 			requestID := uuid.New().String()
 			l := b.logger.With().Str("request_id", requestID).Logger()
 			updateCtx = l.WithContext(updateCtx)
-			
+
+			var userID int64
+			if update.Message != nil {
+				userID = update.Message.From.ID
+			} else if update.CallbackQuery != nil {
+				userID = update.CallbackQuery.From.ID
+			}
+
+			if userID != 0 && !b.isManager(userID) {
+				allowed, err := b.stateService.CheckRateLimit(updateCtx, userID, 20, time.Minute)
+				if err != nil {
+					b.logger.Error().Err(err).Int64("user_id", userID).Msg("Rate limit check failed")
+				} else if !allowed {
+					b.logger.Warn().Int64("user_id", userID).Msg("Rate limit exceeded")
+					if update.Message != nil {
+						b.sendMessage(update.Message.Chat.ID, "⚠️ Вы отправляете сообщения слишком часто. Пожалуйста, подождите немного.")
+					}
+					cancel()
+					continue
+				}
+			}
+
 			if update.CallbackQuery != nil {
 				b.handleCallbackQuery(updateCtx, update)
 				cancel()
