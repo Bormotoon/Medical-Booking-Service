@@ -163,7 +163,7 @@ func main() {
 
 	// Инициализация API сервера
 	if cfg.API.Enabled {
-		apiServer := api.NewHTTPServer(cfg.API, db, &logger)
+		apiServer := api.NewHTTPServer(cfg.API, db, redisClient, sheetsService, &logger)
 		go func() {
 			if err := apiServer.Start(); err != nil {
 				logger.Error().Err(err).Msg("API server error")

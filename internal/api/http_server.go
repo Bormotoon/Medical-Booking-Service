@@ -14,24 +14,34 @@ import (
 
 	"bronivik/internal/config"
 	"bronivik/internal/database"
+	"bronivik/internal/google"
 	"bronivik/internal/metrics"
+
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 	"golang.org/x/time/rate"
 )
 
 // HTTPServer exposes a lightweight HTTP API alongside the gRPC service.
 type HTTPServer struct {
-	cfg    config.APIConfig
-	db     *database.DB
-	server *http.Server
-	auth   *HTTPAuth
-	log    zerolog.Logger
+	cfg           config.APIConfig
+	db            *database.DB
+	redisClient   *redis.Client
+	sheetsService *google.SheetsService
+	server        *http.Server
+	auth          *HTTPAuth
+	log           zerolog.Logger
 }
 
-func NewHTTPServer(cfg config.APIConfig, db *database.DB, logger *zerolog.Logger) *HTTPServer {
+func NewHTTPServer(cfg config.APIConfig, db *database.DB, redisClient *redis.Client, sheetsService *google.SheetsService, logger *zerolog.Logger) *HTTPServer {
 	apiMux := http.NewServeMux()
-	srv := &HTTPServer{cfg: cfg, db: db}
+	srv := &HTTPServer{
+		cfg:           cfg,
+		db:            db,
+		redisClient:   redisClient,
+		sheetsService: sheetsService,
+	}
 	if logger != nil {
 		srv.log = logger.With().Str("component", "http").Logger()
 	}
@@ -203,13 +213,32 @@ func (s *HTTPServer) handleHealthz(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *HTTPServer) handleReadyz(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
+	// Check Database
 	if err := s.db.PingContext(ctx); err != nil {
 		s.log.Error().Err(err).Msg("readyz: database ping failed")
 		writeError(w, http.StatusServiceUnavailable, "database not ready")
 		return
+	}
+
+	// Check Redis (if enabled)
+	if s.redisClient != nil {
+		if _, err := s.redisClient.Ping(ctx).Result(); err != nil {
+			s.log.Error().Err(err).Msg("readyz: redis ping failed")
+			writeError(w, http.StatusServiceUnavailable, "redis not ready")
+			return
+		}
+	}
+
+	// Check Google Sheets (if enabled)
+	if s.sheetsService != nil {
+		if err := s.sheetsService.TestConnection(ctx); err != nil {
+			s.log.Error().Err(err).Msg("readyz: google sheets connection failed")
+			writeError(w, http.StatusServiceUnavailable, "google sheets not ready")
+			return
+		}
 	}
 
 	w.WriteHeader(http.StatusOK)

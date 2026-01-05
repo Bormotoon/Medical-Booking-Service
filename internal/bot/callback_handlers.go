@@ -16,6 +16,10 @@ func (b *Bot) handleCallbackQuery(ctx context.Context, update tgbotapi.Update) {
 	data := callback.Data
 	userID := callback.From.ID
 
+	if b.metrics != nil {
+		b.metrics.MessagesProcessed.Inc()
+	}
+
 	// Отвечаем на callback сразу, чтобы убрать "часики"
 	callbackConfig := tgbotapi.NewCallback(callback.ID, "")
 	b.tgService.Request(callbackConfig)

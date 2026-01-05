@@ -76,6 +76,9 @@ func (b *Bot) Start(ctx context.Context) {
 
 	b.logger.Info().Str("username", b.tgService.GetSelf().UserName).Msg("Authorized on account")
 
+	// Start metrics updater
+	go b.startMetricsUpdater(ctx)
+
 	for {
 		select {
 		case <-ctx.Done():

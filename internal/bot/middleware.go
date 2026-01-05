@@ -8,6 +8,9 @@ import (
 func (b *Bot) withRecovery(handler func()) {
 	defer func() {
 		if r := recover(); r != nil {
+			if b.metrics != nil {
+				b.metrics.ErrorsTotal.Inc()
+			}
 			b.logger.Error().Interface("panic", r).Msg("Recovered from panic in update handler")
 		}
 	}()

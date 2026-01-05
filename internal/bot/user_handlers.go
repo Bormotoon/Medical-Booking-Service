@@ -16,6 +16,13 @@ func (b *Bot) handleMessage(ctx context.Context, update tgbotapi.Update) {
 	text := update.Message.Text
 	l := zerolog.Ctx(ctx)
 
+	if b.metrics != nil {
+		b.metrics.MessagesProcessed.Inc()
+		if strings.HasPrefix(text, "/") {
+			b.metrics.CommandsProcessed.Inc()
+		}
+	}
+
 	l.Debug().
 		Int64("user_id", userID).
 		Str("username", update.Message.From.UserName).
