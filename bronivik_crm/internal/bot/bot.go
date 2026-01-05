@@ -22,9 +22,15 @@ type Bot struct {
 	managers map[int64]struct{}
 	bot      *tgbotapi.BotAPI
 	state    *stateStore
+	rules    BookingRules
 }
 
-func New(token string, apiClient *crmapi.BronivikClient, db *database.DB, managers []int64) (*Bot, error) {
+type BookingRules struct {
+	MinAdvance time.Duration
+	MaxAdvance time.Duration
+}
+
+func New(token string, apiClient *crmapi.BronivikClient, db *database.DB, managers []int64, rules BookingRules) (*Bot, error) {
 	b, err := tgbotapi.NewBotAPI(token)
 	if err != nil {
 		return nil, err
@@ -33,7 +39,13 @@ func New(token string, apiClient *crmapi.BronivikClient, db *database.DB, manage
 	for _, id := range managers {
 		mgrs[id] = struct{}{}
 	}
-	return &Bot{api: apiClient, db: db, managers: mgrs, bot: b, state: newStateStore()}, nil
+	if rules.MinAdvance <= 0 {
+		rules.MinAdvance = 60 * time.Minute
+	}
+	if rules.MaxAdvance <= 0 {
+		rules.MaxAdvance = 30 * 24 * time.Hour
+	}
+	return &Bot{api: apiClient, db: db, managers: mgrs, bot: b, state: newStateStore(), rules: rules}, nil
 }
 
 // Start begins polling updates and handles commands.
@@ -91,7 +103,12 @@ func (b *Bot) handleMessage(ctx context.Context, msg *tgbotapi.Message) {
 			b.reply(msg.Chat.ID, "Введите телефон клиента:")
 			return
 		case stepClientPhone:
-			st.Draft.ClientPhone = text
+			phone, ok := normalizeAndValidatePhone(text)
+			if !ok {
+				b.reply(msg.Chat.ID, "Некорректный телефон. Пример: +7 999 123-45-67")
+				return
+			}
+			st.Draft.ClientPhone = phone
 			st.Step = stepConfirm
 			b.sendConfirm(msg.Chat.ID, msg.From.ID)
 			return
@@ -176,6 +193,11 @@ func (b *Bot) handleCallback(ctx context.Context, cq *tgbotapi.CallbackQuery) {
 			b.reply(chatID, "Некорректный слот")
 			return
 		}
+		if err := b.validateBookingTime(start); err != nil {
+			b.reply(chatID, err.Error())
+			b.sendTimeSlots(ctx, chatID, userID)
+			return
+		}
 		ok, err := b.db.CheckSlotAvailability(ctx, st.Draft.CabinetID, date, start, end)
 		if err != nil {
 			b.reply(chatID, "Не удалось проверить слот")
@@ -257,6 +279,22 @@ func (b *Bot) handleCallback(ctx context.Context, cq *tgbotapi.CallbackQuery) {
 		b.notifyBookingStatus(ctx, bid, "rejected")
 		return
 	}
+}
+
+func (b *Bot) validateBookingTime(start time.Time) error {
+	now := time.Now()
+	if start.Before(now.Add(b.rules.MinAdvance)) {
+		min := int(b.rules.MinAdvance.Minutes())
+		return fmt.Errorf("Слишком близко по времени. Минимум за %d минут до начала.", min)
+	}
+	if start.After(now.Add(b.rules.MaxAdvance)) {
+		days := int(b.rules.MaxAdvance.Hours() / 24)
+		if days <= 0 {
+			days = 30
+		}
+		return fmt.Errorf("Слишком далеко по времени. Доступно бронирование максимум на %d дней вперед.", days)
+	}
+	return nil
 }
 
 func (b *Bot) handleManagerCommands(msg *tgbotapi.Message) bool {
@@ -419,6 +457,9 @@ func (b *Bot) finalizeBooking(ctx context.Context, cq *tgbotapi.CallbackQuery, s
 	if err != nil {
 		return err
 	}
+	if err := b.validateBookingTime(start); err != nil {
+		return err
+	}
 
 	bk := &models.HourlyBooking{
 		UserID:      u.ID,
@@ -463,6 +504,42 @@ func parseTimeLabel(date time.Time, label string) (time.Time, time.Time, error) 
 	startDT := time.Date(date.Year(), date.Month(), date.Day(), start.Hour(), start.Minute(), 0, 0, time.Local)
 	endDT := time.Date(date.Year(), date.Month(), date.Day(), end.Hour(), end.Minute(), 0, 0, time.Local)
 	return startDT, endDT, nil
+}
+
+func normalizeAndValidatePhone(raw string) (string, bool) {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return "", false
+	}
+	// allow + and digits; strip common separators
+	repl := strings.NewReplacer(" ", "", "-", "", "(", "", ")", "", "\t", "")
+	s = repl.Replace(s)
+	if strings.HasPrefix(s, "+") {
+		s = "+" + filterDigits(s[1:])
+	} else {
+		s = filterDigits(s)
+	}
+	// very rough length check; keeps UX simple
+	digits := strings.TrimPrefix(s, "+")
+	if len(digits) < 10 || len(digits) > 15 {
+		return "", false
+	}
+	if s[0] != '+' {
+		// assume local; keep digits-only
+		return digits, true
+	}
+	return s, true
+}
+
+func filterDigits(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 func (b *Bot) notifyManagersNewBooking(id int64, cabinet, item, date, timeLabel, clientName, clientPhone string) {

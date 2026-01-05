@@ -38,6 +38,11 @@ type Config struct {
 		CacheTTLSeconds int    `yaml:"cache_ttl_seconds"`
 	} `yaml:"api"`
 
+	Booking struct {
+		MinAdvanceMinutes int `yaml:"min_advance_minutes"`
+		MaxAdvanceDays    int `yaml:"max_advance_days"`
+	} `yaml:"booking"`
+
 	Managers []int64 `yaml:"managers"`
 }
 
@@ -77,7 +82,8 @@ func main() {
 		client.UseRedisCache(rdb, time.Duration(cfg.API.CacheTTLSeconds)*time.Second)
 	}
 
-	b, err := bot.New(cfg.Telegram.BotToken, client, db, cfg.Managers)
+	rules := botRulesFromConfig(cfg)
+	b, err := bot.New(cfg.Telegram.BotToken, client, db, cfg.Managers, rules)
 	if err != nil {
 		log.Fatalf("create bot: %v", err)
 	}
@@ -87,4 +93,16 @@ func main() {
 
 	log.Println("CRM bot started")
 	b.Start(ctx)
+}
+
+func botRulesFromConfig(cfg Config) bot.BookingRules {
+	minAdvance := 60 * time.Minute
+	if cfg.Booking.MinAdvanceMinutes > 0 {
+		minAdvance = time.Duration(cfg.Booking.MinAdvanceMinutes) * time.Minute
+	}
+	maxAdvance := 30 * 24 * time.Hour
+	if cfg.Booking.MaxAdvanceDays > 0 {
+		maxAdvance = time.Duration(cfg.Booking.MaxAdvanceDays) * 24 * time.Hour
+	}
+	return bot.BookingRules{MinAdvance: minAdvance, MaxAdvance: maxAdvance}
 }
