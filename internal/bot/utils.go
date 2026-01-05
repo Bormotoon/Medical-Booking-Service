@@ -325,16 +325,10 @@ func (b *Bot) finalizeBooking(update tgbotapi.Update) {
 	// Уведомляем менеджеров
 	b.notifyManagers(booking)
 
-	b.appendBookingToSheetsAsync(booking)
+	b.enqueueBookingUpsert(booking)
 
 	msg := tgbotapi.NewMessage(update.Message.Chat.ID,
 		fmt.Sprintf("⏳ Ваша заявка #%d на позицию %s успешно создана. \nОжидайте подтверждения.", booking.ID, booking.ItemName))
-
-	go func() {
-		time.Sleep(1 * time.Second) // Небольшая задержка для завершения операции в БД
-		b.syncBookingsToSheetsAsync()
-		// b.SyncScheduleToSheets()
-	}()
 
 	// Очищаем состояние
 	b.clearUserState(update.Message.From.ID)
