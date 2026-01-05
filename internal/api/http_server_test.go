@@ -84,7 +84,7 @@ func newTestHTTPServer(db *database.DB) *HTTPServer {
 		Auth:    config.APIAuthConfig{Enabled: false},
 	}
 	logger := zerolog.New(io.Discard)
-	return NewHTTPServer(cfg, db, &logger)
+	return NewHTTPServer(cfg, db, nil, nil, &logger)
 }
 
 func newTestDB(t *testing.T) *database.DB {

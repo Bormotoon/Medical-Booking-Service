@@ -62,7 +62,7 @@ func main() {
 			updated++
 			continue
 		}
-		if err != nil && err != sql.ErrNoRows {
+		if err != sql.ErrNoRows {
 			log.Fatalf("get %s: %v", it.Name, err)
 		}
 		if err := db.CreateItem(ctx, &it); err != nil {

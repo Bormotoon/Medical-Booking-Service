@@ -66,13 +66,14 @@ func (db *DB) UpdateSyncTaskStatus(ctx context.Context, id int64, status string,
 	var args []interface{}
 	now := time.Now()
 
-	if status == "retry" {
+	switch status {
+	case "retry":
 		query = `UPDATE sync_queue SET status = ?, last_error = ?, next_retry_at = ?, retry_count = retry_count + 1 WHERE id = ?`
 		args = []interface{}{status, errMsg, nextRetryAt, id}
-	} else if status == "completed" || status == "failed" {
+	case "completed", "failed":
 		query = `UPDATE sync_queue SET status = ?, last_error = ?, next_retry_at = ?, processed_at = ? WHERE id = ?`
 		args = []interface{}{status, errMsg, nextRetryAt, &now, id}
-	} else {
+	default:
 		query = `UPDATE sync_queue SET status = ?, last_error = ?, next_retry_at = ? WHERE id = ?`
 		args = []interface{}{status, errMsg, nextRetryAt, id}
 	}

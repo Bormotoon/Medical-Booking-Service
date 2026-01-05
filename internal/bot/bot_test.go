@@ -307,8 +307,8 @@ func TestHandleSelectItem(t *testing.T) {
 
 	b.handleMessage(context.Background(), update)
 
-	if state.states[123].CurrentStep != StateSelectItem {
-		t.Errorf("expected state %s, got %s", StateSelectItem, state.states[123].CurrentStep)
+	if state.states[123].CurrentStep != models.StateSelectItem {
+		t.Errorf("expected state %s, got %s", models.StateSelectItem, state.states[123].CurrentStep)
 	}
 
 	if len(tg.sentMessages) == 0 {
@@ -352,8 +352,8 @@ func TestHandleCallbackQuery(t *testing.T) {
 	b.handleCallbackQuery(context.Background(), update)
 
 	// After selecting an item, it should ask for a date
-	if state.states[123].CurrentStep != StateWaitingDate {
-		t.Errorf("expected state %s, got %s", StateWaitingDate, state.states[123].CurrentStep)
+	if state.states[123].CurrentStep != models.StateWaitingDate {
+		t.Errorf("expected state %s, got %s", models.StateWaitingDate, state.states[123].CurrentStep)
 	}
 }
 
@@ -381,7 +381,7 @@ func TestHandleDateInput(t *testing.T) {
 
 	state.states[123] = &models.UserState{
 		UserID:      123,
-		CurrentStep: StateWaitingDate,
+		CurrentStep: models.StateWaitingDate,
 		TempData:    map[string]interface{}{"item_id": int64(1)},
 	}
 
@@ -396,8 +396,8 @@ func TestHandleDateInput(t *testing.T) {
 
 	b.handleMessage(context.Background(), update)
 
-	if state.states[123].CurrentStep != StateEnterName {
-		t.Errorf("expected state %s, got %s", StateEnterName, state.states[123].CurrentStep)
+	if state.states[123].CurrentStep != models.StateEnterName {
+		t.Errorf("expected state %s, got %s", models.StateEnterName, state.states[123].CurrentStep)
 	}
 }
 
@@ -443,8 +443,8 @@ func TestHandleStartWithUserTracking(t *testing.T) {
 		t.Errorf("user data mismatch: %+v", user)
 	}
 
-	if state.states[123].CurrentStep != StateMainMenu {
-		t.Errorf("expected state %s, got %s", StateMainMenu, state.states[123].CurrentStep)
+	if state.states[123].CurrentStep != models.StateMainMenu {
+		t.Errorf("expected state %s, got %s", models.StateMainMenu, state.states[123].CurrentStep)
 	}
 }
 
@@ -471,7 +471,7 @@ func TestHandlePhoneReceived(t *testing.T) {
 
 	state.states[123] = &models.UserState{
 		UserID:      123,
-		CurrentStep: StatePhoneNumber,
+		CurrentStep: models.StatePhoneNumber,
 		TempData: map[string]interface{}{
 			"item_id":   int64(1),
 			"date":      time.Now().AddDate(0, 0, 5),
@@ -489,8 +489,8 @@ func TestHandlePhoneReceived(t *testing.T) {
 
 	b.handleMessage(context.Background(), update)
 
-	if state.states[123] == nil || state.states[123].CurrentStep != StateMainMenu {
-		t.Errorf("expected state to be %s, but it is %v", StateMainMenu, state.states[123])
+	if state.states[123] == nil || state.states[123].CurrentStep != models.StateMainMenu {
+		t.Errorf("expected state to be %s, but it is %v", models.StateMainMenu, state.states[123])
 	}
 }
 
@@ -521,8 +521,8 @@ func TestBookingFlow(t *testing.T) {
 
 	// 1. Start booking
 	b.handleSelectItem(ctx, tgbotapi.Update{Message: &tgbotapi.Message{From: &tgbotapi.User{ID: userID}, Chat: &tgbotapi.Chat{ID: userID}}})
-	if state.states[userID].CurrentStep != StateSelectItem {
-		t.Fatalf("expected state %s, got %s", StateSelectItem, state.states[userID].CurrentStep)
+	if state.states[userID].CurrentStep != models.StateSelectItem {
+		t.Fatalf("expected state %s, got %s", models.StateSelectItem, state.states[userID].CurrentStep)
 	}
 
 	// 2. Select item
@@ -531,8 +531,8 @@ func TestBookingFlow(t *testing.T) {
 		Message: &tgbotapi.Message{Chat: &tgbotapi.Chat{ID: userID}},
 		Data:    "select_item:1",
 	}})
-	if state.states[userID].CurrentStep != StateWaitingDate {
-		t.Fatalf("expected state %s, got %s", StateWaitingDate, state.states[userID].CurrentStep)
+	if state.states[userID].CurrentStep != models.StateWaitingDate {
+		t.Fatalf("expected state %s, got %s", models.StateWaitingDate, state.states[userID].CurrentStep)
 	}
 
 	// 3. Enter date
@@ -542,8 +542,8 @@ func TestBookingFlow(t *testing.T) {
 		Chat: &tgbotapi.Chat{ID: userID},
 		Text: futureDate,
 	}})
-	if state.states[userID].CurrentStep != StateEnterName {
-		t.Fatalf("expected state %s, got %s", StateEnterName, state.states[userID].CurrentStep)
+	if state.states[userID].CurrentStep != models.StateEnterName {
+		t.Fatalf("expected state %s, got %s", models.StateEnterName, state.states[userID].CurrentStep)
 	}
 
 	// 4. Enter name
@@ -552,8 +552,8 @@ func TestBookingFlow(t *testing.T) {
 		Chat: &tgbotapi.Chat{ID: userID},
 		Text: "Test User",
 	}})
-	if state.states[userID].CurrentStep != StatePhoneNumber {
-		t.Fatalf("expected state %s, got %s", StatePhoneNumber, state.states[userID].CurrentStep)
+	if state.states[userID].CurrentStep != models.StatePhoneNumber {
+		t.Fatalf("expected state %s, got %s", models.StatePhoneNumber, state.states[userID].CurrentStep)
 	}
 
 	// 5. Enter phone
@@ -562,8 +562,8 @@ func TestBookingFlow(t *testing.T) {
 		Chat: &tgbotapi.Chat{ID: userID},
 		Text: "89991234567",
 	}})
-	if state.states[userID].CurrentStep != StateMainMenu {
-		t.Fatalf("expected state %s, got %s", StateMainMenu, state.states[userID].CurrentStep)
+	if state.states[userID].CurrentStep != models.StateMainMenu {
+		t.Fatalf("expected state %s, got %s", models.StateMainMenu, state.states[userID].CurrentStep)
 	}
 
 	// Check if booking was created

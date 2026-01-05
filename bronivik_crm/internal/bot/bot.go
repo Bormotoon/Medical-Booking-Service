@@ -501,7 +501,7 @@ func (b *Bot) sendItems(chatID int64) {
 	_, _ = b.bot.Send(out)
 }
 
-func (b *Bot) sendCalendar(chatID int64, cabinetID int64) {
+func (b *Bot) sendCalendar(chatID int64) {
 	now := time.Now()
 	markup := GenerateCalendarKeyboard(now.Year(), int(now.Month()), nil)
 	out := tgbotapi.NewMessage(chatID, "Выберите дату:")

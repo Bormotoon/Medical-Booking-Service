@@ -41,7 +41,7 @@ func TestAvailabilityReflectsBookings(t *testing.T) {
 func newIntegrationHTTPServer(db *database.DB) *HTTPServer {
 	cfg := config.APIConfig{Enabled: true, HTTP: config.APIHTTPConfig{Enabled: true, Port: 0}, Auth: config.APIAuthConfig{Enabled: false}}
 	logger := zerolog.New(io.Discard)
-	return NewHTTPServer(cfg, db, &logger)
+	return NewHTTPServer(cfg, db, nil, nil, &logger)
 }
 
 func newIntegrationDB(t *testing.T) *database.DB {

@@ -42,7 +42,7 @@ func TestBookingService_CreateBooking(t *testing.T) {
 	mockEvents := new(MockEventPublisher)
 	mockWorker := new(MockSyncWorker)
 	logger := zerolog.Nop()
-	s := NewBookingService(mockRepo, mockEvents, mockWorker, 365, &logger)
+	s := NewBookingService(mockRepo, mockEvents, mockWorker, 365, 0, &logger)
 
 	booking := &models.Booking{
 		ID:     1,
@@ -68,7 +68,7 @@ func TestBookingService_ConfirmBooking(t *testing.T) {
 	mockEvents := new(MockEventPublisher)
 	mockWorker := new(MockSyncWorker)
 	logger := zerolog.Nop()
-	s := NewBookingService(mockRepo, mockEvents, mockWorker, 365, &logger)
+	s := NewBookingService(mockRepo, mockEvents, mockWorker, 365, 0, &logger)
 
 	bookingID := int64(1)
 	version := int64(1)
@@ -89,7 +89,7 @@ func TestBookingService_ConfirmBooking(t *testing.T) {
 func TestBookingService_CheckAvailability(t *testing.T) {
 	mockRepo := new(MockRepository)
 	logger := zerolog.Nop()
-	s := NewBookingService(mockRepo, nil, nil, 365, &logger)
+	s := NewBookingService(mockRepo, nil, nil, 365, 0, &logger)
 
 	itemID := int64(1)
 	date := time.Now()
@@ -104,7 +104,7 @@ func TestBookingService_CheckAvailability(t *testing.T) {
 
 func TestBookingService_ValidateBookingDate(t *testing.T) {
 	logger := zerolog.Nop()
-	s := NewBookingService(nil, nil, nil, 30, &logger)
+	s := NewBookingService(nil, nil, nil, 30, 0, &logger)
 
 	t.Run("ValidDate", func(t *testing.T) {
 		err := s.ValidateBookingDate(time.Now().AddDate(0, 0, 5))
