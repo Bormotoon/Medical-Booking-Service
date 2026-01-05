@@ -15,4 +15,5 @@ type Booking struct {
 	Comment      string    `json:"comment"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
+	Version      int64     `json:"version"`
 }

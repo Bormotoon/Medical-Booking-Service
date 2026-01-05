@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -18,6 +19,11 @@ type DB struct {
 	*sql.DB
 	items map[int64]models.Item
 }
+
+var (
+	ErrConcurrentModification = errors.New("concurrent modification")
+	ErrNotAvailable           = errors.New("not available")
+)
 
 func NewDB(path string) (*DB, error) {
 	// Создаем директорию для БД, если её нет
@@ -75,19 +81,20 @@ func createTables(db *sql.DB) error {
         )`,
 		// Таблица бронирований
 		`CREATE TABLE IF NOT EXISTS bookings (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            user_name TEXT NOT NULL,
-            user_nickname TEXT,
-            phone TEXT NOT NULL,
-            item_id INTEGER NOT NULL,
-            item_name TEXT NOT NULL,
-            date DATETIME NOT NULL,
-            status TEXT NOT NULL DEFAULT 'pending',
-            comment TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )`,
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER NOT NULL,
+			user_name TEXT NOT NULL,
+			user_nickname TEXT,
+			phone TEXT NOT NULL,
+			item_id INTEGER NOT NULL,
+			item_name TEXT NOT NULL,
+			date DATETIME NOT NULL,
+			status TEXT NOT NULL DEFAULT 'pending',
+			comment TEXT,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			version INTEGER NOT NULL DEFAULT 1
+		)`,
 
 		// Индексы для пользователей
 		`CREATE INDEX IF NOT EXISTS idx_users_telegram_id ON users(telegram_id)`,
@@ -124,6 +131,22 @@ func createTables(db *sql.DB) error {
 		if _, err := db.Exec(query); err != nil {
 			return fmt.Errorf("error executing query %s: %v", query, err)
 		}
+	}
+
+	if err := ensureBookingVersionColumn(db); err != nil {
+		return err
+	}
+	return nil
+}
+
+func ensureBookingVersionColumn(db *sql.DB) error {
+	_, err := db.Exec(`ALTER TABLE bookings ADD COLUMN version INTEGER NOT NULL DEFAULT 1`)
+	if err != nil {
+		// Ignore duplicate column error for SQLite
+		if strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+			return nil
+		}
+		return fmt.Errorf("failed to add version column: %w", err)
 	}
 	return nil
 }
@@ -361,8 +384,8 @@ func (db *DB) GetBookedCount(ctx context.Context, itemID int64, date time.Time) 
 // CreateBooking создает новое бронирование
 func (db *DB) CreateBooking(ctx context.Context, booking *models.Booking) error {
 	query := `
-        INSERT INTO bookings (user_id, user_name, user_nickname, phone, item_id, item_name, date, status, comment, created_at, updated_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        INSERT INTO bookings (user_id, user_name, user_nickname, phone, item_id, item_name, date, status, comment, created_at, updated_at, version)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         RETURNING id
     `
 
@@ -378,6 +401,7 @@ func (db *DB) CreateBooking(ctx context.Context, booking *models.Booking) error 
 		booking.Comment,
 		booking.CreatedAt,
 		booking.UpdatedAt,
+		int64(1),
 	)
 
 	if err != nil {
@@ -390,7 +414,67 @@ func (db *DB) CreateBooking(ctx context.Context, booking *models.Booking) error 
 	}
 
 	booking.ID = id
+	booking.Version = 1
 	return nil
+}
+
+// CreateBookingWithLock выполняет проверку доступности и вставку в одной транзакции с оптимистичным локом.
+func (db *DB) CreateBookingWithLock(ctx context.Context, booking *models.Booking) error {
+	if booking == nil {
+		return fmt.Errorf("booking is nil")
+	}
+
+	now := time.Now()
+	booking.CreatedAt = now
+	booking.UpdatedAt = now
+	if booking.Status == "" {
+		booking.Status = "pending"
+	}
+
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var total int64
+	if err := tx.QueryRowContext(ctx, `SELECT total_quantity FROM items WHERE id = ? AND is_active = 1`, booking.ItemID).Scan(&total); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("item %d not found", booking.ItemID)
+		}
+		return err
+	}
+
+	var booked int64
+	if err := tx.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM bookings
+		WHERE item_id = ? AND date(date) = date(?) AND status IN ('pending', 'confirmed')
+	`, booking.ItemID, booking.Date.Format("2006-01-02")).Scan(&booked); err != nil {
+		return err
+	}
+
+	if booked >= total {
+		return ErrNotAvailable
+	}
+
+	res, err := tx.ExecContext(ctx, `
+		INSERT INTO bookings (user_id, user_name, user_nickname, phone, item_id, item_name, date, status, comment, created_at, updated_at, version)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+	`, booking.UserID, booking.UserName, booking.UserNickname, booking.Phone, booking.ItemID, booking.ItemName, booking.Date, booking.Status, booking.Comment, booking.CreatedAt, booking.UpdatedAt)
+	if err != nil {
+		return err
+	}
+
+	id, err := res.LastInsertId()
+	if err != nil {
+		return err
+	}
+
+	booking.ID = id
+	booking.Version = 1
+
+	return tx.Commit()
 }
 
 // UpdateBookingComment обновляет комментарий заявки
@@ -403,7 +487,7 @@ func (db *DB) UpdateBookingComment(ctx context.Context, bookingID int64, comment
 // GetBooking возвращает бронирование по ID
 func (db *DB) GetBooking(ctx context.Context, id int64) (*models.Booking, error) {
 	query := `
-        SELECT id, user_id, user_name, user_nickname, phone, item_id, item_name, date, status, comment, created_at, updated_at
+	SELECT id, user_id, user_name, user_nickname, phone, item_id, item_name, date, status, comment, created_at, updated_at, version
         FROM bookings WHERE id = ?
     `
 
@@ -421,6 +505,7 @@ func (db *DB) GetBooking(ctx context.Context, id int64) (*models.Booking, error)
 		&booking.Comment,
 		&booking.CreatedAt,
 		&booking.UpdatedAt,
+		&booking.Version,
 	)
 
 	if err != nil {
@@ -438,11 +523,28 @@ func (db *DB) UpdateBookingStatus(ctx context.Context, id int64, status string) 
 	return err
 }
 
+// UpdateBookingStatusWithVersion обновляет статус с проверкой версии (optimistic locking).
+func (db *DB) UpdateBookingStatusWithVersion(ctx context.Context, id int64, fromVersion int64, status string) error {
+	query := `UPDATE bookings SET status = ?, updated_at = ?, version = version + 1 WHERE id = ? AND version = ?`
+	res, err := db.ExecContext(ctx, query, status, time.Now(), id, fromVersion)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return ErrConcurrentModification
+	}
+	return nil
+}
+
 // GetBookingsByDateRange возвращает бронирования за период
 func (db *DB) GetBookingsByDateRange(ctx context.Context, startDate, endDate time.Time) ([]models.Booking, error) {
 	query := `
-        SELECT id, user_id, user_name, user_nickname, phone, item_id, item_name, 
-               date, status, comment, created_at, updated_at
+	 SELECT id, user_id, user_name, user_nickname, phone, item_id, item_name, 
+		 date, status, comment, created_at, updated_at, version
         FROM bookings 
         WHERE strftime('%Y-%m-%d', date) BETWEEN ? AND ?
         ORDER BY date, created_at
@@ -474,6 +576,7 @@ func (db *DB) GetBookingsByDateRange(ctx context.Context, startDate, endDate tim
 			&booking.Comment,
 			&booking.CreatedAt,
 			&booking.UpdatedAt,
+			&booking.Version,
 		)
 		if err != nil {
 			log.Printf("Ошибка при сканировании строки %d: %v", count, err)
@@ -529,13 +632,47 @@ func (db *DB) UpdateBookingItem(ctx context.Context, id int64, itemID int64, ite
 	return err
 }
 
+// UpdateBookingItemWithVersion обновляет товар с проверкой версии (optimistic locking).
+func (db *DB) UpdateBookingItemWithVersion(ctx context.Context, id int64, fromVersion int64, itemID int64, itemName string) error {
+	query := `UPDATE bookings SET item_id = ?, item_name = ?, updated_at = ?, version = version + 1 WHERE id = ? AND version = ?`
+	res, err := db.ExecContext(ctx, query, itemID, itemName, time.Now(), id, fromVersion)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return ErrConcurrentModification
+	}
+	return nil
+}
+
+// UpdateBookingItemAndStatusWithVersion обновляет аппарат и статус за один апдейт.
+func (db *DB) UpdateBookingItemAndStatusWithVersion(ctx context.Context, id int64, fromVersion int64, itemID int64, itemName, status string) error {
+	query := `UPDATE bookings SET item_id = ?, item_name = ?, status = ?, updated_at = ?, version = version + 1 WHERE id = ? AND version = ?`
+	res, err := db.ExecContext(ctx, query, itemID, itemName, status, time.Now(), id, fromVersion)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return ErrConcurrentModification
+	}
+	return nil
+}
+
 // GetUserBookings возвращает список всех бронирований пользователя
 func (db *DB) GetUserBookings(ctx context.Context, userID int64) ([]models.Booking, error) {
 	// Рассчитываем дату 2 недели назад
 	twoWeeksAgo := time.Now().AddDate(0, 0, -14)
 
 	query := `
-        SELECT id, user_id, user_name, user_nickname, phone, item_id, item_name, date, status, comment, created_at, updated_at
+	SELECT id, user_id, user_name, user_nickname, phone, item_id, item_name, date, status, comment, created_at, updated_at, version
         FROM bookings 
         WHERE user_id = ? AND date >= ?
         ORDER BY created_at DESC
@@ -563,6 +700,7 @@ func (db *DB) GetUserBookings(ctx context.Context, userID int64) ([]models.Booki
 			&booking.Comment,
 			&booking.CreatedAt,
 			&booking.UpdatedAt,
+			&booking.Version,
 		)
 		if err != nil {
 			return nil, err

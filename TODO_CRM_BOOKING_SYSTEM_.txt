@@ -165,7 +165,7 @@
   - [x] `cancelBooking()` — добавить задачу в очередь
   - [x] `completeBooking()` — добавить задачу в очередь
 
-- [ ] **Пример модификации в `internal/bot/utils.go`**
+ - [x] **Пример модификации в `internal/bot/utils.go`**
   ```go
   // Было: 
   go func() {
@@ -187,7 +187,7 @@
 ## 1.3 Устранение блокировок и data race
 
 ### 1.3.1 Анализ текущих проблем
-- [ ] **Выявить синхронные вызовы, блокирующие UI**
+- [x] **Выявить синхронные вызовы, блокирующие UI**
   - `SyncBookingsToSheets()` — вызывается синхронно
   - `SyncScheduleToSheets()` — вызывается синхронно
   - `AppendBookingToSheets()` — вызывается синхронно
@@ -225,7 +225,7 @@
   - `booking_item_changed` — изменен аппарат
 
 ### 1.3.3 Защита от data race
-- [ ] **Использовать транзакции для критических операций**
+- [x] **Использовать транзакции для критических операций**
   ```go
   func (db *DB) CreateBookingWithLock(ctx context. Context, booking *models.Booking) error {
       tx, err := db. BeginTx(ctx, nil)
@@ -256,7 +256,7 @@
   }
   ```
 
-- [ ] **Добавить optimistic locking для бронирований**
+- [x] **Добавить optimistic locking для бронирований**
   ```sql
   ALTER TABLE bookings ADD COLUMN version INTEGER DEFAULT 1;
   ```
@@ -281,7 +281,7 @@
 ## 1.4 Улучшения конфигурации
 
 ### 1.4.1 Хранение items в базе данных
-- [ ] **Создать таблицу items**
+- [x] **Создать таблицу items**
   ```sql
   CREATE TABLE IF NOT EXISTS items (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -296,7 +296,7 @@
   CREATE INDEX IF NOT EXISTS idx_items_sort ON items(sort_order, id);
   ```
 
-- [ ] **CRUD для items**
+- [x] **CRUD для items**
   ```go
   func (db *DB) GetActiveItems(ctx context. Context) ([]models.Item, error)
   func (db *DB) CreateItem(ctx context.Context, item *models.Item) error

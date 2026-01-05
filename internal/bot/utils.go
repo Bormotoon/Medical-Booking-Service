@@ -2,11 +2,13 @@ package bot
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
 	"time"
 
+	"bronivik/internal/database"
 	"bronivik/internal/events"
 	"bronivik/internal/models"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -339,8 +341,13 @@ func (b *Bot) finalizeBooking(update tgbotapi.Update) {
 		UpdatedAt:    time.Now(),
 	}
 
-	err = b.db.CreateBooking(context.Background(), &booking)
+	err = b.db.CreateBookingWithLock(context.Background(), &booking)
 	if err != nil {
+		if errors.Is(err, database.ErrNotAvailable) {
+			b.sendMessage(update.Message.Chat.ID, "К сожалению, позиция стала недоступна. Попробуйте выбрать другую дату.")
+			b.handleMainMenu(update)
+			return
+		}
 		log.Printf("Error creating booking: %v", err)
 		b.sendMessage(update.Message.Chat.ID, "Произошла ошибка при создании заявки. Попробуйте позже.")
 		return
