@@ -184,7 +184,7 @@ func (b *Bot) handleCallback(ctx context.Context, cq *tgbotapi.CallbackQuery) {
 		}
 		st.Draft.ItemName = name
 		st.Step = stepDate
-		b.sendCalendar(chatID, st.Draft.CabinetID)
+		b.sendCalendar(chatID)
 		return
 
 	case strings.HasPrefix(data, "date:"):
@@ -196,7 +196,7 @@ func (b *Bot) handleCallback(ctx context.Context, cq *tgbotapi.CallbackQuery) {
 
 	case strings.HasPrefix(data, "back:"):
 		st.Step = stepDate
-		b.sendCalendar(chatID, st.Draft.CabinetID)
+		b.sendCalendar(chatID)
 		return
 
 	case strings.HasPrefix(data, "slot:"):
