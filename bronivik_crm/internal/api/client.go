@@ -8,6 +8,8 @@ import (
     "net/url"
     "strings"
     "time"
+
+    "github.com/redis/go-redis/v9"
 )
 
 // BronivikClient is a simple HTTP client to call bronivik_jr availability APIs.
@@ -15,6 +17,9 @@ type BronivikClient struct {
     baseURL    string
     apiKey     string
     httpClient *http.Client
+
+    redis    *redis.Client
+    cacheTTL time.Duration
 }
 
 // AvailabilityResponse mirrors bronivik_jr availability response.
@@ -40,13 +45,26 @@ func NewBronivikClient(baseURL, apiKey string) *BronivikClient {
     }
 }
 
+// UseRedisCache configures optional Redis caching for GET endpoints.
+func (c *BronivikClient) UseRedisCache(redisClient *redis.Client, ttl time.Duration) {
+    c.redis = redisClient
+    c.cacheTTL = ttl
+}
+
 // GetAvailability fetches availability for item/date (YYYY-MM-DD).
 func (c *BronivikClient) GetAvailability(ctx context.Context, itemName, date string) (*AvailabilityResponse, error) {
     endpoint := fmt.Sprintf("%s/api/v1/availability/%s?date=%s", c.baseURL, url.PathEscape(itemName), url.QueryEscape(date))
+    cacheKey := fmt.Sprintf("availability:%s:%s", itemName, date)
     var resp AvailabilityResponse
+
+    if c.readCache(ctx, cacheKey, &resp) {
+        return &resp, nil
+    }
+
     if err := c.doGet(ctx, endpoint, &resp); err != nil {
         return nil, err
     }
+    c.writeCache(ctx, cacheKey, resp)
     return &resp, nil
 }
 
@@ -73,13 +91,45 @@ func (c *BronivikClient) GetAvailabilityBulk(ctx context.Context, items, dates [
 // ListItems returns all items.
 func (c *BronivikClient) ListItems(ctx context.Context) ([]Item, error) {
     endpoint := fmt.Sprintf("%s/api/v1/items", c.baseURL)
+    cacheKey := "items"
     var wrap struct {
         Items []Item `json:"items"`
     }
+
+    if c.readCache(ctx, cacheKey, &wrap) {
+        return wrap.Items, nil
+    }
+
     if err := c.doGet(ctx, endpoint, &wrap); err != nil {
         return nil, err
     }
+    c.writeCache(ctx, cacheKey, wrap)
     return wrap.Items, nil
+}
+
+func (c *BronivikClient) readCache(ctx context.Context, key string, out any) bool {
+    if c.redis == nil || c.cacheTTL <= 0 {
+        return false
+    }
+    val, err := c.redis.Get(ctx, key).Result()
+    if err != nil {
+        return false
+    }
+    if err := json.Unmarshal([]byte(val), out); err != nil {
+        return false
+    }
+    return true
+}
+
+func (c *BronivikClient) writeCache(ctx context.Context, key string, val any) {
+    if c.redis == nil || c.cacheTTL <= 0 {
+        return
+    }
+    data, err := json.Marshal(val)
+    if err != nil {
+        return
+    }
+    _ = c.redis.Set(ctx, key, data, c.cacheTTL).Err()
 }
 
 func (c *BronivikClient) doGet(ctx context.Context, endpoint string, out any) error {

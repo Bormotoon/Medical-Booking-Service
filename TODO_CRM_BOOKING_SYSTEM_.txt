@@ -679,7 +679,7 @@ bronivik_crm/
   ```
 
 ### 2.3.2 Кэширование результатов
-- [ ] **Добавить кэширование через Redis**
+- [x] **Добавить кэширование через Redis**
   ```go
   type CachedBronivikClient struct {
       client      *BronivikClient
