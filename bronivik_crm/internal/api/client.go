@@ -14,35 +14,25 @@ import (
 
 // BronivikClient is a simple HTTP client to call bronivik_jr availability APIs.
 type BronivikClient struct {
-    baseURL    string
-    apiKey     string
-    httpClient *http.Client
+	baseURL    string
+	apiKey     string
+	apiExtra   string
+	httpClient *http.Client
 
-    redis    *redis.Client
-    cacheTTL time.Duration
+	redis    *redis.Client
+	cacheTTL time.Duration
 }
 
-// AvailabilityResponse mirrors bronivik_jr availability response.
-type AvailabilityResponse struct {
-    Available   bool  `json:"available"`
-    BookedCount int   `json:"booked_count"`
-    Total       int   `json:"total"`
-}
+// ... (AvailabilityResponse, Item structs)
 
-// Item describes an item entry from bronivik_jr API.
-type Item struct {
-    ID            int64  `json:"id"`
-    Name          string `json:"name"`
-    TotalQuantity int64  `json:"total_quantity"`
-}
-
-// NewBronivikClient constructs a client with baseURL and API key.
-func NewBronivikClient(baseURL, apiKey string) *BronivikClient {
-    return &BronivikClient{
-        baseURL: baseURL,
-        apiKey:  apiKey,
-        httpClient: &http.Client{Timeout: 10 * time.Second},
-    }
+// NewBronivikClient constructs a client with baseURL, API key and extra header.
+func NewBronivikClient(baseURL, apiKey, apiExtra string) *BronivikClient {
+	return &BronivikClient{
+		baseURL:    baseURL,
+		apiKey:     apiKey,
+		apiExtra:   apiExtra,
+		httpClient: &http.Client{Timeout: 10 * time.Second},
+	}
 }
 
 // UseRedisCache configures optional Redis caching for GET endpoints.
@@ -173,7 +163,10 @@ func (c *BronivikClient) do(req *http.Request, out any) error {
 }
 
 func (c *BronivikClient) addHeaders(req *http.Request) {
-    if c.apiKey != "" {
-        req.Header.Set("x-api-key", c.apiKey)
-    }
+	if c.apiKey != "" {
+		req.Header.Set("x-api-key", c.apiKey)
+	}
+	if c.apiExtra != "" {
+		req.Header.Set("x-api-extra", c.apiExtra)
+	}
 }

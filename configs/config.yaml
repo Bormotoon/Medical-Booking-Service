@@ -82,8 +82,8 @@ api:
     header_api_key: "x-api-key"
     header_extra: "x-api-extra"
     api_keys:
-      - key: "secret-key-for-crm-bot"
-        extra: "secret-extra-header-for-crm-bot"
+      - key: ${CRM_API_KEY}
+        extra: ${CRM_API_EXTRA}
         name: "bronivik_crm"
         permissions: ["read:availability", "read:items"]
   rate_limit:

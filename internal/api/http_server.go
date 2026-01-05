@@ -40,6 +40,8 @@ func NewHTTPServer(cfg config.APIConfig, db *database.DB, logger *zerolog.Logger
 	apiMux.HandleFunc("/api/v1/availability/bulk", srv.handleAvailabilityBulk)
 	apiMux.HandleFunc("/api/v1/availability/", srv.handleAvailability)
 	apiMux.HandleFunc("/api/v1/items", srv.handleItems)
+	apiMux.HandleFunc("/healthz", srv.handleHealthz)
+	apiMux.HandleFunc("/readyz", srv.handleReadyz)
 
 	handler := srv.loggingMiddleware(corsMiddleware(srv.auth.Wrap(apiMux)))
 
@@ -86,6 +88,14 @@ func (s *HTTPServer) handleAvailability(w http.ResponseWriter, r *http.Request) 
 
 	itemName := strings.TrimPrefix(r.URL.Path, prefix)
 	itemName = strings.TrimSpace(itemName)
+	// Простейшая очистка от потенциально опасных символов
+	itemName = strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == ' ' || (r >= 'а' && r <= 'я') || (r >= 'А' && r <= 'Я') {
+			return r
+		}
+		return -1
+	}, itemName)
+
 	if itemName == "" || strings.Contains(itemName, "/") {
 		writeError(w, http.StatusBadRequest, "item_name is required")
 		return
@@ -185,6 +195,25 @@ func (s *HTTPServer) handleAvailabilityBulk(w http.ResponseWriter, r *http.Reque
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"results": results})
+}
+
+func (s *HTTPServer) handleHealthz(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("ok"))
+}
+
+func (s *HTTPServer) handleReadyz(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+
+	if err := s.db.PingContext(ctx); err != nil {
+		s.log.Error().Err(err).Msg("readyz: database ping failed")
+		writeError(w, http.StatusServiceUnavailable, "database not ready")
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("ready"))
 }
 
 func (s *HTTPServer) handleItems(w http.ResponseWriter, r *http.Request) {

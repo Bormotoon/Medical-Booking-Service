@@ -199,24 +199,49 @@ func (db *DB) GetBookingsByDateRange(ctx context.Context, startDate, endDate tim
 }
 
 func (db *DB) GetAvailabilityForPeriod(ctx context.Context, itemID int64, startDate time.Time, days int) ([]models.Availability, error) {
+	endDate := startDate.AddDate(0, 0, days-1)
+
+	// Используем date() для нормализации даты в SQLite
+	query := `SELECT date(date) as d, COUNT(*) as booked_count 
+              FROM bookings 
+              WHERE item_id = ? AND date BETWEEN ? AND ? AND status NOT IN (?, ?)
+              GROUP BY d`
+
+	rows, err := db.QueryContext(ctx, query, itemID, startDate.Format("2006-01-02"), endDate.Format("2006-01-02"), models.StatusCancelled, "rejected")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get availability batch: %w", err)
+	}
+	defer rows.Close()
+
+	bookedCounts := make(map[string]int)
+	for rows.Next() {
+		var dateStr string
+		var count int
+		if err := rows.Scan(&dateStr, &count); err != nil {
+			return nil, err
+		}
+		bookedCounts[dateStr] = count
+	}
+
+	db.mu.RLock()
+	item := db.itemsCache[itemID]
+	db.mu.RUnlock()
+
 	var availability []models.Availability
 	for i := 0; i < days; i++ {
 		date := startDate.AddDate(0, 0, i)
-		booked, err := db.GetBookedCount(ctx, itemID, date)
-		if err != nil {
-			return nil, err
-		}
+		dateStr := date.Format("2006-01-02")
+		booked := bookedCounts[dateStr]
 
-		db.mu.RLock()
-		item := db.itemsCache[itemID]
-		db.mu.RUnlock()
-		available := 1
-		if booked >= int(item.TotalQuantity) {
+		available := int(item.TotalQuantity) - booked
+		if available < 0 {
 			available = 0
 		}
 
 		availability = append(availability, models.Availability{
 			Date:      date,
+			ItemID:    itemID,
+			Booked:    int64(booked),
 			Available: int64(available),
 		})
 	}
