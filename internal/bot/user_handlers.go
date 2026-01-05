@@ -42,6 +42,12 @@ func (b *Bot) handleMessage(ctx context.Context, update tgbotapi.Update) {
 
 	state := b.getUserState(ctx, userID)
 
+	// Обработка общих кнопок "Назад" и "Отмена"
+	if text == "❌ Отмена" || text == "⬅️ Назад" {
+		b.handleCustomInput(ctx, update, state)
+		return
+	}
+
 	switch {
 	case text == "/start" || strings.ToLower(text) == "сброс" || strings.ToLower(text) == "reset":
 		b.clearUserState(ctx, update.Message.From.ID)

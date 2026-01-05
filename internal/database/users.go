@@ -18,6 +18,10 @@ func (db *DB) CreateOrUpdateUser(ctx context.Context, user *models.User) error {
                 language_code = excluded.language_code,
                 last_activity = excluded.last_activity,
                 updated_at = excluded.updated_at`
+	lastActivity := user.LastActivity
+	if lastActivity.IsZero() {
+		lastActivity = time.Now()
+	}
 	now := time.Now()
 	_, err := db.ExecContext(ctx, query,
 		user.TelegramID,
@@ -28,7 +32,7 @@ func (db *DB) CreateOrUpdateUser(ctx context.Context, user *models.User) error {
 		user.IsManager,
 		user.IsBlacklisted,
 		user.LanguageCode,
-		now,
+		lastActivity,
 		now,
 		now,
 	)

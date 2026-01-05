@@ -106,3 +106,50 @@ func TestUserBlacklist(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, found.IsBlacklisted)
 }
+func TestGetUserByID(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+
+	ctx := context.Background()
+
+	user := &models.User{
+		TelegramID:   444,
+		FirstName:    "ID User",
+		LastActivity: time.Now(),
+	}
+	db.CreateOrUpdateUser(ctx, user)
+
+	// Get the auto-incremented ID
+	foundByTG, _ := db.GetUserByTelegramID(ctx, 444)
+	id := int64(foundByTG.ID)
+
+	found, err := db.GetUserByID(ctx, id)
+	require.NoError(t, err)
+	assert.Equal(t, int64(444), found.TelegramID)
+}
+
+func TestGetActiveUsers(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+
+	ctx := context.Background()
+
+	// Active user
+	db.CreateOrUpdateUser(ctx, &models.User{
+		TelegramID:   555,
+		FirstName:    "Active",
+		LastActivity: time.Now(),
+	})
+
+	// Inactive user
+	db.CreateOrUpdateUser(ctx, &models.User{
+		TelegramID:   666,
+		FirstName:    "Inactive",
+		LastActivity: time.Now().AddDate(0, 0, -40),
+	})
+
+	active, err := db.GetActiveUsers(ctx, 30)
+	require.NoError(t, err)
+	assert.Len(t, active, 1)
+	assert.Equal(t, int64(555), active[0].TelegramID)
+}

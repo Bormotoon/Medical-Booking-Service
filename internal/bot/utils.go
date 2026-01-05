@@ -537,6 +537,37 @@ func (b *Bot) requestSpecificDate(ctx context.Context, update tgbotapi.Update) {
 
 // handleCustomInput ...
 func (b *Bot) handleCustomInput(ctx context.Context, update tgbotapi.Update, state *models.UserState) {
+	if state == nil {
+		b.sendMessage(update.Message.Chat.ID, "Неизвестная команда. Используйте меню.")
+		b.handleMainMenu(ctx, update)
+		return
+	}
+
+	text := update.Message.Text
+	userID := update.Message.From.ID
+
+	// Обработка общих кнопок "Назад" и "Отмена"
+	if text == "❌ Отмена" {
+		b.clearUserState(ctx, userID)
+		b.sendMessage(update.Message.Chat.ID, "❌ Действие отменено")
+		b.handleMainMenu(ctx, update)
+		return
+	}
+
+	if text == "⬅️ Назад" {
+		switch state.CurrentStep {
+		case models.StateEnterName:
+			b.handleDateSelection(ctx, update, state.GetInt64("item_id"))
+			return
+		case models.StatePhoneNumber:
+			b.handleNameRequest(ctx, update)
+			return
+		case models.StateWaitingDate:
+			b.handleSelectItem(ctx, update)
+			return
+		}
+	}
+
 	switch state.CurrentStep {
 	default:
 		b.sendMessage(update.Message.Chat.ID, "Неизвестная команда. Используйте меню.")

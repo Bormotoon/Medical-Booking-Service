@@ -2,6 +2,7 @@ package google
 
 import (
 	"bronivik/internal/models"
+	"os"
 	"testing"
 	"time"
 )
@@ -129,9 +130,100 @@ func TestFormatScheduleCell(t *testing.T) {
 		bookings := []models.Booking{
 			{ID: 1, UserName: "User 1", Phone: "111", Status: models.StatusConfirmed},
 		}
-		val, _ := s.formatScheduleCell(item, bookings)
+		val, color := s.formatScheduleCell(item, bookings)
 		if val == "" {
 			t.Error("Expected non-empty value")
 		}
+		// Green-ish
+		if color.Green < 0.9 {
+			t.Errorf("Expected green color, got %+v", color)
+		}
 	})
+
+	t.Run("FullyBooked", func(t *testing.T) {
+		bookings := []models.Booking{
+			{ID: 1, UserName: "User 1", Phone: "111", Status: models.StatusConfirmed},
+			{ID: 2, UserName: "User 2", Phone: "222", Status: models.StatusConfirmed},
+		}
+		val, color := s.formatScheduleCell(item, bookings)
+		if val == "" {
+			t.Error("Expected non-empty value")
+		}
+		// Red-ish
+		if color.Red < 0.9 {
+			t.Errorf("Expected red color, got %+v", color)
+		}
+	})
+
+	t.Run("Unconfirmed", func(t *testing.T) {
+		bookings := []models.Booking{
+			{ID: 1, UserName: "User 1", Phone: "111", Status: models.StatusPending},
+		}
+		val, color := s.formatScheduleCell(item, bookings)
+		if val == "" {
+			t.Error("Expected non-empty value")
+		}
+		// Yellow-ish
+		if color.Red < 0.9 || color.Green < 0.9 {
+			t.Errorf("Expected yellow color, got %+v", color)
+		}
+	})
+}
+
+func TestPrepareItemRowData(t *testing.T) {
+	s := &SheetsService{}
+	item := models.Item{ID: 1, Name: "Camera", TotalQuantity: 2}
+	startDate := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	dailyBookings := map[string][]models.Booking{
+		"2025-01-01": {{ID: 1, ItemID: 1, Status: models.StatusConfirmed}},
+	}
+
+	rowData, cellFormats := s.prepareItemRowData(item, startDate, 2, dailyBookings)
+	if len(rowData) != 3 {
+		t.Errorf("Expected 3 elements in rowData, got %d", len(rowData))
+	}
+	if len(cellFormats) != 2 {
+		t.Errorf("Expected 2 cellFormats, got %d", len(cellFormats))
+	}
+}
+
+func TestPrepareEmptyItemsRow(t *testing.T) {
+	s := &SheetsService{}
+	row := s.prepareEmptyItemsRow(3)
+	if len(row) != 4 {
+		t.Errorf("Expected 4 elements, got %d", len(row))
+	}
+	if row[0] != "Нет доступных аппаратов" {
+		t.Errorf("Unexpected first element: %v", row[0])
+	}
+}
+
+func TestGetServiceAccountEmail(t *testing.T) {
+	s := &SheetsService{}
+	content := `{"client_email": "test@example.com"}`
+	tmpfile, err := os.CreateTemp("", "creds.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpfile.Name())
+
+	if _, err := tmpfile.Write([]byte(content)); err != nil {
+		t.Fatal(err)
+	}
+	if err := tmpfile.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	email, err := s.GetServiceAccountEmail(tmpfile.Name())
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+	if email != "test@example.com" {
+		t.Errorf("Expected test@example.com, got %s", email)
+	}
+
+	_, err = s.GetServiceAccountEmail("non-existent")
+	if err == nil {
+		t.Error("Expected error for non-existent file")
+	}
 }

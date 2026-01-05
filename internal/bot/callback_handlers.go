@@ -76,14 +76,27 @@ func (b *Bot) handleCallbackQuery(ctx context.Context, update tgbotapi.Update) {
 func (b *Bot) handleDateSelection(ctx context.Context, update tgbotapi.Update, itemID int64) {
 	selectedItem, err := b.itemService.GetItemByID(ctx, itemID)
 	if err != nil {
-		b.sendMessage(update.CallbackQuery.Message.Chat.ID, "Ошибка: аппарат не найден")
+		b.logger.Error().Err(err).Int64("item_id", itemID).Msg("Error getting item by ID")
 		return
 	}
 
-	msg := tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID,
+	var chatID int64
+	var userID int64
+
+	if update.CallbackQuery != nil {
+		chatID = update.CallbackQuery.Message.Chat.ID
+		userID = update.CallbackQuery.From.ID
+	} else if update.Message != nil {
+		chatID = update.Message.Chat.ID
+		userID = update.Message.From.ID
+	} else {
+		return
+	}
+
+	msg := tgbotapi.NewMessage(chatID,
 		fmt.Sprintf("Вы выбрали: %s\n\nВведите дату в формате ДД.ММ.ГГГГ (например, 25.12.2024):", selectedItem.Name))
 
-	b.setUserState(ctx, update.CallbackQuery.From.ID, models.StateWaitingDate, map[string]interface{}{
+	b.setUserState(ctx, userID, models.StateWaitingDate, map[string]interface{}{
 		"item_id": itemID,
 	})
 

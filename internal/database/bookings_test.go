@@ -145,3 +145,56 @@ func TestOptimisticLocking(t *testing.T) {
 	err = db.UpdateBookingStatusWithVersion(ctx, updated.ID, updated.Version, models.StatusCancelled)
 	require.NoError(t, err)
 }
+
+func TestGetDailyBookings(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+
+	ctx := context.Background()
+	date := time.Date(2025, 5, 22, 0, 0, 0, 0, time.UTC)
+
+	err := db.CreateBooking(ctx, &models.Booking{
+		ItemID: 1, ItemName: "Item 1", Date: date, UserID: 1, UserName: "User 1", Phone: "123", Status: models.StatusConfirmed,
+	})
+	require.NoError(t, err)
+
+	daily, err := db.GetDailyBookings(ctx, date, date)
+	require.NoError(t, err)
+	assert.NotEmpty(t, daily)
+	assert.Len(t, daily["2025-05-22"], 1)
+}
+
+func TestGetUserBookings(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+
+	ctx := context.Background()
+
+	db.CreateBooking(ctx, &models.Booking{
+		ItemID: 1, ItemName: "Item 1", Date: time.Now(), UserID: 123, UserName: "User 1", Phone: "123", Status: models.StatusConfirmed,
+	})
+
+	bookings, err := db.GetUserBookings(ctx, 123)
+	require.NoError(t, err)
+	assert.Len(t, bookings, 1)
+}
+
+func TestUpdateBookingItem(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+
+	ctx := context.Background()
+
+	booking := &models.Booking{
+		ItemID: 1, ItemName: "Item 1", Date: time.Now(), UserID: 1, UserName: "User 1", Phone: "123", Status: models.StatusPending,
+	}
+	db.CreateBooking(ctx, booking)
+
+	err := db.UpdateBookingItemAndStatusWithVersion(ctx, booking.ID, booking.Version, 2, "Item 2", models.StatusChanged)
+	require.NoError(t, err)
+
+	updated, _ := db.GetBooking(ctx, booking.ID)
+	assert.Equal(t, int64(2), updated.ItemID)
+	assert.Equal(t, "Item 2", updated.ItemName)
+	assert.Equal(t, models.StatusChanged, updated.Status)
+}
