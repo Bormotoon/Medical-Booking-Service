@@ -772,7 +772,7 @@ bronivik_crm/
   - [x] Сообщения пользователю при отказе: слот занят / аппарат недоступен
   - [x] Повторный выбор шага (аппарат/дата/время) без перезапуска сценария
 
-- [ ] **Пользователи (CRM)**
+- [x] **Пользователи (CRM)**
   - [x] Get-or-create пользователя по `telegram_id` в БД
   - [x] Хранить `username/first_name/last_name/phone` (если доступно)
 
@@ -995,7 +995,7 @@ bronivik_crm/
   - `sheets_sync_duration_seconds` — время синхронизации
   - `sheets_sync_errors_total` — ошибки синхронизации
 
-- [ ] **Метрики для bronivik_crm**
+- [x] **Метрики для bronivik_crm**
 - [x] **Метрики для bronivik_crm**
   - `hourly_bookings_total`
   - `cabinet_occupancy_rate`
@@ -1003,7 +1003,7 @@ bronivik_crm/
   - `bronivik_api_latency_seconds`
 
 ### 4.1.2 Алерты
-- [ ] **Настроить алерты**
+- [x] **Настроить алерты**
   - Sheets sync failed > 5 раз подряд
   - API недоступен > 1 минуты
   - База данных недоступна
