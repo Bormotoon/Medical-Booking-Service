@@ -136,6 +136,7 @@ func main() {
 
 	log.Println("Бот запущен...")
 	go telegramBot.Start()
+	telegramBot.StartReminders(ctx)
 
 	<-ctx.Done()
 	log.Println("Shutdown signal received...")

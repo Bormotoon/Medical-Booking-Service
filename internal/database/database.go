@@ -821,6 +821,36 @@ func (db *DB) GetUserByTelegramID(ctx context.Context, telegramID int64) (*model
 	return &user, nil
 }
 
+// GetUserByID возвращает пользователя по внутреннему ID.
+func (db *DB) GetUserByID(ctx context.Context, id int64) (*models.User, error) {
+	query := `
+		SELECT id, telegram_id, username, first_name, last_name, phone, is_manager, is_blacklisted, language_code, last_activity, created_at, updated_at
+		FROM users WHERE id = ?
+	`
+
+	var user models.User
+	err := db.QueryRowContext(ctx, query, id).Scan(
+		&user.ID,
+		&user.TelegramID,
+		&user.Username,
+		&user.FirstName,
+		&user.LastName,
+		&user.Phone,
+		&user.IsManager,
+		&user.IsBlacklisted,
+		&user.LanguageCode,
+		&user.LastActivity,
+		&user.CreatedAt,
+		&user.UpdatedAt,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &user, nil
+}
+
 // UpdateUserPhone обновляет номер телефона пользователя
 func (db *DB) UpdateUserPhone(ctx context.Context, telegramID int64, phone string) error {
 	query := `UPDATE users SET phone = ?, updated_at = ? WHERE telegram_id = ?`
