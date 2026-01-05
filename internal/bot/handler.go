@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -731,8 +732,6 @@ func (b *Bot) getUserStats(update tgbotapi.Update) {
 		log.Printf("Error getting managers: %v", err)
 	}
 
-	_, err = b.db.GetUsersByManagerStatus(ctx, false) // Черный список - это не менеджеры с is_blacklisted = true
-	// Нужно отдельно считать черный список
 	var blacklistedCount int
 	for _, user := range allUsers {
 		if user.IsBlacklisted {
@@ -742,19 +741,20 @@ func (b *Bot) getUserStats(update tgbotapi.Update) {
 
 	// Формируем сообщение со статистикой
 	var message strings.Builder
-	message.WriteString("📊 *Статистика пользователей*\n\n")
-	message.WriteString(fmt.Sprintf("👥 Всего пользователей: *%d*\n", len(allUsers)))
-	message.WriteString(fmt.Sprintf("🟢 Активных (30 дней): *%d*\n", len(activeUsers)))
-	message.WriteString(fmt.Sprintf("👨‍💼 Менеджеров: *%d*\n", len(managers)))
-	message.WriteString(fmt.Sprintf("🚫 В черном списке: *%d*\n\n", blacklistedCount))
+	message.WriteString("📊 *Статистика*\n\n")
 
-	// Последние 5 пользователей
-	message.WriteString("📈 *Последние пользователи:*\n")
+	// Пользователи
+	message.WriteString("👥 *Пользователи*\n")
+	message.WriteString(fmt.Sprintf("Всего: *%d*\n", len(allUsers)))
+	message.WriteString(fmt.Sprintf("Активных (30д): *%d*\n", len(activeUsers)))
+	message.WriteString(fmt.Sprintf("Менеджеров: *%d*\n", len(managers)))
+	message.WriteString(fmt.Sprintf("В черном списке: *%d*\n\n", blacklistedCount))
+
+	message.WriteString("Последние пользователи:\n")
 	count := 5
 	if len(allUsers) < count {
 		count = len(allUsers)
 	}
-
 	for i := 0; i < count; i++ {
 		user := allUsers[i]
 		emoji := "👤"
@@ -770,11 +770,30 @@ func (b *Bot) getUserStats(update tgbotapi.Update) {
 			user.LastName,
 			user.LastActivity.Format("02.01.2006")))
 	}
+	message.WriteString("\n")
+
+	// Бронирования
+	now := time.Now()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	periods := []struct {
+		label string
+		start time.Time
+		end   time.Time
+	}{
+		{"Сегодня", today, today},
+		{"7 дней", today.AddDate(0, 0, -6), today},
+		{"30 дней", today.AddDate(0, 0, -29), today},
+	}
+
+	message.WriteString("📅 *Бронирования*\n")
+	for _, p := range periods {
+		summary := b.bookingSummary(ctx, p.start, p.end)
+		message.WriteString(fmt.Sprintf("%s: %s\n", p.label, summary))
+	}
 
 	msg := tgbotapi.NewMessage(update.Message.Chat.ID, message.String())
 	msg.ParseMode = "Markdown"
 
-	// Добавляем кнопку для экспорта пользователей
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("📤 Экспорт пользователей", "export_users"),
@@ -783,6 +802,63 @@ func (b *Bot) getUserStats(update tgbotapi.Update) {
 	msg.ReplyMarkup = &keyboard
 
 	b.bot.Send(msg)
+}
+
+// bookingSummary агрегирует заявки за период в компактный блок: всего, статусы, топ-товары.
+func (b *Bot) bookingSummary(ctx context.Context, startDate, endDate time.Time) string {
+	bookings, err := b.db.GetBookingsByDateRange(ctx, startDate, endDate)
+	if err != nil {
+		log.Printf("bookingSummary: %v", err)
+		return "ошибка"
+	}
+
+	if len(bookings) == 0 {
+		return "нет данных"
+	}
+
+	statusCount := map[string]int{}
+	itemCount := map[string]int{}
+
+	for _, bk := range bookings {
+		statusCount[bk.Status]++
+		itemCount[bk.ItemName]++
+	}
+
+	statusOrder := []string{"pending", "confirmed", "changed", "completed", "cancelled"}
+	var statusParts []string
+	for _, st := range statusOrder {
+		if c := statusCount[st]; c > 0 {
+			statusParts = append(statusParts, fmt.Sprintf("%s:%d", st, c))
+		}
+	}
+
+	type kv struct {
+		name  string
+		count int
+	}
+	var items []kv
+	for name, c := range itemCount {
+		items = append(items, kv{name: name, count: c})
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].count == items[j].count {
+			return items[i].name < items[j].name
+		}
+		return items[i].count > items[j].count
+	})
+	if len(items) > 3 {
+		items = items[:3]
+	}
+	var itemParts []string
+	for _, it := range items {
+		itemParts = append(itemParts, fmt.Sprintf("%s:%d", it.name, it.count))
+	}
+
+	return fmt.Sprintf("всего %d | статусы [%s] | топ [%s]",
+		len(bookings),
+		strings.Join(statusParts, ", "),
+		strings.Join(itemParts, ", "),
+	)
 }
 
 // handleExportUsers обработка экспорта пользователей
