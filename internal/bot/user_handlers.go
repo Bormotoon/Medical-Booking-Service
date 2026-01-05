@@ -86,7 +86,7 @@ func (b *Bot) handleMessage(ctx context.Context, update tgbotapi.Update) {
 		}
 
 	case state != nil && state.CurrentStep == StateEnterName:
-		state.TempData["user_name"] = text
+		state.TempData["user_name"] = b.sanitizeInput(text)
 		b.setUserState(ctx, userID, StatePhoneNumber, state.TempData)
 		b.handlePhoneRequest(ctx, update)
 

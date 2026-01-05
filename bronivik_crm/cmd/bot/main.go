@@ -41,6 +41,7 @@ type Config struct {
 	API struct {
 		BaseURL         string `yaml:"base_url"`
 		APIKey          string `yaml:"api_key"`
+		APIExtra        string `yaml:"api_extra"`
 		CacheTTLSeconds int    `yaml:"cache_ttl_seconds"`
 	} `yaml:"api"`
 
@@ -93,7 +94,7 @@ func main() {
 	}
 	defer db.Close()
 
-	client := crmapi.NewBronivikClient(cfg.API.BaseURL, cfg.API.APIKey)
+	client := crmapi.NewBronivikClient(cfg.API.BaseURL, cfg.API.APIKey, cfg.API.APIExtra)
 	var rdb *redis.Client
 	if cfg.Redis.Address != "" && cfg.API.CacheTTLSeconds > 0 {
 		rdb = redis.NewClient(&redis.Options{Addr: cfg.Redis.Address, Password: cfg.Redis.Password, DB: cfg.Redis.DB})

@@ -1098,8 +1098,8 @@ bronivik_crm/
   - Разбит на отдельные обработчики в `user_handlers.go`
 - [x] **internal/bot/handler.go: handleCallbackQuery() — 140+ строк** [DONE]
   - Разбит на отдельные обработчики в `callback_handlers.go`
-- [ ] **internal/bot/manager.go — 800+ строк**
-  - Разбить на файлы: manager_bookings.go, manager_items.go, manager_users.go
+- [x] **internal/bot/manager.go — 800+ строк** [DONE]
+  - Разбит на файлы: manager_bookings.go, manager_items.go, manager_stats.go, manager_sync.go
 - [x] **internal/database/database.go — 900+ строк** [DONE]
   - Разбит на: users.go, bookings.go, items.go, sync_queue.go
 
@@ -1192,7 +1192,7 @@ bronivik_crm/
   - Критичные функции: handleBooking, finalizeBooking, confirm/reject
 - [ ] **internal/config/** — 0% покрытия
   - Тесты загрузки конфига, валидации
-- [ ] **internal/database/** — 0% покрытия (bronivik_jr)
+- [x] **internal/database/** — 0% покрытия (bronivik_jr)
   - CRUD операции, транзакции
 - [ ] **internal/google/** — 0% покрытия
   - Mock Google API для тестов
@@ -1373,17 +1373,17 @@ bronivik_crm/
 # 📊 ПРИОРИТЕТЫ ИСПРАВЛЕНИЙ
 
 ## Критические (исправить в течение недели)
-1. [ ] Race condition в userStates (mutex)
+1. [x] Race condition в userStates (mutex)
 2. [ ] Дубликаты ID в items.yaml
-3. [ ] Unit-тесты для database package
-4. [ ] Валидация конфигурации
+3. [x] Unit-тесты для database package
+4. [x] Валидация конфигурации
 
 ## Высокий приоритет (2-3 недели)
-5. [ ] Сохранение userStates в Redis
-6. [ ] Рефакторинг длинных функций
+5. [x] Сохранение userStates в Redis
+6. [x] Рефакторинг длинных функций
 7. [ ] Вынести константы статусов
 8. [ ] CI/CD pipeline с линтером
-9. [ ] Батч-запросы для availability
+9. [x] Батч-запросы для availability
 
 ## Средний приоритет (1-2 месяца)
 10. [ ] Service layer для бизнес-логики

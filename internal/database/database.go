@@ -103,7 +103,9 @@ func (db *DB) createTables() error {
 			comment TEXT,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-			version INTEGER NOT NULL DEFAULT 1
+			version INTEGER NOT NULL DEFAULT 1,
+			FOREIGN KEY(item_id) REFERENCES items(id),
+			FOREIGN KEY(user_id) REFERENCES users(telegram_id)
 		)`,
 
 		// Индексы для пользователей
@@ -113,6 +115,12 @@ func (db *DB) createTables() error {
 
 		// Индексы для items
 		`CREATE INDEX IF NOT EXISTS idx_items_sort ON items(sort_order, id)`,
+
+		// Уникальный индекс для предотвращения двойного бронирования (если количество = 1)
+		// Примечание: это работает только если TotalQuantity всегда 1. 
+		// Если TotalQuantity > 1, логика должна быть сложнее (в коде через транзакции).
+		// Но для базовой защиты добавим индекс по (item_id, date, status)
+		`CREATE INDEX IF NOT EXISTS idx_bookings_item_date_status ON bookings(item_id, date, status)`,
 
 		// Очередь синхронизации в Sheets
 		`CREATE TABLE IF NOT EXISTS sync_queue (

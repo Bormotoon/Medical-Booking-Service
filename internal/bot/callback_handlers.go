@@ -42,7 +42,7 @@ func (b *Bot) handleCallbackQuery(ctx context.Context, update tgbotapi.Update) {
 
 	case strings.HasPrefix(data, "items_page:"):
 		page, _ := strconv.Atoi(strings.TrimPrefix(data, "items_page:"))
-		b.sendItemsPage(ctx, callback.Message.Chat.ID, userID, page)
+		b.sendItemsPage(ctx, callback.Message.Chat.ID, callback.Message.MessageID, page)
 
 	case strings.HasPrefix(data, "select_item:"):
 		itemID, _ := strconv.ParseInt(strings.TrimPrefix(data, "select_item:"), 10, 64)
@@ -50,7 +50,7 @@ func (b *Bot) handleCallbackQuery(ctx context.Context, update tgbotapi.Update) {
 
 	case strings.HasPrefix(data, "schedule_items_page:"):
 		page, _ := strconv.Atoi(strings.TrimPrefix(data, "schedule_items_page:"))
-		b.sendScheduleItemsPage(ctx, callback.Message.Chat.ID, userID, page)
+		b.sendScheduleItemsPage(ctx, callback.Message.Chat.ID, callback.Message.MessageID, page)
 
 	case strings.HasPrefix(data, "schedule_select_item:"):
 		itemID, _ := strconv.ParseInt(strings.TrimPrefix(data, "schedule_select_item:"), 10, 64)

@@ -484,71 +484,28 @@ func (b *Bot) handleViewSchedule(ctx context.Context, update tgbotapi.Update) {
 	})
 
 	// Отправляем выбор аппарата
-	b.sendScheduleItemsPage(ctx, update.Message.Chat.ID, update.Message.From.ID, 0)
+	b.sendScheduleItemsPage(ctx, update.Message.Chat.ID, 0, 0)
 }
 
 // sendScheduleItemsPage отправляет страницу с аппаратами для просмотра расписания
-func (b *Bot) sendScheduleItemsPage(ctx context.Context, chatID, userID int64, page int) {
-	itemsPerPage := 8
-	startIdx := page * itemsPerPage
-	endIdx := startIdx + itemsPerPage
-	if endIdx > len(b.items) {
-		endIdx = len(b.items)
-	}
-
-	var message strings.Builder
-	message.WriteString("🏢 *Выберите аппарат для просмотра расписания:*\n\n")
-	message.WriteString(fmt.Sprintf("Страница %d из %d\n\n", page+1, (len(b.items)+itemsPerPage-1)/itemsPerPage))
-
-	currentItems := b.items[startIdx:endIdx]
-	for i, item := range currentItems {
-		message.WriteString(fmt.Sprintf("%d. *%s*\n", startIdx+i+1, item.Name))
-		message.WriteString(fmt.Sprintf("   📝 %s\n", item.Description))
-	}
-
-	var keyboard [][]tgbotapi.InlineKeyboardButton
-
-	// Кнопки выбора аппаратов для расписания
-	for i, item := range currentItems {
-		btn := tgbotapi.NewInlineKeyboardButtonData(
-			fmt.Sprintf("%d. %s", startIdx+i+1, item.Name),
-			fmt.Sprintf("schedule_select_item:%d", item.ID),
-		)
-		keyboard = append(keyboard, []tgbotapi.InlineKeyboardButton{btn})
-	}
-
-	// Кнопки навигации
-	var navButtons []tgbotapi.InlineKeyboardButton
-
-	if page > 0 {
-		navButtons = append(navButtons, tgbotapi.NewInlineKeyboardButtonData("⬅️ Назад", fmt.Sprintf("schedule_items_page:%d", page-1)))
-	}
-
-	if endIdx < len(b.items) {
-		navButtons = append(navButtons, tgbotapi.NewInlineKeyboardButtonData("Вперед ➡️", fmt.Sprintf("schedule_items_page:%d", page+1)))
-	}
-
-	if len(navButtons) > 0 {
-		keyboard = append(keyboard, navButtons)
-	}
-
-	// Кнопка возврата
-	keyboard = append(keyboard, []tgbotapi.InlineKeyboardButton{
-		tgbotapi.NewInlineKeyboardButtonData("⬅️ Назад в меню", "back_to_main_from_schedule"),
+func (b *Bot) sendScheduleItemsPage(ctx context.Context, chatID int64, messageID int, page int) {
+	b.renderPaginatedItems(PaginationParams{
+		Ctx:          ctx,
+		ChatID:       chatID,
+		MessageID:    messageID,
+		Page:         page,
+		Title:        "🏢 *Выберите аппарат для просмотра расписания:*",
+		ItemPrefix:   "schedule_select_item:",
+		PagePrefix:   "schedule_items_page:",
+		BackCallback: "back_to_main_from_schedule",
+		ShowCapacity: false,
 	})
-
-	markup := tgbotapi.NewInlineKeyboardMarkup(keyboard...)
-
-	msg := tgbotapi.NewMessage(chatID, message.String())
-	msg.ReplyMarkup = &markup
-	msg.ParseMode = "Markdown"
-
-	b.bot.Send(msg)
 }
 
 func (b *Bot) handleSelectItem(ctx context.Context, update tgbotapi.Update) {
 	var chatID int64
 	var userID int64
+	var messageID int
 
 	// Определяем источник вызова
 	if update.Message != nil {
@@ -559,6 +516,7 @@ func (b *Bot) handleSelectItem(ctx context.Context, update tgbotapi.Update) {
 		// Вызов из callback
 		chatID = update.CallbackQuery.Message.Chat.ID
 		userID = update.CallbackQuery.From.ID
+		messageID = update.CallbackQuery.Message.MessageID
 
 		// Отвечаем на callback (убираем "часики")
 		callbackConfig := tgbotapi.NewCallback(update.CallbackQuery.ID, "")
@@ -577,68 +535,22 @@ func (b *Bot) handleSelectItem(ctx context.Context, update tgbotapi.Update) {
 	})
 
 	// Отправляем первую страницу
-	b.sendItemsPage(ctx, chatID, userID, 0)
+	b.sendItemsPage(ctx, chatID, messageID, 0)
 }
 
 // sendItemsPage отправляет страницу с аппаратами
-func (b *Bot) sendItemsPage(ctx context.Context, chatID, userID int64, page int) {
-	itemsPerPage := 8 // Количество аппаратов на странице
-	startIdx := page * itemsPerPage
-	endIdx := startIdx + itemsPerPage
-	if endIdx > len(b.items) {
-		endIdx = len(b.items)
-	}
-
-	var message strings.Builder
-	message.WriteString("🏢 *Доступные аппараты*\n\n")
-	message.WriteString(fmt.Sprintf("Страница %d из %d\n\n", page+1, (len(b.items)+itemsPerPage-1)/itemsPerPage))
-
-	// Текущие аппараты на странице
-	currentItems := b.items[startIdx:endIdx]
-	for i, item := range currentItems {
-		message.WriteString(fmt.Sprintf("%d. *%s*\n", startIdx+i+1, item.Name))
-		message.WriteString(fmt.Sprintf("   📝 %s\n", item.Description))
-	}
-
-	// Создаем Inline-клавиатуру
-	var keyboard [][]tgbotapi.InlineKeyboardButton
-
-	// Кнопки выбора аппаратов
-	for i, item := range currentItems {
-		btn := tgbotapi.NewInlineKeyboardButtonData(
-			fmt.Sprintf("%d. %s", startIdx+i+1, item.Name),
-			fmt.Sprintf("select_item:%d", item.ID),
-		)
-		keyboard = append(keyboard, []tgbotapi.InlineKeyboardButton{btn})
-	}
-
-	// Кнопки навигации
-	var navButtons []tgbotapi.InlineKeyboardButton
-
-	if page > 0 {
-		navButtons = append(navButtons, tgbotapi.NewInlineKeyboardButtonData("⬅️ Назад", fmt.Sprintf("items_page:%d", page-1)))
-	}
-
-	if endIdx < len(b.items) {
-		navButtons = append(navButtons, tgbotapi.NewInlineKeyboardButtonData("Вперед ➡️", fmt.Sprintf("items_page:%d", page+1)))
-	}
-
-	if len(navButtons) > 0 {
-		keyboard = append(keyboard, navButtons)
-	}
-
-	// Кнопка возврата
-	keyboard = append(keyboard, []tgbotapi.InlineKeyboardButton{
-		tgbotapi.NewInlineKeyboardButtonData("⬅️ Назад в меню", "back_to_main"),
+func (b *Bot) sendItemsPage(ctx context.Context, chatID int64, messageID int, page int) {
+	b.renderPaginatedItems(PaginationParams{
+		Ctx:          ctx,
+		ChatID:       chatID,
+		MessageID:    messageID,
+		Page:         page,
+		Title:        "🏢 *Доступные аппараты*",
+		ItemPrefix:   "select_item:",
+		PagePrefix:   "items_page:",
+		BackCallback: "back_to_main",
+		ShowCapacity: false,
 	})
-
-	markup := tgbotapi.NewInlineKeyboardMarkup(keyboard...)
-
-	msg := tgbotapi.NewMessage(chatID, message.String())
-	msg.ReplyMarkup = &markup
-	msg.ParseMode = "Markdown"
-
-	b.bot.Send(msg)
 }
 
 // showAvailableItems показывает доступные позиции
@@ -793,6 +705,25 @@ func (b *Bot) handleCustomInput(ctx context.Context, update tgbotapi.Update, sta
 	}
 }
 
+// sanitizeInput удаляет потенциально опасные символы из ввода
+func (b *Bot) sanitizeInput(input string) string {
+	// Ограничиваем длину
+	if len(input) > 500 {
+		input = input[:500]
+	}
+	// Удаляем управляющие символы и HTML-теги (простейшая очистка)
+	replacer := strings.NewReplacer(
+		"<", "&lt;",
+		">", "&gt;",
+		"\"", "&quot;",
+		"'", "&#39;",
+		"\n", " ",
+		"\r", " ",
+		"\t", " ",
+	)
+	return strings.TrimSpace(replacer.Replace(input))
+}
+
 // handleDateInput обрабатывает ввод даты для бронирования
 func (b *Bot) handleDateInput(ctx context.Context, update tgbotapi.Update, dateStr string, state *models.UserState) {
 	b.debugState(ctx, update.Message.From.ID, "handleDateInput START")
@@ -809,6 +740,15 @@ func (b *Bot) handleDateInput(ctx context.Context, update tgbotapi.Update, dateS
 	if date.Before(time.Now().AddDate(0, 0, -1)) {
 		msg := tgbotapi.NewMessage(update.Message.Chat.ID,
 			"Нельзя бронировать на прошедшие даты. Выберите будущую дату.")
+		b.bot.Send(msg)
+		return
+	}
+
+	// Проверяем максимальную дату (например, 1 год вперед)
+	maxDate := time.Now().AddDate(1, 0, 0)
+	if date.After(maxDate) {
+		msg := tgbotapi.NewMessage(update.Message.Chat.ID,
+			fmt.Sprintf("Нельзя бронировать более чем на год вперед (максимум до %s).", maxDate.Format("02.01.2006")))
 		b.bot.Send(msg)
 		return
 	}

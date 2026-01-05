@@ -281,6 +281,13 @@ func (s *SheetsService) deleteCacheRow(id int64) {
 	delete(s.rowCache, id)
 }
 
+// ClearCache clears the row index cache.
+func (s *SheetsService) ClearCache() {
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+	s.rowCache = make(map[int64]int)
+}
+
 func bookingRowValues(booking *models.Booking) []interface{} {
 	return []interface{}{
 		booking.ID,
@@ -766,5 +773,6 @@ func (s *SheetsService) ReplaceBookingsSheet(ctx context.Context, bookings []*mo
 		return fmt.Errorf("failed to update bookings sheet: %v", err)
 	}
 
+	s.ClearCache()
 	return nil
 }

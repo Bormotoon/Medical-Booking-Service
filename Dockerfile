@@ -32,5 +32,9 @@ COPY --from=builder /go/bin/api .
 # Создаем папку для конфигов
 RUN mkdir /configs
 
+# Добавляем HEALTHCHECK
+HEALTHCHECK --interval=30s --timeout=3s \
+  CMD wget --spider http://localhost:8080/healthz || exit 1
+
 # Указываем команду запуска
 CMD ["./bot"]

@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"bronivik/internal/api"
 	"bronivik/internal/bot"
 	"bronivik/internal/config"
 	"bronivik/internal/database"
@@ -147,6 +148,17 @@ func main() {
 
 	eventBus := events.NewEventBus()
 	subscribeBookingEvents(ctx, eventBus, db, sheetsWorker, &logger)
+
+	// Инициализация API сервера
+	if cfg.API.Enabled {
+		apiServer := api.NewHTTPServer(cfg.API, db, &logger)
+		go func() {
+			if err := apiServer.Start(); err != nil {
+				logger.Error().Err(err).Msg("API server error")
+			}
+		}()
+		defer apiServer.Shutdown(context.Background())
+	}
 
 	// Создание и запуск бота
 	telegramBot, err := bot.NewBot(cfg.Telegram.BotToken, cfg, itemsConfig.Items, db, stateService, sheetsService, sheetsWorker, eventBus, &logger)
