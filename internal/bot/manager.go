@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"bronivik/internal/database"
 	"bronivik/internal/events"
 	"bronivik/internal/models"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -713,23 +714,22 @@ func (b *Bot) handleChangeItem(update tgbotapi.Update) {
 		return
 	}
 
-	// Обновляем заявку
-	err = b.db.UpdateBookingItem(context.Background(), bookingID, selectedItem.ID, selectedItem.Name)
+	// Обновляем заявку и статус с проверкой версии
+	err = b.db.UpdateBookingItemAndStatusWithVersion(context.Background(), bookingID, booking.Version, selectedItem.ID, selectedItem.Name, "changed")
 	if err != nil {
+		if err == database.ErrConcurrentModification {
+			b.sendMessage(callback.Message.Chat.ID, "Заявка была обновлена кем-то еще. Обновите данные и попробуйте снова.")
+			return
+		}
 		log.Printf("Error updating booking item: %v", err)
 		b.sendMessage(callback.Message.Chat.ID, "Ошибка при обновлении заявки")
 		return
 	}
 
-	// Обновляем статус
-	err = b.db.UpdateBookingStatus(context.Background(), bookingID, "changed")
-	if err != nil {
-		log.Printf("Error updating booking status: %v", err)
-	}
-
 	booking.ItemID = selectedItem.ID
 	booking.ItemName = selectedItem.Name
 	booking.Status = "changed"
+	booking.Version++
 	b.publishBookingEvent(events.EventBookingItemChange, *booking, "manager", callback.From.ID)
 
 	// Уведомляем пользователя
@@ -819,11 +819,18 @@ func (b *Bot) sendManagerBookingDetail(chatID int64, booking *models.Booking) {
 
 // reopenBooking возврат заявки в работу
 func (b *Bot) reopenBooking(booking *models.Booking, managerChatID int64) {
-	err := b.db.UpdateBookingStatus(context.Background(), booking.ID, "pending")
+	err := b.db.UpdateBookingStatusWithVersion(context.Background(), booking.ID, booking.Version, "pending")
 	if err != nil {
+		if err == database.ErrConcurrentModification {
+			b.sendMessage(managerChatID, "Заявка уже изменена. Обновите данные и попробуйте снова.")
+			return
+		}
 		log.Printf("Error reopening booking: %v", err)
 		return
 	}
+
+	booking.Version++
+	booking.Status = "pending"
 
 	// Уведомляем пользователя
 	userMsg := tgbotapi.NewMessage(booking.UserID,
@@ -839,11 +846,18 @@ func (b *Bot) reopenBooking(booking *models.Booking, managerChatID int64) {
 
 // completeBooking завершение заявки
 func (b *Bot) completeBooking(booking *models.Booking, managerChatID int64) {
-	err := b.db.UpdateBookingStatus(context.Background(), booking.ID, "completed")
+	err := b.db.UpdateBookingStatusWithVersion(context.Background(), booking.ID, booking.Version, "completed")
 	if err != nil {
+		if err == database.ErrConcurrentModification {
+			b.sendMessage(managerChatID, "Заявка уже изменена. Обновите данные и попробуйте снова.")
+			return
+		}
 		log.Printf("Error completing booking: %v", err)
 		return
 	}
+
+	booking.Version++
+	booking.Status = "completed"
 
 	booking.Status = "completed"
 	b.publishBookingEvent(events.EventBookingCompleted, *booking, "manager", managerChatID)
@@ -935,11 +949,18 @@ func (b *Bot) SyncScheduleToSheets() {
 
 // confirmBooking подтверждение бронирования менеджером
 func (b *Bot) confirmBooking(booking *models.Booking, managerChatID int64) {
-	err := b.db.UpdateBookingStatus(context.Background(), booking.ID, "confirmed")
+	err := b.db.UpdateBookingStatusWithVersion(context.Background(), booking.ID, booking.Version, "confirmed")
 	if err != nil {
+		if err == database.ErrConcurrentModification {
+			b.sendMessage(managerChatID, "Заявка уже изменена. Обновите данные и попробуйте снова.")
+			return
+		}
 		log.Printf("Error confirming booking: %v", err)
 		return
 	}
+
+	booking.Version++
+	booking.Status = "confirmed"
 
 	booking.Status = "confirmed"
 	b.publishBookingEvent(events.EventBookingConfirmed, *booking, "manager", managerChatID)
@@ -960,11 +981,18 @@ func (b *Bot) confirmBooking(booking *models.Booking, managerChatID int64) {
 
 // rejectBooking отклонение бронирования менеджером
 func (b *Bot) rejectBooking(booking *models.Booking, managerChatID int64) {
-	err := b.db.UpdateBookingStatus(context.Background(), booking.ID, "cancelled")
+	err := b.db.UpdateBookingStatusWithVersion(context.Background(), booking.ID, booking.Version, "cancelled")
 	if err != nil {
+		if err == database.ErrConcurrentModification {
+			b.sendMessage(managerChatID, "Заявка уже изменена. Обновите данные и попробуйте снова.")
+			return
+		}
 		log.Printf("Error rejecting booking: %v", err)
 		return
 	}
+
+	booking.Version++
+	booking.Status = "cancelled"
 
 	booking.Status = "cancelled"
 	b.publishBookingEvent(events.EventBookingCancelled, *booking, "manager", managerChatID)
