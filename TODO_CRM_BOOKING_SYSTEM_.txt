@@ -1192,14 +1192,10 @@ bronivik_crm/
 ### 5.5.1 Отсутствующие unit-тесты [DONE]
 - [x] **internal/bot/** — Покрытие базовых сценариев и интеграционного флоу
   - Критичные функции: handleBooking, finalizeBooking, confirm/reject
-- [ ] **internal/config/** — 0% покрытия
-  - Тесты загрузки конфига, валидации
-- [x] **internal/database/** — 0% покрытия (bronivik_jr)
-  - CRUD операции, транзакции
-- [ ] **internal/google/** — 0% покрытия
-  - Mock Google API для тестов
-- [ ] **internal/events/** — 0% покрытия
-  - EventBus подписки и публикация
+- [x] **internal/config/** — Тесты загрузки конфига, валидации
+- [x] **internal/database/** — CRUD операции, транзакции
+- [x] **internal/google/** — Тесты кэша и вспомогательных функций
+- [x] **internal/events/** — EventBus подписки и публикация
 
 ### 5.5.2 Интеграционные тесты
 - [x] **Полный flow бронирования**
