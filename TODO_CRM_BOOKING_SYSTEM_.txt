@@ -71,8 +71,8 @@
 ## 1.2 Рефакторинг синхронизации с Google Sheets
 
 ### 1.2.1 Переход на точечное обновление
-- [ ] **Рефакторинг `internal/google/sheets_simple.go`**
-  - [ ] Заменить `ReplaceBookingsSheet()` на:
+- [x] **Рефакторинг `internal/google/sheets_simple.go`**
+  - [x] Заменить `ReplaceBookingsSheet()` на:
     ```go
     // UpsertBooking обновляет или вставляет одну запись
     func (s *SheetsService) UpsertBooking(booking *models.Booking) error
@@ -84,13 +84,13 @@
     func (s *SheetsService) UpdateBookingStatus(bookingID int64, status string) error
     ```
   
-  - [ ] Реализовать поиск строки по ID бронирования
+  - [x] Реализовать поиск строки по ID бронирования
     ```go
     // FindBookingRow находит номер строки по ID бронирования
     func (s *SheetsService) FindBookingRow(bookingID int64) (int, error)
     ```
 
-  - [ ] Кэширование маппинга `booking_id -> row_number` в Redis/memory
+  - [x] Кэширование маппинга `booking_id -> row_number` в Redis/memory
 
 ### 1.2.2 Создание Worker для отложенных обновлений
 - [ ] **Создать файл `internal/worker/sheets_worker.go`**
@@ -133,7 +133,7 @@
   ```
 
 ### 1.2.3 Создание таблицы для очереди синхронизации
-- [ ] **Добавить миграцию в `internal/database/database.go`**
+- [x] **Добавить миграцию в `internal/database/database.go`**
   ```sql
   CREATE TABLE IF NOT EXISTS sync_queue (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -152,7 +152,7 @@
   CREATE INDEX IF NOT EXISTS idx_sync_queue_next_retry ON sync_queue(next_retry_at);
   ```
 
-- [ ] **CRUD методы для sync_queue**
+- [x] **CRUD методы для sync_queue**
   ```go
   func (db *DB) CreateSyncTask(ctx context.Context, task *SyncTask) error
   func (db *DB) GetPendingSyncTasks(ctx context.Context, limit int) ([]SyncTask, error)
