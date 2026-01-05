@@ -598,7 +598,7 @@ bronivik_crm/
 ## 2.3 Клиент API для связи с bronivik_jr
 
 ### 2.3.1 Клиент
-- [ ] **Создать файл `internal/api/client.go`**
+- [x] **Создать файл `internal/api/client.go`**
   ```go
   package api
   
