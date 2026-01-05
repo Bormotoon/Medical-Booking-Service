@@ -25,9 +25,12 @@ type Bot struct {
 	rules    BookingRules
 }
 
+var errActiveLimit = errors.New("active bookings limit reached")
+
 type BookingRules struct {
-	MinAdvance time.Duration
-	MaxAdvance time.Duration
+	MinAdvance       time.Duration
+	MaxAdvance       time.Duration
+	MaxActivePerUser int
 }
 
 func New(token string, apiClient *crmapi.BronivikClient, db *database.DB, managers []int64, rules BookingRules) (*Bot, error) {
@@ -44,6 +47,9 @@ func New(token string, apiClient *crmapi.BronivikClient, db *database.DB, manage
 	}
 	if rules.MaxAdvance <= 0 {
 		rules.MaxAdvance = 30 * 24 * time.Hour
+	}
+	if rules.MaxActivePerUser < 0 {
+		rules.MaxActivePerUser = 0
 	}
 	return &Bot{api: apiClient, db: db, managers: mgrs, bot: b, state: newStateStore(), rules: rules}, nil
 }
@@ -238,6 +244,16 @@ func (b *Bot) handleCallback(ctx context.Context, cq *tgbotapi.CallbackQuery) {
 				b.reply(chatID, "Аппарат недоступен на эту дату. Выберите другой аппарат или 'Без аппарата'.")
 				st.Step = stepItem
 				b.sendItems(chatID)
+				return
+			}
+			if errors.Is(err, database.ErrSlotMisaligned) {
+				b.reply(chatID, "Слот не совпадает с расписанием. Выберите другое время.")
+				st.Step = stepTime
+				b.sendTimeSlots(ctx, chatID, userID)
+				return
+			}
+			if errors.Is(err, errActiveLimit) {
+				b.reply(chatID, "Достигнут лимит активных бронирований. Отмените существующее или свяжитесь с менеджером.")
 				return
 			}
 			b.reply(chatID, "Не удалось создать бронирование")
@@ -541,6 +557,15 @@ func (b *Bot) finalizeBooking(ctx context.Context, cq *tgbotapi.CallbackQuery, s
 	}
 	if err := b.validateBookingTime(start); err != nil {
 		return err
+	}
+	if b.rules.MaxActivePerUser > 0 {
+		count, err := b.db.CountActiveUserBookings(ctx, u.ID)
+		if err != nil {
+			return err
+		}
+		if count >= b.rules.MaxActivePerUser {
+			return errActiveLimit
+		}
 	}
 
 	bk := &models.HourlyBooking{

@@ -21,6 +21,7 @@ var (
 	ErrBookingForbidden = errors.New("booking not owned by user")
 	ErrBookingTooLate   = errors.New("booking already started")
 	ErrBookingFinalized = errors.New("booking already finalized")
+	ErrSlotMisaligned   = errors.New("slot not aligned with schedule")
 )
 
 // DB wraps sql.DB for the CRM bot.
@@ -454,6 +455,16 @@ func (db *DB) CancelUserBooking(ctx context.Context, bookingID, userID int64) er
 	return tx.Commit()
 }
 
+// CountActiveUserBookings returns count of future, non-cancelled bookings for a user.
+func (db *DB) CountActiveUserBookings(ctx context.Context, userID int64) (int, error) {
+	row := db.QueryRowContext(ctx, `SELECT COUNT(1) FROM hourly_bookings WHERE user_id = ? AND end_time >= ? AND status NOT IN ('cancelled','rejected')`, userID, time.Now())
+	var count int
+	if err := row.Scan(&count); err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 // CheckSlotAvailability verifies if a time slot is free for a cabinet on a date.
 func (db *DB) CheckSlotAvailability(ctx context.Context, cabinetID int64, date time.Time, start, end time.Time) (bool, error) {
 	tx, err := db.BeginTx(ctx, nil)
@@ -518,6 +529,10 @@ func (db *DB) CreateHourlyBookingWithChecks(ctx context.Context, booking *models
 		return err
 	}
 	defer tx.Rollback()
+
+	if err := validateSlotAlignmentTx(ctx, tx, booking.CabinetID, booking.StartTime, booking.EndTime); err != nil {
+		return err
+	}
 
 	// slot availability
 	ok, err := checkSlotAvailabilityTx(ctx, tx, booking.CabinetID, booking.StartTime, booking.StartTime, booking.EndTime)
@@ -617,6 +632,44 @@ func resolveScheduleWindowTx(ctx context.Context, tx *sql.Tx, cabinetID int64, d
 	}
 
 	return startWin, endWin, sched.SlotDuration, nil
+}
+
+// GetScheduleWindow returns schedule window and slot duration for a cabinet/date.
+func (db *DB) GetScheduleWindow(ctx context.Context, cabinetID int64, date time.Time) (time.Time, time.Time, int, error) {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return time.Time{}, time.Time{}, 0, err
+	}
+	defer tx.Rollback()
+
+	startWin, endWin, slotDuration, err := resolveScheduleWindowTx(ctx, tx, cabinetID, date)
+	if err != nil {
+		return time.Time{}, time.Time{}, 0, err
+	}
+	return startWin, endWin, slotDuration, nil
+}
+
+func validateSlotAlignmentTx(ctx context.Context, tx *sql.Tx, cabinetID int64, start, end time.Time) error {
+	startWin, endWin, slotDuration, err := resolveScheduleWindowTx(ctx, tx, cabinetID, start)
+	if err != nil {
+		return err
+	}
+	if startWin.IsZero() || endWin.IsZero() || slotDuration <= 0 {
+		return nil
+	}
+
+	slot := time.Duration(slotDuration) * time.Minute
+	if !end.After(start) || end.Sub(start) != slot {
+		return ErrSlotMisaligned
+	}
+	if start.Before(startWin) || end.After(endWin) {
+		return ErrSlotMisaligned
+	}
+	delta := start.Sub(startWin)
+	if delta%slot != 0 {
+		return ErrSlotMisaligned
+	}
+	return nil
 }
 
 func loadOverrideTx(ctx context.Context, tx *sql.Tx, cabinetID int64, date time.Time) (start string, end string, closed bool, err error) {

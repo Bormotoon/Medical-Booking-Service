@@ -25,6 +25,7 @@ api:
 booking:
   min_advance_minutes: 60
   max_advance_days: 30
+  max_active_per_user: 0   # 0 = без лимита
 
 managers:
   - 123456789

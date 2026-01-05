@@ -41,6 +41,7 @@ type Config struct {
 	Booking struct {
 		MinAdvanceMinutes int `yaml:"min_advance_minutes"`
 		MaxAdvanceDays    int `yaml:"max_advance_days"`
+		MaxActivePerUser  int `yaml:"max_active_per_user"`
 	} `yaml:"booking"`
 
 	Managers []int64 `yaml:"managers"`
@@ -104,5 +105,5 @@ func botRulesFromConfig(cfg Config) bot.BookingRules {
 	if cfg.Booking.MaxAdvanceDays > 0 {
 		maxAdvance = time.Duration(cfg.Booking.MaxAdvanceDays) * 24 * time.Hour
 	}
-	return bot.BookingRules{MinAdvance: minAdvance, MaxAdvance: maxAdvance}
+	return bot.BookingRules{MinAdvance: minAdvance, MaxAdvance: maxAdvance, MaxActivePerUser: cfg.Booking.MaxActivePerUser}
 }
