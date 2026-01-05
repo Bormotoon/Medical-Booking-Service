@@ -1,0 +1,38 @@
+app:
+  name: "bronivik-crm"
+  environment: "staging"
+  version: "1.0.0"
+
+telegram:
+  bot_token: "YOUR_BOT_TOKEN_HERE"
+  webhook_url: ""
+  debug: false
+
+database:
+  path: "data/bronivik_crm.db"
+
+redis:
+  address: ""
+  password: ""
+  db: 0
+  pool_size: 10
+
+api:
+  base_url: "http://localhost:8080"  # bronivik_jr HTTP API base
+  api_key: "secret-key-for-crm-bot"
+  cache_ttl_seconds: 300
+
+managers:
+  - 123456789
+
+logging:
+  level: "info"
+  format: "text"
+  output: "stdout"
+  file_path: ""
+
+monitoring:
+  prometheus_enabled: false
+  prometheus_port: 9090
+  health_check_port: 8090
+  log_level: "info"

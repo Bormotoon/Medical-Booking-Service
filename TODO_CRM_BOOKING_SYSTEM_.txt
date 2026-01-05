@@ -770,7 +770,7 @@ bronivik_crm/
 ## 2.5 Конфигурация CRM бота
 
 ### 2.5.1 Файл конфигурации
-- [ ] **Создать `configs/config.yaml`**
+- [x] **Создать `configs/config.yaml`**
   ```yaml
   app:
     name:  "bronivik-crm"
