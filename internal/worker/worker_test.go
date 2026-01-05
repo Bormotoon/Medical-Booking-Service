@@ -89,6 +89,24 @@ func TestProcessTaskRetry(t *testing.T) {
 	}
 }
 
+func TestProcessTaskFail(t *testing.T) {
+	db := newTestDB(t)
+	sheets := &fakeSheets{err: errors.New("fatal")}
+	worker := NewSheetsWorker(db, sheets, nil, RetryPolicy{MaxRetries: 1}, nil)
+
+	booking := &models.Booking{ID: 3, UserID: 1, UserName: "tester", Phone: "+100", ItemID: 10, ItemName: "camera", Date: time.Now(), Status: "pending", CreatedAt: time.Now(), UpdatedAt: time.Now()}
+
+	ctx := context.Background()
+	worker.EnqueueTask(ctx, TaskUpsert, booking.ID, booking, "")
+	task, _ := worker.tryLocalQueue()
+	worker.processTask(ctx, &task)
+
+	status, _, _ := loadTaskStatus(t, db, task.ID)
+	if status != "failed" {
+		t.Fatalf("expected status=failed, got %s", status)
+	}
+}
+
 func TestRetryPolicyNextDelay(t *testing.T) {
 	policy := RetryPolicy{InitialDelay: time.Second, BackoffFactor: 2, MaxDelay: 5 * time.Second}
 	d1 := policy.NextDelay(1)

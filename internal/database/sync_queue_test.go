@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"testing"
+	"time"
 
 	"bronivik/internal/models"
 
@@ -47,4 +48,33 @@ func TestSyncQueueCRUD(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, failed, 1)
 	assert.Equal(t, "some error", *failed[0].LastError)
+
+	// Retry logic
+	task2 := &models.SyncTask{TaskType: "retry_test", BookingID: 102, Status: "pending"}
+	db.CreateSyncTask(ctx, task2)
+	
+	nextRetry := time.Now().Add(time.Hour)
+	err = db.UpdateSyncTaskStatus(ctx, task2.ID, "retry", "temporary error", &nextRetry)
+	require.NoError(t, err)
+
+	// Should not be returned by GetPendingSyncTasks because nextRetry is in the future
+	tasks, _ = db.GetPendingSyncTasks(ctx, 10)
+	for _, task := range tasks {
+		if task.ID == task2.ID {
+			assert.Fail(t, "task with future retry should not be pending")
+		}
+	}
+
+	// Update to past retry
+	pastRetry := time.Now().Add(-time.Hour)
+	db.UpdateSyncTaskStatus(ctx, task2.ID, "retry", "temporary error", &pastRetry)
+	tasks, _ = db.GetPendingSyncTasks(ctx, 10)
+	found := false
+	for _, task := range tasks {
+		if task.ID == task2.ID {
+			found = true
+			assert.Equal(t, 2, task.RetryCount)
+		}
+	}
+	assert.True(t, found)
 }

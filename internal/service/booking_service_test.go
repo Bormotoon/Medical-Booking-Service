@@ -102,6 +102,53 @@ func TestBookingService_CheckAvailability(t *testing.T) {
 	mockRepo.AssertExpectations(t)
 }
 
+func TestBookingService_RejectBooking(t *testing.T) {
+	mockRepo := new(MockRepository)
+	mockEvents := new(MockEventPublisher)
+	mockWorker := new(MockSyncWorker)
+	logger := zerolog.Nop()
+	s := NewBookingService(mockRepo, mockEvents, mockWorker, 365, 0, &logger)
+
+	bookingID := int64(1)
+	version := int64(1)
+	managerID := int64(123)
+	booking := &models.Booking{ID: bookingID, Status: models.StatusCancelled}
+
+	mockRepo.On("UpdateBookingStatusWithVersion", mock.Anything, bookingID, version, models.StatusCancelled).Return(nil)
+	mockRepo.On("GetBooking", mock.Anything, bookingID).Return(booking, nil)
+	mockEvents.On("PublishJSON", mock.Anything, mock.Anything).Return(nil)
+	mockWorker.On("EnqueueTask", mock.Anything, "update_status", bookingID, booking, models.StatusCancelled).Return(nil)
+	mockWorker.On("EnqueueSyncSchedule", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+	err := s.RejectBooking(context.Background(), bookingID, version, managerID)
+	assert.NoError(t, err)
+}
+
+func TestBookingService_ChangeBookingItem(t *testing.T) {
+	mockRepo := new(MockRepository)
+	mockEvents := new(MockEventPublisher)
+	mockWorker := new(MockSyncWorker)
+	logger := zerolog.Nop()
+	s := NewBookingService(mockRepo, mockEvents, mockWorker, 365, 0, &logger)
+
+	bookingID := int64(1)
+	version := int64(1)
+	newItemID := int64(2)
+	managerID := int64(123)
+	booking := &models.Booking{ID: bookingID, ItemID: newItemID, ItemName: "New Item", Status: models.StatusChanged}
+
+	mockRepo.On("GetBookingWithAvailability", mock.Anything, bookingID, newItemID).Return(&models.Booking{ID: bookingID}, true, nil)
+	mockRepo.On("GetActiveItems", mock.Anything).Return([]models.Item{{ID: 2, Name: "New Item"}}, nil)
+	mockRepo.On("UpdateBookingItemAndStatusWithVersion", mock.Anything, bookingID, version, newItemID, "New Item", models.StatusChanged).Return(nil)
+	mockRepo.On("GetBooking", mock.Anything, bookingID).Return(booking, nil)
+	mockEvents.On("PublishJSON", mock.Anything, mock.Anything).Return(nil)
+	mockWorker.On("EnqueueTask", mock.Anything, "upsert", bookingID, booking, "").Return(nil)
+	mockWorker.On("EnqueueSyncSchedule", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+	err := s.ChangeBookingItem(context.Background(), bookingID, version, newItemID, managerID)
+	assert.NoError(t, err)
+}
+
 func TestBookingService_ValidateBookingDate(t *testing.T) {
 	logger := zerolog.Nop()
 	s := NewBookingService(nil, nil, nil, 30, 0, &logger)
