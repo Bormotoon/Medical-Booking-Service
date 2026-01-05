@@ -77,6 +77,118 @@ func TestAvailabilityNotFound(t *testing.T) {
 	}
 }
 
+func TestItems(t *testing.T) {
+	db := newTestDB(t)
+	createTestItem(t, db, "Item A", 5)
+	createTestItem(t, db, "Item B", 3)
+
+	server := newTestHTTPServer(db)
+	ts := httptest.NewServer(server.server.Handler)
+	t.Cleanup(ts.Close)
+
+	resp, err := http.Get(ts.URL + "/api/v1/items")
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("unexpected status: %d", resp.StatusCode)
+	}
+
+	var body struct {
+		Items []models.Item `json:"items"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+
+	if len(body.Items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(body.Items))
+	}
+}
+
+func TestHealthz(t *testing.T) {
+	db := newTestDB(t)
+	server := newTestHTTPServer(db)
+	ts := httptest.NewServer(server.server.Handler)
+	t.Cleanup(ts.Close)
+
+	resp, err := http.Get(ts.URL + "/healthz")
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("unexpected status: %d", resp.StatusCode)
+	}
+}
+
+func TestReadyz(t *testing.T) {
+	db := newTestDB(t)
+	server := newTestHTTPServer(db)
+	ts := httptest.NewServer(server.server.Handler)
+	t.Cleanup(ts.Close)
+
+	resp, err := http.Get(ts.URL + "/readyz")
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("unexpected status: %d", resp.StatusCode)
+	}
+}
+
+func TestAuth(t *testing.T) {
+	db := newTestDB(t)
+	cfg := config.APIConfig{
+		Enabled: true,
+		HTTP:    config.APIHTTPConfig{Enabled: true, Port: 0},
+		Auth: config.APIAuthConfig{
+			Enabled:      true,
+			HeaderAPIKey: "x-api-key",
+			HeaderExtra:  "x-api-extra",
+			APIKeys: []config.APIClientKey{
+				{Key: "valid-key", Extra: "valid-extra", Permissions: []string{"read:items"}},
+			},
+		},
+	}
+	logger := zerolog.New(io.Discard)
+	server := NewHTTPServer(cfg, db, nil, nil, &logger)
+	ts := httptest.NewServer(server.server.Handler)
+	t.Cleanup(ts.Close)
+
+	t.Run("MissingHeaders", func(t *testing.T) {
+		resp, _ := http.Get(ts.URL + "/api/v1/items")
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Errorf("expected 401, got %d", resp.StatusCode)
+		}
+	})
+
+	t.Run("InvalidKey", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", ts.URL+"/api/v1/items", nil)
+		req.Header.Set("x-api-key", "wrong")
+		req.Header.Set("x-api-extra", "valid-extra")
+		resp, _ := http.DefaultClient.Do(req)
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Errorf("expected 401, got %d", resp.StatusCode)
+		}
+	})
+
+	t.Run("ValidKey", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", ts.URL+"/api/v1/items", nil)
+		req.Header.Set("x-api-key", "valid-key")
+		req.Header.Set("x-api-extra", "valid-extra")
+		resp, _ := http.DefaultClient.Do(req)
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("expected 200, got %d", resp.StatusCode)
+		}
+	})
+}
+
 func newTestHTTPServer(db *database.DB) *HTTPServer {
 	cfg := config.APIConfig{
 		Enabled: true,

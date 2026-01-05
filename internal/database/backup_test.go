@@ -71,7 +71,7 @@ func TestBackupService(t *testing.T) {
 func TestBackupService_Disabled(t *testing.T) {
 	logger := zerolog.Nop()
 	s := NewBackupService("any", config.BackupConfig{Enabled: false}, &logger)
-	
+
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Stop immediately
 	s.Start(ctx)

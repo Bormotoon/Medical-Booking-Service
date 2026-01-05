@@ -52,7 +52,7 @@ func TestSyncQueueCRUD(t *testing.T) {
 	// Retry logic
 	task2 := &models.SyncTask{TaskType: "retry_test", BookingID: 102, Status: "pending"}
 	db.CreateSyncTask(ctx, task2)
-	
+
 	nextRetry := time.Now().Add(time.Hour)
 	err = db.UpdateSyncTaskStatus(ctx, task2.ID, "retry", "temporary error", &nextRetry)
 	require.NoError(t, err)
