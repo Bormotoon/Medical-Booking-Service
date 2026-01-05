@@ -71,3 +71,61 @@ func TestItemReordering(t *testing.T) {
 	items, _ = db.GetActiveItems(ctx)
 	assert.Equal(t, "B", items[0].Name)
 }
+
+func TestItemSync(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+
+	ctx := context.Background()
+
+	configItems := []models.Item{
+		{Name: "Item A", Description: "Desc A", TotalQuantity: 5, IsActive: true},
+		{Name: "Item B", Description: "Desc B", TotalQuantity: 3, IsActive: true},
+	}
+
+	// First sync - should create items
+	err := db.SyncItems(ctx, configItems)
+	require.NoError(t, err)
+
+	items, err := db.GetActiveItems(ctx)
+	require.NoError(t, err)
+	assert.Len(t, items, 2)
+
+	// Second sync - should not create duplicates
+	err = db.SyncItems(ctx, configItems)
+	require.NoError(t, err)
+
+	items, _ = db.GetActiveItems(ctx)
+	assert.Len(t, items, 2)
+}
+
+func TestItemCache(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+
+	ctx := context.Background()
+
+	item := &models.Item{Name: "Cached Item", TotalQuantity: 1, IsActive: true}
+	db.CreateItem(ctx, item)
+
+	// Get by ID (should populate cache)
+	found, err := db.GetItemByID(ctx, item.ID)
+	require.NoError(t, err)
+	assert.Equal(t, item.Name, found.Name)
+
+	// Manually modify DB without updating cache
+	_, err = db.ExecContext(ctx, "UPDATE items SET total_quantity = 100 WHERE id = ?", item.ID)
+	require.NoError(t, err)
+
+	// Get by ID again (should return cached value, not 100)
+	found, _ = db.GetItemByID(ctx, item.ID)
+	assert.Equal(t, int64(1), found.TotalQuantity)
+
+	// Force reload
+	err = db.LoadItems(ctx)
+	require.NoError(t, err)
+
+	// Now should have updated value
+	found, _ = db.GetItemByID(ctx, item.ID)
+	assert.Equal(t, int64(100), found.TotalQuantity)
+}

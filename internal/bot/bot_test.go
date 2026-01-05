@@ -125,10 +125,16 @@ func (m *mockUserService) UpdateUserPhone(ctx context.Context, telegramID int64,
 }
 
 func (m *mockUserService) IsManager(userID int64) bool {
+	if u, ok := m.users[userID]; ok {
+		return u.IsManager
+	}
 	return false
 }
 
 func (m *mockUserService) IsBlacklisted(userID int64) bool {
+	if u, ok := m.users[userID]; ok {
+		return u.IsBlacklisted
+	}
 	return false
 }
 
@@ -585,5 +591,77 @@ func TestBookingFlow(t *testing.T) {
 	b.completeBooking(ctx, booking, 456)
 	if booking.Status != models.StatusCompleted {
 		t.Errorf("expected status %s, got %s", models.StatusCompleted, booking.Status)
+	}
+}
+
+func TestHandleBlacklistedUser(t *testing.T) {
+	tg := &mockTelegramService{updatesChan: make(chan tgbotapi.Update, 1)}
+	state := &mockStateManager{states: make(map[int64]*models.UserState)}
+	userSvc := &mockUserService{users: make(map[int64]*models.User)}
+	itemSvc := &mockItemService{}
+	bookingSvc := &mockBookingService{}
+	sheetsSvc := &mockSheetsWriter{}
+	worker := &mockSyncWorker{}
+	events := &mockEventPublisher{}
+	logger := zerolog.New(io.Discard)
+
+	cfg := &config.Config{
+		Telegram: config.TelegramConfig{BotToken: "test"},
+	}
+
+	b, _ := NewBot(tg, cfg, state, sheetsSvc, worker, events, bookingSvc, userSvc, itemSvc, nil, &logger)
+
+	// Mock blacklist
+	userSvc.users[123] = &models.User{TelegramID: 123, IsBlacklisted: true}
+
+	update := tgbotapi.Update{
+		Message: &tgbotapi.Message{
+			From: &tgbotapi.User{ID: 123},
+			Chat: &tgbotapi.Chat{ID: 123},
+			Text: "/start",
+		},
+	}
+
+	b.handleMessage(context.Background(), update)
+
+	// Should not send any messages
+	if len(tg.sentMessages) > 0 {
+		t.Errorf("expected no messages for blacklisted user, got %d", len(tg.sentMessages))
+	}
+}
+
+func TestHandleViewSchedule(t *testing.T) {
+	tg := &mockTelegramService{updatesChan: make(chan tgbotapi.Update, 1)}
+	state := &mockStateManager{states: make(map[int64]*models.UserState)}
+	userSvc := &mockUserService{}
+	itemSvc := &mockItemService{
+		items: []models.Item{
+			{ID: 1, Name: "Item 1", IsActive: true},
+		},
+	}
+	bookingSvc := &mockBookingService{}
+	sheetsSvc := &mockSheetsWriter{}
+	worker := &mockSyncWorker{}
+	events := &mockEventPublisher{}
+	logger := zerolog.New(io.Discard)
+
+	cfg := &config.Config{
+		Telegram: config.TelegramConfig{BotToken: "test"},
+	}
+
+	b, _ := NewBot(tg, cfg, state, sheetsSvc, worker, events, bookingSvc, userSvc, itemSvc, nil, &logger)
+
+	update := tgbotapi.Update{
+		Message: &tgbotapi.Message{
+			From: &tgbotapi.User{ID: 123},
+			Chat: &tgbotapi.Chat{ID: 123},
+			Text: "📅 Посмотреть расписание",
+		},
+	}
+
+	b.handleMessage(context.Background(), update)
+
+	if len(tg.sentMessages) == 0 {
+		t.Errorf("expected message sent")
 	}
 }

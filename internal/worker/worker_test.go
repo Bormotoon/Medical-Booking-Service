@@ -107,6 +107,68 @@ func TestProcessTaskFail(t *testing.T) {
 	}
 }
 
+func TestSheetsWorker_EnqueueSyncSchedule(t *testing.T) {
+	db := newTestDB(t)
+	sheets := &fakeSheets{}
+	worker := NewSheetsWorker(db, sheets, nil, RetryPolicy{MaxRetries: 3}, nil)
+
+	ctx := context.Background()
+	start := time.Now()
+	end := start.AddDate(0, 0, 7)
+
+	err := worker.EnqueueSyncSchedule(ctx, start, end)
+	if err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+
+	tasks, _ := db.GetPendingSyncTasks(ctx, 10)
+	if len(tasks) != 1 {
+		t.Fatalf("expected 1 task, got %d", len(tasks))
+	}
+	if tasks[0].TaskType != TaskSyncSchedule {
+		t.Fatalf("expected TaskSyncSchedule, got %s", tasks[0].TaskType)
+	}
+}
+
+func TestSheetsWorker_HandleSheetTask(t *testing.T) {
+	db := newTestDB(t)
+	sheets := &fakeSheets{}
+	worker := NewSheetsWorker(db, sheets, nil, RetryPolicy{MaxRetries: 3}, nil)
+
+	ctx := context.Background()
+
+	t.Run("Upsert", func(t *testing.T) {
+		booking := &models.Booking{ID: 1, ItemName: "Test"}
+		err := worker.handleSheetTask(ctx, TaskUpsert, sheetTaskPayload{Booking: booking})
+		if err != nil {
+			t.Fatalf("handle: %v", err)
+		}
+		if sheets.upsertCalls != 1 {
+			t.Fatalf("expected 1 upsert call, got %d", sheets.upsertCalls)
+		}
+	})
+
+	t.Run("Delete", func(t *testing.T) {
+		err := worker.handleSheetTask(ctx, TaskDelete, sheetTaskPayload{BookingID: 123})
+		if err != nil {
+			t.Fatalf("handle: %v", err)
+		}
+		if sheets.deleteCalls != 1 {
+			t.Fatalf("expected 1 delete call, got %d", sheets.deleteCalls)
+		}
+	})
+
+	t.Run("UpdateStatus", func(t *testing.T) {
+		err := worker.handleSheetTask(ctx, TaskUpdateStatus, sheetTaskPayload{BookingID: 123, Status: "confirmed"})
+		if err != nil {
+			t.Fatalf("handle: %v", err)
+		}
+		if sheets.statusCalls != 1 {
+			t.Fatalf("expected 1 status call, got %d", sheets.statusCalls)
+		}
+	})
+}
+
 func TestRetryPolicyNextDelay(t *testing.T) {
 	policy := RetryPolicy{InitialDelay: time.Second, BackoffFactor: 2, MaxDelay: 5 * time.Second}
 	d1 := policy.NextDelay(1)
