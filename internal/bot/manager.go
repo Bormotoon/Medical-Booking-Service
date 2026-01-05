@@ -742,8 +742,8 @@ func (b *Bot) handleChangeItem(update tgbotapi.Update) {
 
 	b.sendMessage(callback.Message.Chat.ID, "✅ Аппарат успешно изменен")
 
-	// СИНХРОНИЗИРУЕМ ИЗМЕНЕНИЯ В GOOGLE SHEETS
-	b.SyncBookingsToSheets()
+	// Ставим задачу на обновление статуса в Google Sheets
+	b.enqueueBookingStatus(booking.ID, "confirmed")
 	b.SyncScheduleToSheets()
 
 	// ВМЕСТО ВЫЗОВА showManagerBookingDetail, который требует Message, используем sendManagerBookingDetail
@@ -837,8 +837,8 @@ func (b *Bot) reopenBooking(booking *models.Booking, managerChatID int64) {
 	managerMsg := tgbotapi.NewMessage(managerChatID, "✅ Заявка возвращена в работу")
 	b.bot.Send(managerMsg)
 
-	// СИНХРОНИЗИРУЕМ ИЗМЕНЕНИЯ В GOOGLE SHEETS
-	b.SyncBookingsToSheets()
+	// Ставим задачу на обновление статуса в Google Sheets
+	b.enqueueBookingStatus(booking.ID, "pending")
 	b.SyncScheduleToSheets()
 }
 
@@ -858,8 +858,8 @@ func (b *Bot) completeBooking(booking *models.Booking, managerChatID int64) {
 	managerMsg := tgbotapi.NewMessage(managerChatID, "✅ Заявка завершена")
 	b.bot.Send(managerMsg)
 
-	// СИНХРОНИЗИРУЕМ ИЗМЕНЕНИЯ В GOOGLE SHEETS
-	b.SyncBookingsToSheets()
+	// Ставим задачу на обновление статуса в Google Sheets
+	b.enqueueBookingStatus(booking.ID, "completed")
 	b.SyncScheduleToSheets()
 }
 
@@ -954,8 +954,8 @@ func (b *Bot) confirmBooking(booking *models.Booking, managerChatID int64) {
 	managerMsg := tgbotapi.NewMessage(managerChatID, "✅ Бронирование подтверждено")
 	b.bot.Send(managerMsg)
 
-	// СИНХРОНИЗИРУЕМ ИЗМЕНЕНИЯ В GOOGLE SHEETS
-	b.SyncBookingsToSheets()
+	// Ставим задачу на обновление статуса в Google Sheets
+	b.enqueueBookingStatus(booking.ID, "confirmed")
 	b.SyncScheduleToSheets()
 }
 
@@ -975,8 +975,8 @@ func (b *Bot) rejectBooking(booking *models.Booking, managerChatID int64) {
 	managerMsg := tgbotapi.NewMessage(managerChatID, "❌ Бронирование отменено")
 	b.bot.Send(managerMsg)
 
-	// СИНХРОНИЗИРУЕМ ИЗМЕНЕНИЯ В GOOGLE SHEETS
-	b.SyncBookingsToSheets()
+	// Ставим задачу на обновление статуса в Google Sheets
+	b.enqueueBookingStatus(booking.ID, "cancelled")
 	b.SyncScheduleToSheets()
 }
 
@@ -1005,8 +1005,8 @@ func (b *Bot) rescheduleBooking(booking *models.Booking, managerChatID int64) {
 	managerMsg := tgbotapi.NewMessage(managerChatID, "🔄 Пользователю предложено выбрать другую дату")
 	b.bot.Send(managerMsg)
 
-	// СИНХРОНИЗИРУЕМ ИЗМЕНЕНИЯ В GOOGLE SHEETS
-	b.SyncBookingsToSheets()
+	// Ставим задачу на обновление статуса в Google Sheets
+	b.enqueueBookingStatus(booking.ID, "rescheduled")
 	b.SyncScheduleToSheets()
 }
 

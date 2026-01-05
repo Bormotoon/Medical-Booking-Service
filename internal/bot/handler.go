@@ -14,6 +14,7 @@ import (
 	"bronivik/internal/database"
 	"bronivik/internal/google"
 	"bronivik/internal/models"
+	"bronivik/internal/worker"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
@@ -24,9 +25,10 @@ type Bot struct {
 	db            *database.DB
 	userStates    map[int64]*models.UserState
 	sheetsService *google.SheetsService
+	sheetsWorker  *worker.SheetsWorker
 }
 
-func NewBot(token string, config *config.Config, items []models.Item, db *database.DB, googleService *google.SheetsService) (*Bot, error) {
+func NewBot(token string, config *config.Config, items []models.Item, db *database.DB, googleService *google.SheetsService, sheetsWorker *worker.SheetsWorker) (*Bot, error) {
 	botAPI, err := tgbotapi.NewBotAPI(token)
 	if err != nil {
 		return nil, err
@@ -39,6 +41,7 @@ func NewBot(token string, config *config.Config, items []models.Item, db *databa
 		db:            db,
 		userStates:    make(map[int64]*models.UserState),
 		sheetsService: googleService,
+		sheetsWorker:  sheetsWorker,
 	}, nil
 }
 
@@ -972,4 +975,32 @@ func (b *Bot) retryWithBackoff(op string, attempts int, baseDelay time.Duration,
 		return
 	}
 	log.Printf("%s failed after %d attempts", op, attempts)
+}
+
+// enqueueBookingUpsert sends an upsert task to the sheets worker if available.
+func (b *Bot) enqueueBookingUpsert(booking models.Booking) {
+	if b.sheetsWorker == nil {
+		return
+	}
+	if err := b.sheetsWorker.EnqueueTask(context.Background(), worker.SheetTask{
+		Type:      worker.TaskUpsert,
+		BookingID: booking.ID,
+		Booking:   &booking,
+	}); err != nil {
+		log.Printf("sheets enqueue upsert booking %d: %v", booking.ID, err)
+	}
+}
+
+// enqueueBookingStatus sends a status-only update task to the sheets worker if available.
+func (b *Bot) enqueueBookingStatus(bookingID int64, status string) {
+	if b.sheetsWorker == nil {
+		return
+	}
+	if err := b.sheetsWorker.EnqueueTask(context.Background(), worker.SheetTask{
+		Type:      worker.TaskUpdateStatus,
+		BookingID: bookingID,
+		Status:    status,
+	}); err != nil {
+		log.Printf("sheets enqueue status booking %d: %v", bookingID, err)
+	}
 }

@@ -93,7 +93,7 @@
   - [x] Кэширование маппинга `booking_id -> row_number` в Redis/memory
 
 ### 1.2.2 Создание Worker для отложенных обновлений
-- [ ] **Создать файл `internal/worker/sheets_worker.go`**
+- [x] **Создать файл `internal/worker/sheets_worker.go`**
   ```go
   type SheetsWorker struct {
       queue chan SheetTask
@@ -113,14 +113,12 @@
   func (w *SheetsWorker) Start(ctx context.Context)
   func (w *SheetsWorker) EnqueueTask(task SheetTask)
   ```
-
-- [ ] **Создать очередь задач**
-  - [ ] Использовать Redis для персистентной очереди
-  - [ ] Fallback на in-memory queue
-  - [ ] Retry logic с exponential backoff
-  - [ ] Dead letter queue для failed tasks
-
-- [ ] **Создать файл `internal/worker/retry. go`**
+- [x] **Создать очередь задач**
+  - [x] Использовать Redis для персистентной очереди
+  - [x] Fallback на in-memory queue
+  - [x] Retry logic с exponential backoff
+  - [x] Dead letter queue для failed tasks
+- [x] **Создать файл `internal/worker/retry. go`**
   ```go
   type RetryPolicy struct {
       MaxRetries     int
@@ -161,11 +159,11 @@
   ```
 
 ### 1.2.4 Интеграция воркера
-- [ ] **Модифицировать точки вызова синхронизации**
-  - [ ] `finalizeBooking()` — добавить задачу в очередь вместо прямого вызова
-  - [ ] `confirmBooking()` — добавить задачу в очередь
-  - [ ] `cancelBooking()` — добавить задачу в очередь
-  - [ ] `completeBooking()` — добавить задачу в очередь
+- [x] **Модифицировать точки вызова синхронизации**
+  - [x] `finalizeBooking()` — добавить задачу в очередь вместо прямого вызова
+  - [x] `confirmBooking()` — добавить задачу в очередь
+  - [x] `cancelBooking()` — добавить задачу в очередь
+  - [x] `completeBooking()` — добавить задачу в очередь
 
 - [ ] **Пример модификации в `internal/bot/utils.go`**
   ```go
@@ -182,6 +180,7 @@
       Booking:    &booking,
   })
   ```
+  - [x] Внедрено: enqueue в finalizeBooking/confirm/reject/reopen/complete вместо прямых вызовов
 
 ---
 

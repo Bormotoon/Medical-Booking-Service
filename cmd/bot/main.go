@@ -4,15 +4,19 @@ import (
 	"context"
 	"log"
 	"os"
-	"path/filepath"
 	"os/signal"
+	"path/filepath"
 	"syscall"
+	"time"
 
 	"bronivik/internal/bot"
 	"bronivik/internal/config"
 	"bronivik/internal/database"
 	"bronivik/internal/google"
 	"bronivik/internal/models"
+	"bronivik/internal/repository"
+	"bronivik/internal/worker"
+	"github.com/redis/go-redis/v9"
 	"gopkg.in/yaml.v2"
 )
 
@@ -75,6 +79,9 @@ func main() {
 		log.Fatal("Задайте токен бота в config.yaml")
 	}
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	// Инициализация Google Sheets через API Key
 	var sheetsService *google.SheetsService
 	if cfg.Google.GoogleCredentialsFile == "" || cfg.Google.UsersSpreadSheetId == "" || cfg.Google.BookingSpreadSheetId == "" {
@@ -98,14 +105,29 @@ func main() {
 		log.Println("Google Sheets service initialized successfully")
 	}
 
+	// Инициализация Redis (необязательно)
+	var redisClient *redis.Client
+	if cfg.Redis.Address != "" {
+		redisClient = repository.NewRedisClient(cfg.Redis)
+		if err := repository.Ping(ctx, redisClient); err != nil {
+			log.Printf("Redis unavailable, falling back to in-memory queue: %v", err)
+			redisClient = nil
+		}
+	}
+
+	// Запускаем воркер синхронизации Google Sheets
+	var sheetsWorker *worker.SheetsWorker
+	if sheetsService != nil {
+		retryPolicy := worker.RetryPolicy{MaxRetries: 5, InitialDelay: 2 * time.Second, MaxDelay: time.Minute, BackoffFactor: 2}
+		sheetsWorker = worker.NewSheetsWorker(db, sheetsService, redisClient, retryPolicy, log.Default())
+		go sheetsWorker.Start(ctx)
+	}
+
 	// Создание и запуск бота
-	telegramBot, err := bot.NewBot(cfg.Telegram.BotToken, cfg, itemsConfig.Items, db, sheetsService)
+	telegramBot, err := bot.NewBot(cfg.Telegram.BotToken, cfg, itemsConfig.Items, db, sheetsService, sheetsWorker)
 	if err != nil {
 		log.Fatal("Ошибка создания бота:", err)
 	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	log.Println("Бот запущен...")
 	go telegramBot.Start()
