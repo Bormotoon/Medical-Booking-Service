@@ -439,7 +439,7 @@ bronivik_crm/
 ## 2.2 База данных CRM бота
 
 ### 2.2.1 Миграции
-- [ ] **Создать `internal/database/database. go`**
+- [x] **Создать `internal/database/database. go`**
   ```go
   func createTables(db *sql.DB) error {
       queries := []string{
