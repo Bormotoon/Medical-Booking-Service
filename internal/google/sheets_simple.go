@@ -56,9 +56,9 @@ func NewSimpleSheetsService(credentialsFile, usersSheetID, bookingsSheetID strin
 }
 
 // TestConnection проверяет подключение к таблице
-func (s *SheetsService) TestConnection() error {
+func (s *SheetsService) TestConnection(ctx context.Context) error {
 	// Пробуем прочитать первую ячейку таблицы пользователей
-	_, err := s.service.Spreadsheets.Values.Get(s.usersSheetID, "Users!A1").Do()
+	_, err := s.service.Spreadsheets.Values.Get(s.usersSheetID, "Users!A1").Context(ctx).Do()
 	if err != nil {
 		return fmt.Errorf("connection test failed: %v", err)
 	}
@@ -84,7 +84,7 @@ func (s *SheetsService) GetServiceAccountEmail(credentialsFile string) (string, 
 }
 
 // UpdateUsersSheet обновляет таблицу пользователей
-func (s *SheetsService) UpdateUsersSheet(users []*models.User) error {
+func (s *SheetsService) UpdateUsersSheet(ctx context.Context, users []*models.User) error {
 	// Подготавливаем данные
 	var values [][]interface{}
 
@@ -119,13 +119,14 @@ func (s *SheetsService) UpdateUsersSheet(users []*models.User) error {
 	// Используем Overwrite для полной замены данных
 	_, err := s.service.Spreadsheets.Values.Update(s.usersSheetID, rangeData, valueRange).
 		ValueInputOption("RAW").
+		Context(ctx).
 		Do()
 
 	return err
 }
 
 // AppendBooking добавляет новое бронирование
-func (s *SheetsService) AppendBooking(booking *models.Booking) error {
+func (s *SheetsService) AppendBooking(ctx context.Context, booking *models.Booking) error {
 	row := []interface{}{
 		booking.ID,
 		booking.UserID,
@@ -147,21 +148,22 @@ func (s *SheetsService) AppendBooking(booking *models.Booking) error {
 	_, err := s.service.Spreadsheets.Values.Append(s.bookingsSheetID, rangeData, valueRange).
 		ValueInputOption("RAW").
 		InsertDataOption("INSERT_ROWS").
+		Context(ctx).
 		Do()
 
 	return err
 }
 
 // UpsertBooking updates an existing booking row or appends a new one if not found.
-func (s *SheetsService) UpsertBooking(booking *models.Booking) error {
+func (s *SheetsService) UpsertBooking(ctx context.Context, booking *models.Booking) error {
 	if booking == nil {
 		return fmt.Errorf("booking is nil")
 	}
 
-	rowIdx, err := s.FindBookingRow(booking.ID)
+	rowIdx, err := s.FindBookingRow(ctx, booking.ID)
 	if err != nil {
 		if errors.Is(err, sqlErrNotFound) {
-			return s.AppendBooking(booking)
+			return s.AppendBooking(ctx, booking)
 		}
 		return err
 	}
@@ -173,19 +175,22 @@ func (s *SheetsService) UpsertBooking(booking *models.Booking) error {
 
 	_, err = s.service.Spreadsheets.Values.Update(s.bookingsSheetID, rangeData, valueRange).
 		ValueInputOption("RAW").
+		Context(ctx).
 		Do()
 	return err
 }
 
 // DeleteBookingRow removes the row that corresponds to bookingID.
-func (s *SheetsService) DeleteBookingRow(bookingID int64) error {
-	rowIdx, err := s.FindBookingRow(bookingID)
+func (s *SheetsService) DeleteBookingRow(ctx context.Context, bookingID int64) error {
+	rowIdx, err := s.FindBookingRow(ctx, bookingID)
 	if err != nil {
 		return err
 	}
 
 	rangeData := fmt.Sprintf("Bookings!A%d:J%d", rowIdx, rowIdx)
-	_, err = s.service.Spreadsheets.Values.Clear(s.bookingsSheetID, rangeData, &sheets.ClearValuesRequest{}).Do()
+	_, err = s.service.Spreadsheets.Values.Clear(s.bookingsSheetID, rangeData, &sheets.ClearValuesRequest{}).
+		Context(ctx).
+		Do()
 	if err == nil {
 		s.deleteCacheRow(bookingID)
 	}
@@ -193,8 +198,8 @@ func (s *SheetsService) DeleteBookingRow(bookingID int64) error {
 }
 
 // UpdateBookingStatus updates status (and UpdatedAt) for a booking row.
-func (s *SheetsService) UpdateBookingStatus(bookingID int64, status string) error {
-	rowIdx, err := s.FindBookingRow(bookingID)
+func (s *SheetsService) UpdateBookingStatus(ctx context.Context, bookingID int64, status string) error {
+	rowIdx, err := s.FindBookingRow(ctx, bookingID)
 	if err != nil {
 		return err
 	}
@@ -204,7 +209,7 @@ func (s *SheetsService) UpdateBookingStatus(bookingID int64, status string) erro
 	statusRange := fmt.Sprintf("Bookings!E%d:E%d", rowIdx, rowIdx)
 	_, err = s.service.Spreadsheets.Values.Update(s.bookingsSheetID, statusRange, &sheets.ValueRange{
 		Values: [][]interface{}{{status}},
-	}).ValueInputOption("RAW").Do()
+	}).ValueInputOption("RAW").Context(ctx).Do()
 	if err != nil {
 		return err
 	}
@@ -212,12 +217,12 @@ func (s *SheetsService) UpdateBookingStatus(bookingID int64, status string) erro
 	updatedRange := fmt.Sprintf("Bookings!J%d:J%d", rowIdx, rowIdx)
 	_, err = s.service.Spreadsheets.Values.Update(s.bookingsSheetID, updatedRange, &sheets.ValueRange{
 		Values: [][]interface{}{{now}},
-	}).ValueInputOption("RAW").Do()
+	}).ValueInputOption("RAW").Context(ctx).Do()
 	return err
 }
 
 // FindBookingRow locates row index (1-based) for booking_id in column A with cache.
-func (s *SheetsService) FindBookingRow(bookingID int64) (int, error) {
+func (s *SheetsService) FindBookingRow(ctx context.Context, bookingID int64) (int, error) {
 	if bookingID == 0 {
 		return 0, fmt.Errorf("booking id is required")
 	}
@@ -226,7 +231,7 @@ func (s *SheetsService) FindBookingRow(bookingID int64) (int, error) {
 		return row, nil
 	}
 
-	resp, err := s.service.Spreadsheets.Values.Get(s.bookingsSheetID, "Bookings!A:A").Do()
+	resp, err := s.service.Spreadsheets.Values.Get(s.bookingsSheetID, "Bookings!A:A").Context(ctx).Do()
 	if err != nil {
 		return 0, err
 	}
@@ -292,7 +297,7 @@ func bookingRowValues(booking *models.Booking) []interface{} {
 }
 
 // UpdateBookingsSheet обновляет всю таблицу бронирований
-func (s *SheetsService) UpdateBookingsSheet(bookings []*models.Booking) error {
+func (s *SheetsService) UpdateBookingsSheet(ctx context.Context, bookings []*models.Booking) error {
 	var values [][]interface{}
 
 	// Заголовки
@@ -324,22 +329,23 @@ func (s *SheetsService) UpdateBookingsSheet(bookings []*models.Booking) error {
 
 	_, err := s.service.Spreadsheets.Values.Update(s.bookingsSheetID, rangeData, valueRange).
 		ValueInputOption("RAW").
+		Context(ctx).
 		Do()
 
 	return err
 }
 
 // UpdateScheduleSheet обновляет лист с расписанием бронирований в формате таблицы
-func (s *SheetsService) UpdateScheduleSheet(startDate, endDate time.Time, dailyBookings map[string][]models.Booking, items []models.Item) error {
+func (s *SheetsService) UpdateScheduleSheet(ctx context.Context, startDate, endDate time.Time, dailyBookings map[string][]models.Booking, items []models.Item) error {
 	// Получаем ID листа "Бронирования"
-	sheetId, err := s.GetSheetIdByName(s.bookingsSheetID, "Бронирования")
+	sheetId, err := s.GetSheetIdByName(ctx, s.bookingsSheetID, "Бронирования")
 	if err != nil {
 		return fmt.Errorf("unable to get sheet ID: %v", err)
 	}
 
 	// Очищаем весь лист "Бронирования"
 	clearRange := "Бронирования!A:Z"
-	_, err = s.service.Spreadsheets.Values.Clear(s.bookingsSheetID, clearRange, &sheets.ClearValuesRequest{}).Do()
+	_, err = s.service.Spreadsheets.Values.Clear(s.bookingsSheetID, clearRange, &sheets.ClearValuesRequest{}).Context(ctx).Do()
 	if err != nil {
 		return fmt.Errorf("unable to clear sheet: %v", err)
 	}
@@ -705,8 +711,8 @@ func (s *SheetsService) adjustColumnWidths(sheetId int64, dateCols int) error {
 }
 
 // GetSheetIdByName возвращает ID листа по его названию
-func (s *SheetsService) GetSheetIdByName(spreadID, sheetName string) (int64, error) {
-	spreadsheet, err := s.service.Spreadsheets.Get(spreadID).Do()
+func (s *SheetsService) GetSheetIdByName(ctx context.Context, spreadID, sheetName string) (int64, error) {
+	spreadsheet, err := s.service.Spreadsheets.Get(spreadID).Context(ctx).Do()
 	if err != nil {
 		return 0, fmt.Errorf("unable to get spreadsheet: %v", err)
 	}
@@ -721,12 +727,12 @@ func (s *SheetsService) GetSheetIdByName(spreadID, sheetName string) (int64, err
 }
 
 // ReplaceBookingsSheet полностью перезаписывает лист с заявками
-func (s *SheetsService) ReplaceBookingsSheet(bookings []*models.Booking) error {
+func (s *SheetsService) ReplaceBookingsSheet(ctx context.Context, bookings []*models.Booking) error {
 	// Очищаем весь лист (кроме заголовков)
 	clearRange := "Bookings!A2:Z" // Предполагая, что заголовки в строке 1
 	clearReq := &sheets.ClearValuesRequest{}
 
-	_, err := s.service.Spreadsheets.Values.Clear(s.bookingsSheetID, clearRange, clearReq).Do()
+	_, err := s.service.Spreadsheets.Values.Clear(s.bookingsSheetID, clearRange, clearReq).Context(ctx).Do()
 	if err != nil {
 		return fmt.Errorf("failed to clear bookings sheet: %v", err)
 	}
@@ -755,7 +761,7 @@ func (s *SheetsService) ReplaceBookingsSheet(bookings []*models.Booking) error {
 	}
 
 	_, err = s.service.Spreadsheets.Values.Update(s.bookingsSheetID, "Bookings!A2", valueRange).
-		ValueInputOption("RAW").Do()
+		ValueInputOption("RAW").Context(ctx).Do()
 	if err != nil {
 		return fmt.Errorf("failed to update bookings sheet: %v", err)
 	}

@@ -1,6 +1,8 @@
 package config
 
 import (
+	"errors"
+	"fmt"
 	"os"
 
 	"bronivik/internal/models"
@@ -159,7 +161,38 @@ func Load(configPath string) (*Config, error) {
 
 	config.applyDefaults()
 
+	if err := config.Validate(); err != nil {
+		return nil, fmt.Errorf("config validation failed: %w", err)
+	}
+
 	return &config, nil
+}
+
+func (c *Config) Validate() error {
+	if c.Telegram.BotToken == "" || c.Telegram.BotToken == "YOUR_BOT_TOKEN_HERE" {
+		return errors.New("telegram bot token is required")
+	}
+
+	if c.Database.Path == "" {
+		return errors.New("database path is required")
+	}
+
+	return ValidateItems(c.Items)
+}
+
+func ValidateItems(items []models.Item) error {
+	// Check for duplicate item IDs
+	itemIDs := make(map[int64]bool)
+	for _, item := range items {
+		if item.ID == 0 {
+			return fmt.Errorf("item '%s' has invalid ID 0", item.Name)
+		}
+		if itemIDs[item.ID] {
+			return fmt.Errorf("duplicate item ID found: %d", item.ID)
+		}
+		itemIDs[item.ID] = true
+	}
+	return nil
 }
 
 func (c *Config) applyDefaults() {

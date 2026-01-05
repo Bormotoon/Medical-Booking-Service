@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"bronivik/internal/config"
@@ -16,8 +17,10 @@ import (
 	"bronivik/internal/events"
 	"bronivik/internal/google"
 	"bronivik/internal/models"
+	"bronivik/internal/service"
 	"bronivik/internal/worker"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"github.com/rs/zerolog"
 )
 
 type Bot struct {
@@ -25,13 +28,14 @@ type Bot struct {
 	config        *config.Config
 	items         []models.Item
 	db            *database.DB
-	userStates    map[int64]*models.UserState
+	stateService  *service.StateService
 	sheetsService *google.SheetsService
 	sheetsWorker  *worker.SheetsWorker
 	eventBus      *events.EventBus
+	logger        *zerolog.Logger
 }
 
-func NewBot(token string, config *config.Config, items []models.Item, db *database.DB, googleService *google.SheetsService, sheetsWorker *worker.SheetsWorker, eventBus *events.EventBus) (*Bot, error) {
+func NewBot(token string, config *config.Config, items []models.Item, db *database.DB, stateService *service.StateService, googleService *google.SheetsService, sheetsWorker *worker.SheetsWorker, eventBus *events.EventBus, logger *zerolog.Logger) (*Bot, error) {
 	botAPI, err := tgbotapi.NewBotAPI(token)
 	if err != nil {
 		return nil, err
@@ -41,15 +45,21 @@ func NewBot(token string, config *config.Config, items []models.Item, db *databa
 		eventBus = events.NewEventBus()
 	}
 
+	if logger == nil {
+		l := zerolog.New(os.Stdout).With().Timestamp().Logger()
+		logger = &l
+	}
+
 	return &Bot{
 		bot:           botAPI,
 		config:        config,
 		items:         items,
 		db:            db,
-		userStates:    make(map[int64]*models.UserState),
+		stateService:  stateService,
 		sheetsService: googleService,
 		sheetsWorker:  sheetsWorker,
 		eventBus:      eventBus,
+		logger:        logger,
 	}, nil
 }
 
@@ -66,102 +76,131 @@ const (
 	StateWaitingSpecificDate = "waiting_specific_date"
 )
 
-func (b *Bot) Start() {
+func (b *Bot) Start(ctx context.Context) {
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
 
 	updates := b.bot.GetUpdatesChan(u)
 
-	log.Printf("Authorized on account %s", b.bot.Self.UserName)
+	b.logger.Info().Str("username", b.bot.Self.UserName).Msg("Authorized on account")
 
-	for update := range updates {
-		if update.CallbackQuery != nil {
-			b.handleCallbackQuery(update)
-			continue
+	for {
+		select {
+		case <-ctx.Done():
+			b.logger.Info().Msg("Bot stopping...")
+			return
+		case update, ok := <-updates:
+			if !ok {
+				return
+			}
+			// Создаем контекст для обработки каждого обновления
+			updateCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			
+			if update.CallbackQuery != nil {
+				b.handleCallbackQuery(updateCtx, update)
+				cancel()
+				continue
+			}
+
+			if update.Message == nil {
+				cancel()
+				continue
+			}
+
+			if b.isBlacklisted(update.Message.From.ID) {
+				cancel()
+				continue
+			}
+
+			b.handleMessage(updateCtx, update)
+			cancel()
 		}
-
-		if update.Message == nil {
-			continue
-		}
-
-		if b.isBlacklisted(update.Message.From.ID) {
-			continue
-		}
-
-		b.handleMessage(update)
 	}
 }
 
-func (b *Bot) handleMessage(update tgbotapi.Update) {
+func (b *Bot) handleMessage(ctx context.Context, update tgbotapi.Update) {
 	userID := update.Message.From.ID
 	text := update.Message.Text
+
+	b.logger.Debug().
+		Int64("user_id", userID).
+		Str("username", update.Message.From.UserName).
+		Str("text", text).
+		Msg("Handling message")
 
 	if b.isBlacklisted(userID) {
 		return
 	}
 
 	if b.isManager(userID) {
-		handled := b.handleManagerCommand(update)
+		handled := b.handleManagerCommand(ctx, update)
 		if handled {
 			return // Если команда менеджера обработана, выходим
 		}
 	}
 
-	state := b.getUserState(userID)
+	state := b.getUserState(ctx, userID)
 
 	switch {
 	case text == "/start" || strings.ToLower(text) == "сброс" || strings.ToLower(text) == "reset":
-		b.clearUserState(update.Message.From.ID)
-		b.handleStartWithUserTracking(update)
+		b.clearUserState(ctx, update.Message.From.ID)
+		b.handleStartWithUserTracking(ctx, update)
 
 	case text == "📞 Контакты менеджеров":
-		b.showManagerContacts(update)
+		b.showManagerContacts(ctx, update)
 
 	case text == "📊 Мои заявки":
-		b.showUserBookings(update)
+		b.showUserBookings(ctx, update)
 
 	case text == "💼 Ассортимент":
-		b.showAvailableItems(update)
+		b.showAvailableItems(ctx, update)
 
 	case text == "📅 Посмотреть расписание":
-		b.handleViewSchedule(update)
+		b.handleViewSchedule(ctx, update)
 
 	case text == "📋 СОЗДАТЬ ЗАЯВКУ":
-		b.handleSelectItem(update)
+		b.handleSelectItem(ctx, update)
 
 	case text == "📅 30 дней":
 		// Проверяем, есть ли выбранный аппарат для расписания
-		state := b.getUserState(update.Message.From.ID)
-		if state != nil && state.TempData["selected_item"] != nil {
-			b.showMonthScheduleForItem(update)
+		state := b.getUserState(ctx, update.Message.From.ID)
+		if state != nil && state.TempData["item_id"] != nil {
+			b.showMonthScheduleForItem(ctx, update)
 		} else {
 			// Если аппарат не выбран, просим выбрать сначала
 			b.sendMessage(update.Message.Chat.ID, "Сначала выберите аппарат для просмотра расписания")
-			b.handleViewSchedule(update)
+			b.handleViewSchedule(ctx, update)
 		}
 
 	case text == "🗓 Выбрать дату":
 		// Проверяем, есть ли выбранный аппарат для расписания
-		state := b.getUserState(update.Message.From.ID)
-		if state != nil && state.TempData["selected_item"] != nil {
-			b.requestSpecificDate(update)
+		state := b.getUserState(ctx, update.Message.From.ID)
+		if state != nil && state.TempData["item_id"] != nil {
+			b.requestSpecificDate(ctx, update)
 		} else {
 			b.sendMessage(update.Message.Chat.ID, "Сначала выберите аппарат для просмотра расписания")
-			b.handleViewSchedule(update)
+			b.handleViewSchedule(ctx, update)
 		}
 
 	case text == "⬅️ Назад к выбору аппарата":
-		b.handleViewSchedule(update)
+		b.handleViewSchedule(ctx, update)
 
 	case text == "📋 СОЗДАТЬ ЗАЯВКУ НА ЭТОТ АППАРАТ":
-		state := b.getUserState(update.Message.From.ID)
-		if state != nil && state.TempData["selected_item"] != nil {
-			selectedItem := state.TempData["selected_item"].(models.Item)
+		state := b.getUserState(ctx, update.Message.From.ID)
+		if state != nil && state.TempData["item_id"] != nil {
+			itemID := b.getInt64FromTempData(state.TempData, "item_id")
+			var selectedItem models.Item
+			for _, item := range b.items {
+				if item.ID == itemID {
+					selectedItem = item
+					break
+				}
+			}
 			// Сохраняем выбранный аппарат для создания заявки
 			tempData := map[string]interface{}{
-				"selected_item": selectedItem,
+				"item_id": selectedItem.ID,
 			}
-			b.setUserState(update.Message.From.ID, StateWaitingDate, tempData)
+			b.setUserState(ctx, update.Message.From.ID, StateWaitingDate, tempData)
 
 			msg := tgbotapi.NewMessage(update.Message.Chat.ID,
 				fmt.Sprintf("Вы выбрали: %s\n\nВведите дату бронирования в формате ДД.ММ.ГГГГ (например, 25.12.2024):",
@@ -181,36 +220,36 @@ func (b *Bot) handleMessage(update tgbotapi.Update) {
 			// Возвращаемся к предыдущему шагу в зависимости от текущего состояния
 			switch state.CurrentStep {
 			case StateEnterName:
-				b.handleMainMenu(update)
+				b.handleMainMenu(ctx, update)
 			case StatePhoneNumber:
-				b.handleNameRequest(update)
+				b.handleNameRequest(ctx, update)
 			case StateConfirmation:
-				b.handlePhoneRequest(update)
+				b.handlePhoneRequest(ctx, update)
 			default:
-				b.handleMainMenu(update)
+				b.handleMainMenu(ctx, update)
 			}
 		} else {
-			b.handleMainMenu(update)
+			b.handleMainMenu(ctx, update)
 		}
 
 	case text == "⬅️ Назад в меню":
-		b.clearUserState(update.Message.From.ID)
-		b.handleMainMenu(update)
+		b.clearUserState(ctx, update.Message.From.ID)
+		b.handleMainMenu(ctx, update)
 
 	case state != nil && state.CurrentStep == StatePersonalData && text == "✅ Даю согласие":
-		b.handleNameRequest(update)
+		b.handleNameRequest(ctx, update)
 
 	case state != nil && state.CurrentStep == StateEnterName:
 		if text == "👤 Использовать имя из Telegram" {
 			// Используем имя из Telegram
 			state.TempData["user_name"] = update.Message.From.FirstName + " " + update.Message.From.LastName
-			b.setUserState(update.Message.From.ID, StatePhoneNumber, state.TempData)
-			b.handlePhoneRequest(update)
+			b.setUserState(ctx, update.Message.From.ID, StatePhoneNumber, state.TempData)
+			b.handlePhoneRequest(ctx, update)
 		} else if text == "📞 Контакты менеджеров" {
-			b.showManagerContacts(update)
+			b.showManagerContacts(ctx, update)
 		} else if text == "❌ Отмена" {
-			b.clearUserState(update.Message.From.ID)
-			b.handleMainMenu(update)
+			b.clearUserState(ctx, update.Message.From.ID)
+			b.handleMainMenu(ctx, update)
 		} else {
 			// Сохраняем введенное имя
 			if len(text) < 2 {
@@ -222,38 +261,43 @@ func (b *Bot) handleMessage(update tgbotapi.Update) {
 				return
 			}
 			state.TempData["user_name"] = text
-			b.setUserState(update.Message.From.ID, StatePhoneNumber, state.TempData)
-			b.handlePhoneRequest(update)
+			b.setUserState(ctx, update.Message.From.ID, StatePhoneNumber, state.TempData)
+			b.handlePhoneRequest(ctx, update)
 		}
 
 	case state != nil && state.CurrentStep == StatePhoneNumber:
 		if update.Message.Contact != nil {
-			b.handleContactReceived(update)
+			b.handleContactReceived(ctx, update)
 		} else {
-			b.handlePhoneReceived(update, text)
+			b.handlePhoneReceived(ctx, update, text)
 		}
 
 	case state != nil && state.CurrentStep == StateConfirmation && text == "✅ Подтвердить заявку":
-		b.finalizeBooking(update)
+		b.finalizeBooking(ctx, update)
 
 	case state != nil && state.CurrentStep == StateWaitingDate:
-		b.handleDateInput(update, text, state)
+		b.handleDateInput(ctx, update, text, state)
 
 	case state != nil && state.CurrentStep == StateWaitingSpecificDate:
-		b.handleSpecificDateInput(update, text)
+		b.handleSpecificDateInput(ctx, update, text)
 
 	case text == "❌ Отмена":
-		b.clearUserState(update.Message.From.ID)
-		b.handleMainMenu(update)
+		b.clearUserState(ctx, update.Message.From.ID)
+		b.handleMainMenu(ctx, update)
 	}
 }
 
 // handleCallbackQuery обработка callback запросов от inline кнопок
-func (b *Bot) handleCallbackQuery(update tgbotapi.Update) {
+func (b *Bot) handleCallbackQuery(ctx context.Context, update tgbotapi.Update) {
 	callback := update.CallbackQuery
 	if callback == nil {
 		return
 	}
+
+	b.logger.Debug().
+		Int64("user_id", callback.From.ID).
+		Str("data", callback.Data).
+		Msg("Handling callback query")
 
 	// Проверка черного списка
 	if b.isBlacklisted(callback.From.ID) {
@@ -264,7 +308,7 @@ func (b *Bot) handleCallbackQuery(update tgbotapi.Update) {
 
 	switch {
 	case data == "export_users":
-		b.handleExportUsers(update)
+		b.handleExportUsers(ctx, update)
 
 	case strings.HasPrefix(data, "confirm_"),
 		strings.HasPrefix(data, "reject_"),
@@ -272,46 +316,46 @@ func (b *Bot) handleCallbackQuery(update tgbotapi.Update) {
 		strings.HasPrefix(data, "change_item_"),
 		strings.HasPrefix(data, "reopen_"),
 		strings.HasPrefix(data, "complete_"):
-		b.handleManagerAction(update)
+		b.handleManagerAction(ctx, update)
 
 	case strings.HasPrefix(data, "change_to_"):
-		b.handleChangeItem(update)
+		b.handleChangeItem(ctx, update)
 
 	case strings.HasPrefix(data, "select_item:"):
-		b.handleItemSelectionFromCallback(update)
+		b.handleItemSelectionFromCallback(ctx, update)
 
 	case strings.HasPrefix(data, "items_page:"):
 		pageStr := strings.TrimPrefix(data, "items_page:")
 		page, err := strconv.Atoi(pageStr)
 		if err != nil {
-			log.Printf("Error parsing page: %v", err)
+			b.logger.Error().Err(err).Str("page_str", pageStr).Msg("Error parsing page")
 			return
 		}
 
 		// Редактируем сообщение с новой страницей
-		b.editItemsPage(update, page)
+		b.editItemsPage(ctx, update, page)
 
 	case strings.HasPrefix(data, "schedule_select_item:"):
-		b.handleScheduleItemSelection(update)
+		b.handleScheduleItemSelection(ctx, update)
 
 	case strings.HasPrefix(data, "schedule_items_page:"):
 		pageStr := strings.TrimPrefix(data, "schedule_items_page:")
 		page, err := strconv.Atoi(pageStr)
 		if err != nil {
-			log.Printf("Error parsing page: %v", err)
+			b.logger.Error().Err(err).Str("page_str", pageStr).Msg("Error parsing page")
 			return
 		}
-		b.editScheduleItemsPage(update, page)
+		b.editScheduleItemsPage(ctx, update, page)
 
 	case strings.HasPrefix(data, "back_to_main"):
-		b.clearUserState(callback.From.ID)
+		b.clearUserState(ctx, callback.From.ID)
 		tempUpdate := tgbotapi.Update{
 			CallbackQuery: callback,
 		}
-		b.handleMainMenu(tempUpdate)
+		b.handleMainMenu(ctx, tempUpdate)
 
 	case strings.HasPrefix(data, "call_booking"):
-		b.handleCallButton(update)
+		b.handleCallButton(ctx, update)
 
 	case strings.HasPrefix(data, "show_booking:"):
 		parts := strings.Split(data, ":")
@@ -319,25 +363,32 @@ func (b *Bot) handleCallbackQuery(update tgbotapi.Update) {
 			bookingID, err := strconv.ParseInt(parts[1], 10, 64)
 			if err == nil {
 				// Получаем заявку и показываем детали
-				booking, err := b.db.GetBooking(context.Background(), bookingID)
+				booking, err := b.db.GetBooking(ctx, bookingID)
 				if err == nil {
-					b.sendManagerBookingDetail(callback.Message.Chat.ID, booking)
+					b.sendManagerBookingDetail(ctx, callback.Message.Chat.ID, booking)
 				}
 			}
 		}
 
 	case data == "start_the_order":
-		b.handleSelectItem(update)
+		b.handleSelectItem(ctx, update)
 
 	case data == "start_the_order_item":
-		state := b.getUserState(callback.From.ID)
-		if state != nil && state.TempData["selected_item"] != nil {
-			selectedItem := state.TempData["selected_item"].(models.Item)
+		state := b.getUserState(ctx, callback.From.ID)
+		if state != nil && state.TempData["item_id"] != nil {
+			itemID := b.getInt64FromTempData(state.TempData, "item_id")
+			var selectedItem models.Item
+			for _, item := range b.items {
+				if item.ID == itemID {
+					selectedItem = item
+					break
+				}
+			}
 			// Сохраняем выбранный аппарат для создания заявки
 			tempData := map[string]interface{}{
-				"selected_item": selectedItem,
+				"item_id": selectedItem.ID,
 			}
-			b.setUserState(callback.From.ID, StateWaitingDate, tempData)
+			b.setUserState(ctx, callback.From.ID, StateWaitingDate, tempData)
 
 			msg := tgbotapi.NewMessage(callback.Message.Chat.ID,
 				fmt.Sprintf("Вы выбрали: %s\n\nВведите дату бронирования в формате ДД.ММ.ГГГГ (например, 25.12.2024):",
@@ -353,24 +404,24 @@ func (b *Bot) handleCallbackQuery(update tgbotapi.Update) {
 		}
 
 	default:
-		log.Printf("Unknown callback data: %s", callback.Data)
+		b.logger.Warn().Str("callback_data", callback.Data).Msg("Unknown callback data")
 	}
 
 	// Обработка выбора аппарата менеджером
 	if strings.HasPrefix(data, "manager_select_item:") {
-		b.handleManagerItemSelection(update)
+		b.handleManagerItemSelection(ctx, update)
 	} else if strings.HasPrefix(data, "manager_items_page:") {
 		pageStr := strings.TrimPrefix(data, "manager_items_page:")
 		page, err := strconv.Atoi(pageStr)
 		if err != nil {
-			log.Printf("Error parsing page: %v", err)
+			b.logger.Error().Err(err).Str("page_str", pageStr).Msg("Error parsing page")
 			return
 		}
-		b.editManagerItemsPage(update, page)
+		b.editManagerItemsPage(ctx, update, page)
 	} else if data == "manager_single_date" {
-		b.handleManagerDateType(update, "single")
+		b.handleManagerDateType(ctx, update, "single")
 	} else if data == "manager_date_range" {
-		b.handleManagerDateType(update, "range")
+		b.handleManagerDateType(ctx, update, "range")
 	}
 
 	// Ответ на callback (убирает "часики" на кнопке)
@@ -378,14 +429,14 @@ func (b *Bot) handleCallbackQuery(update tgbotapi.Update) {
 }
 
 // handleScheduleItemSelection обработка выбора аппарата для расписания
-func (b *Bot) handleScheduleItemSelection(update tgbotapi.Update) {
+func (b *Bot) handleScheduleItemSelection(ctx context.Context, update tgbotapi.Update) {
 	callback := update.CallbackQuery
 	data := callback.Data
 
 	itemIDStr := strings.TrimPrefix(data, "schedule_select_item:")
 	itemID, err := strconv.ParseInt(itemIDStr, 10, 64)
 	if err != nil {
-		log.Printf("Error parsing item ID: %v", err)
+		b.logger.Error().Err(err).Str("item_id_str", itemIDStr).Msg("Error parsing item ID")
 		return
 	}
 
@@ -405,7 +456,7 @@ func (b *Bot) handleScheduleItemSelection(update tgbotapi.Update) {
 
 	// Сохраняем выбранный аппарат в состоянии
 	b.setUserState(callback.From.ID, "schedule_view_menu", map[string]interface{}{
-		"selected_item": selectedItem,
+		"item_id": selectedItem.ID,
 	})
 
 	// Редактируем сообщение, убирая клавиатуру
@@ -424,12 +475,19 @@ func (b *Bot) handleScheduleItemSelection(update tgbotapi.Update) {
 // sendScheduleMenu показывает меню расписания для выбранного аппарата
 func (b *Bot) sendScheduleMenu(chatID, userID int64) {
 	state := b.getUserState(userID)
-	if state == nil || state.TempData["selected_item"] == nil {
+	if state == nil || state.TempData["item_id"] == nil {
 		b.sendMessage(chatID, "Ошибка: аппарат не выбран")
 		return
 	}
 
-	selectedItem := state.TempData["selected_item"].(models.Item)
+	itemID := b.getInt64FromTempData(state.TempData, "item_id")
+	var selectedItem models.Item
+	for _, item := range b.items {
+		if item.ID == itemID {
+			selectedItem = item
+			break
+		}
+	}
 
 	msg := tgbotapi.NewMessage(chatID,
 		fmt.Sprintf("📅 *Расписание для %s*\n\nВыберите период:", selectedItem.Name))
@@ -456,7 +514,7 @@ func (b *Bot) sendScheduleMenu(chatID, userID int64) {
 }
 
 // editScheduleItemsPage редактирует страницу с аппаратами для расписания
-func (b *Bot) editScheduleItemsPage(update tgbotapi.Update, page int) {
+func (b *Bot) editScheduleItemsPage(ctx context.Context, update tgbotapi.Update, page int) {
 	callback := update.CallbackQuery
 	itemsPerPage := 8
 	startIdx := page * itemsPerPage
@@ -518,14 +576,14 @@ func (b *Bot) editScheduleItemsPage(update tgbotapi.Update, page int) {
 }
 
 // handleItemSelectionFromCallback обработка выбора аппарата из Inline-клавиатуры
-func (b *Bot) handleItemSelectionFromCallback(update tgbotapi.Update) {
+func (b *Bot) handleItemSelectionFromCallback(ctx context.Context, update tgbotapi.Update) {
 	callback := update.CallbackQuery
 	data := callback.Data
 
 	itemIDStr := strings.TrimPrefix(data, "select_item:")
 	itemID, err := strconv.ParseInt(itemIDStr, 10, 64)
 	if err != nil {
-		log.Printf("Error parsing item ID: %v", err)
+		b.logger.Error().Err(err).Str("item_id_str", itemIDStr).Msg("Error parsing item ID")
 		return
 	}
 
@@ -551,7 +609,7 @@ func (b *Bot) handleItemSelectionFromCallback(update tgbotapi.Update) {
 			TempData: make(map[string]interface{}),
 		}
 	}
-	state.TempData["selected_item"] = selectedItem
+	state.TempData["item_id"] = selectedItem.ID
 	b.setUserState(callback.From.ID, StateWaitingDate, state.TempData)
 
 	// Редактируем сообщение, убирая клавиатуру
@@ -576,7 +634,7 @@ func (b *Bot) handleItemSelectionFromCallback(update tgbotapi.Update) {
 }
 
 // editItemsPage редактирует сообщение с новой страницей аппаратов
-func (b *Bot) editItemsPage(update tgbotapi.Update, page int) {
+func (b *Bot) editItemsPage(ctx context.Context, update tgbotapi.Update, page int) {
 	callback := update.CallbackQuery
 	itemsPerPage := 8
 	startIdx := page * itemsPerPage
@@ -640,7 +698,7 @@ func (b *Bot) editItemsPage(update tgbotapi.Update, page int) {
 }
 
 // saveUser сохраняет/обновляет информацию о пользователе
-func (b *Bot) saveUser(update tgbotapi.Update) {
+func (b *Bot) saveUser(ctx context.Context, update tgbotapi.Update) {
 	user := update.Message.From
 	if user == nil {
 		return
@@ -666,70 +724,68 @@ func (b *Bot) saveUser(update tgbotapi.Update) {
 	}
 
 	// Сохраняем в базу данных
-	err := b.db.CreateOrUpdateUser(context.Background(), dbUser)
+	err := b.db.CreateOrUpdateUser(ctx, dbUser)
 	if err != nil {
-		log.Printf("Ошибка при сохранении пользователя %d: %v", user.ID, err)
+		b.logger.Error().Err(err).Int64("user_id", user.ID).Msg("Ошибка при сохранении пользователя")
 	} else {
-		log.Printf("Пользователь сохранен: %s (ID: %d)", user.FirstName, user.ID)
+		b.logger.Info().Str("first_name", user.FirstName).Int64("user_id", user.ID).Msg("Пользователь сохранен")
 	}
 
-	b.SyncUsersToSheets()
+	b.SyncUsersToSheets(ctx)
 }
 
 // updateUserPhone обновляет номер телефона пользователя
-func (b *Bot) updateUserPhone(telegramID int64, phone string) {
-	err := b.db.UpdateUserPhone(context.Background(), telegramID, phone)
+func (b *Bot) updateUserPhone(ctx context.Context, telegramID int64, phone string) {
+	err := b.db.UpdateUserPhone(ctx, telegramID, phone)
 	if err != nil {
-		log.Printf("Ошибка при обновлении телефона пользователя %d: %v", telegramID, err)
+		b.logger.Error().Err(err).Int64("telegram_id", telegramID).Msg("Ошибка при обновлении телефона пользователя")
 	} else {
-		log.Printf("Телефон обновлен для пользователя %d", telegramID)
+		b.logger.Info().Int64("telegram_id", telegramID).Msg("Телефон обновлен для пользователя")
 	}
 }
 
 // updateUserActivity обновляет время последней активности пользователя
-func (b *Bot) updateUserActivity(telegramID int64) {
-	err := b.db.UpdateUserActivity(context.Background(), telegramID)
+func (b *Bot) updateUserActivity(ctx context.Context, telegramID int64) {
+	err := b.db.UpdateUserActivity(ctx, telegramID)
 	if err != nil {
-		log.Printf("Ошибка при обновлении активности пользователя %d: %v", telegramID, err)
+		b.logger.Error().Err(err).Int64("user_id", telegramID).Msg("Ошибка при обновлении активности пользователя")
 	}
 }
 
 // handleStartWithUserTracking обработка /start с сохранением пользователя
-func (b *Bot) handleStartWithUserTracking(update tgbotapi.Update) {
+func (b *Bot) handleStartWithUserTracking(ctx context.Context, update tgbotapi.Update) {
 	// Сохраняем пользователя
-	b.saveUser(update)
+	b.saveUser(ctx, update)
 
 	// Обновляем активность
-	b.updateUserActivity(update.Message.From.ID)
+	b.updateUserActivity(ctx, update.Message.From.ID)
 
 	// Показываем главное меню
-	b.handleMainMenu(update)
+	b.handleMainMenu(ctx, update)
 }
 
 // getUserStats возвращает статистику пользователей (для менеджеров)
-func (b *Bot) getUserStats(update tgbotapi.Update) {
+func (b *Bot) getUserStats(ctx context.Context, update tgbotapi.Update) {
 	if !b.isManager(update.Message.From.ID) {
 		return
 	}
 
-	ctx := context.Background()
-
 	// Получаем общую статистику
 	allUsers, err := b.db.GetAllUsers(ctx)
 	if err != nil {
-		log.Printf("Error getting users: %v", err)
+		b.logger.Error().Err(err).Msg("Error getting users")
 		b.sendMessage(update.Message.Chat.ID, "Ошибка при получении статистики")
 		return
 	}
 
 	activeUsers, err := b.db.GetActiveUsers(ctx, 30) // Активные за последние 30 дней
 	if err != nil {
-		log.Printf("Error getting active users: %v", err)
+		b.logger.Error().Err(err).Msg("Error getting active users")
 	}
 
 	managers, err := b.db.GetUsersByManagerStatus(ctx, true)
 	if err != nil {
-		log.Printf("Error getting managers: %v", err)
+		b.logger.Error().Err(err).Msg("Error getting managers")
 	}
 
 	var blacklistedCount int
@@ -808,7 +864,7 @@ func (b *Bot) getUserStats(update tgbotapi.Update) {
 func (b *Bot) bookingSummary(ctx context.Context, startDate, endDate time.Time) string {
 	bookings, err := b.db.GetBookingsByDateRange(ctx, startDate, endDate)
 	if err != nil {
-		log.Printf("bookingSummary: %v", err)
+		b.logger.Error().Err(err).Msg("bookingSummary error")
 		return "ошибка"
 	}
 
@@ -862,22 +918,22 @@ func (b *Bot) bookingSummary(ctx context.Context, startDate, endDate time.Time) 
 }
 
 // handleExportUsers обработка экспорта пользователей
-func (b *Bot) handleExportUsers(update tgbotapi.Update) {
+func (b *Bot) handleExportUsers(ctx context.Context, update tgbotapi.Update) {
 	callback := update.CallbackQuery
 	if callback == nil || !b.isManager(callback.From.ID) {
 		return
 	}
 
-	users, err := b.db.GetAllUsers(context.Background())
+	users, err := b.db.GetAllUsers(ctx)
 	if err != nil {
-		log.Printf("Error getting users for export: %v", err)
+		b.logger.Error().Err(err).Msg("Error getting users for export")
 		b.sendMessage(callback.Message.Chat.ID, "Ошибка при получении данных пользователей")
 		return
 	}
 
-	filePath, err := b.exportUsersToExcel(users)
+	filePath, err := b.exportUsersToExcel(ctx, users)
 	if err != nil {
-		log.Printf("Error exporting users to Excel: %v", err)
+		b.logger.Error().Err(err).Msg("Error exporting users to Excel")
 		b.sendMessage(callback.Message.Chat.ID, "Ошибка при создании файла экспорта")
 		return
 	}
@@ -885,7 +941,7 @@ func (b *Bot) handleExportUsers(update tgbotapi.Update) {
 	// Отправляем файл
 	file, err := os.Open(filePath)
 	if err != nil {
-		log.Printf("Error opening file: %v", err)
+		b.logger.Error().Err(err).Str("file_path", filePath).Msg("Error opening file")
 		b.sendMessage(callback.Message.Chat.ID, "Ошибка при открытии файла")
 		return
 	}
@@ -901,7 +957,7 @@ func (b *Bot) handleExportUsers(update tgbotapi.Update) {
 
 	_, err = b.bot.Send(doc)
 	if err != nil {
-		log.Printf("Error sending document: %v", err)
+		b.logger.Error().Err(err).Msg("Error sending document")
 		b.sendMessage(callback.Message.Chat.ID, "Ошибка при отправке файла")
 		return
 	}
@@ -910,12 +966,12 @@ func (b *Bot) handleExportUsers(update tgbotapi.Update) {
 }
 
 // SyncUsersToSheets синхронизирует пользователей с Google Sheets
-func (b *Bot) SyncUsersToSheets() {
+func (b *Bot) SyncUsersToSheets(ctx context.Context) {
 	if b.sheetsService == nil {
 		return
 	}
 
-	users, err := b.db.GetAllUsers(context.Background())
+	users, err := b.db.GetAllUsers(ctx)
 	if err != nil {
 		log.Printf("Failed to get users for Google Sheets sync: %v", err)
 		return
@@ -939,7 +995,7 @@ func (b *Bot) SyncUsersToSheets() {
 		})
 	}
 
-	err = b.sheetsService.UpdateUsersSheet(googleUsers)
+	err = b.sheetsService.UpdateUsersSheet(ctx, googleUsers)
 	if err != nil {
 		log.Printf("Failed to sync users to Google Sheets: %v", err)
 	} else {
@@ -948,7 +1004,7 @@ func (b *Bot) SyncUsersToSheets() {
 }
 
 // SyncBookingsToSheets синхронизирует бронирования с Google Sheets
-func (b *Bot) SyncBookingsToSheets() {
+func (b *Bot) SyncBookingsToSheets(ctx context.Context) {
 	if b.sheetsService == nil {
 		log.Println("Google Sheets service not initialized")
 		return
@@ -958,7 +1014,7 @@ func (b *Bot) SyncBookingsToSheets() {
 	startDate := time.Now().AddDate(0, -1, 0) // 1 месяц назад
 	endDate := time.Now().AddDate(0, 2, 0)    // 2 месяца вперед
 
-	bookings, err := b.db.GetBookingsByDateRange(context.Background(), startDate, endDate)
+	bookings, err := b.db.GetBookingsByDateRange(ctx, startDate, endDate)
 	if err != nil {
 		log.Printf("Failed to get bookings for Google Sheets sync: %v", err)
 		return
@@ -986,7 +1042,7 @@ func (b *Bot) SyncBookingsToSheets() {
 	}
 
 	// Полностью перезаписываем лист с заявками
-	err = b.sheetsService.ReplaceBookingsSheet(googleBookings)
+	err = b.sheetsService.ReplaceBookingsSheet(ctx, googleBookings)
 	if err != nil {
 		log.Printf("Failed to sync bookings to Google Sheets: %v", err)
 	} else {
@@ -994,11 +1050,11 @@ func (b *Bot) SyncBookingsToSheets() {
 	}
 
 	// Также синхронизируем расписание
-	b.SyncScheduleToSheets()
+	b.SyncScheduleToSheets(ctx)
 }
 
 // AppendBookingToSheets добавляет одно бронирование в Google Sheets
-func (b *Bot) AppendBookingToSheets(booking *models.Booking) {
+func (b *Bot) AppendBookingToSheets(ctx context.Context, booking *models.Booking) {
 	if b.sheetsService == nil {
 		return
 	}
@@ -1016,7 +1072,7 @@ func (b *Bot) AppendBookingToSheets(booking *models.Booking) {
 		UpdatedAt: booking.UpdatedAt,
 	}
 
-	err := b.sheetsService.AppendBooking(googleBooking)
+	err := b.sheetsService.AppendBooking(ctx, googleBooking)
 	if err != nil {
 		log.Printf("Failed to append booking to Google Sheets: %v", err)
 	} else {
@@ -1025,35 +1081,40 @@ func (b *Bot) AppendBookingToSheets(booking *models.Booking) {
 }
 
 // appendBookingToSheetsAsync отправляет бронирование в Google Sheets с ретраями, не блокируя основной поток.
-func (b *Bot) appendBookingToSheetsAsync(booking models.Booking) {
+func (b *Bot) appendBookingToSheetsAsync(ctx context.Context, booking models.Booking) {
 	if b.sheetsService == nil {
 		return
 	}
 
-	go b.retryWithBackoff("append booking to sheets", 3, 2*time.Second, func() error {
-		return b.sheetsService.AppendBooking(&booking)
+	go b.retryWithBackoff(ctx, "append booking to sheets", 3, 2*time.Second, func(c context.Context) error {
+		return b.sheetsService.AppendBooking(c, &booking)
 	})
 }
 
 // syncBookingsToSheetsAsync запускает полную синхронизацию с ретраями в фоне.
-func (b *Bot) syncBookingsToSheetsAsync() {
+func (b *Bot) syncBookingsToSheetsAsync(ctx context.Context) {
 	if b.sheetsService == nil {
 		return
 	}
 
-	go b.retryWithBackoff("sync bookings to sheets", 2, 5*time.Second, func() error {
-		b.SyncBookingsToSheets()
+	go b.retryWithBackoff(ctx, "sync bookings to sheets", 2, 5*time.Second, func(c context.Context) error {
+		b.SyncBookingsToSheets(c)
 		return nil
 	})
 }
 
 // retryWithBackoff выполняет fn с экспоненциальной задержкой.
-func (b *Bot) retryWithBackoff(op string, attempts int, baseDelay time.Duration, fn func() error) {
+func (b *Bot) retryWithBackoff(ctx context.Context, op string, attempts int, baseDelay time.Duration, fn func(context.Context) error) {
 	for i := 0; i < attempts; i++ {
-		if err := fn(); err != nil {
+		if err := fn(ctx); err != nil {
 			log.Printf("%s attempt %d/%d failed: %v", op, i+1, attempts, err)
-			time.Sleep(baseDelay * time.Duration(1<<i))
-			continue
+			
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(baseDelay * time.Duration(1<<i)):
+				continue
+			}
 		}
 		return
 	}
@@ -1061,11 +1122,11 @@ func (b *Bot) retryWithBackoff(op string, attempts int, baseDelay time.Duration,
 }
 
 // enqueueBookingUpsert sends an upsert task to the sheets worker if available.
-func (b *Bot) enqueueBookingUpsert(booking models.Booking) {
+func (b *Bot) enqueueBookingUpsert(ctx context.Context, booking models.Booking) {
 	if b.sheetsWorker == nil {
 		return
 	}
-	if err := b.sheetsWorker.EnqueueTask(context.Background(), worker.SheetTask{
+	if err := b.sheetsWorker.EnqueueTask(ctx, worker.SheetTask{
 		Type:      worker.TaskUpsert,
 		BookingID: booking.ID,
 		Booking:   &booking,
@@ -1075,11 +1136,11 @@ func (b *Bot) enqueueBookingUpsert(booking models.Booking) {
 }
 
 // enqueueBookingStatus sends a status-only update task to the sheets worker if available.
-func (b *Bot) enqueueBookingStatus(bookingID int64, status string) {
+func (b *Bot) enqueueBookingStatus(ctx context.Context, bookingID int64, status string) {
 	if b.sheetsWorker == nil {
 		return
 	}
-	if err := b.sheetsWorker.EnqueueTask(context.Background(), worker.SheetTask{
+	if err := b.sheetsWorker.EnqueueTask(ctx, worker.SheetTask{
 		Type:      worker.TaskUpdateStatus,
 		BookingID: bookingID,
 		Status:    status,

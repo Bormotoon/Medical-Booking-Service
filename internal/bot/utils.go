@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
@@ -16,24 +15,39 @@ import (
 
 // Вспомогательные методы для работы с состояниями пользователей
 
-func (b *Bot) setUserState(userID int64, step string, tempData map[string]interface{}) {
+func (b *Bot) setUserState(ctx context.Context, userID int64, step string, tempData map[string]interface{}) {
 	if tempData == nil {
 		tempData = make(map[string]interface{})
 	}
 
-	b.userStates[userID] = &models.UserState{
-		UserID:      userID,
-		CurrentStep: step,
-		TempData:    tempData,
+	err := b.stateService.SetUserState(ctx, userID, step, tempData)
+	if err != nil {
+		b.logger.Error().Err(err).Int64("user_id", userID).Str("step", step).Msg("Error setting user state")
 	}
 }
 
-func (b *Bot) getUserState(userID int64) *models.UserState {
-	return b.userStates[userID]
+func (b *Bot) getUserState(ctx context.Context, userID int64) *models.UserState {
+	state, err := b.stateService.GetUserState(ctx, userID)
+	if err != nil {
+		b.logger.Error().Err(err).Int64("user_id", userID).Msg("Error getting user state")
+		return nil
+	}
+	if state == nil {
+		return nil
+	}
+
+	return &models.UserState{
+		UserID:      state.UserID,
+		CurrentStep: state.Step,
+		TempData:    state.Data,
+	}
 }
 
-func (b *Bot) clearUserState(userID int64) {
-	delete(b.userStates, userID)
+func (b *Bot) clearUserState(ctx context.Context, userID int64) {
+	err := b.stateService.ClearUserState(ctx, userID)
+	if err != nil {
+		b.logger.Error().Err(err).Int64("user_id", userID).Msg("Error clearing user state")
+	}
 }
 
 func (b *Bot) isBlacklisted(userID int64) bool {
@@ -59,7 +73,7 @@ func (b *Bot) sendMessage(chatID int64, text string) {
 	b.bot.Send(msg)
 }
 
-func (b *Bot) publishBookingEvent(eventType string, booking models.Booking, changedBy string, changedByID int64) {
+func (b *Bot) publishBookingEvent(ctx context.Context, eventType string, booking models.Booking, changedBy string, changedByID int64) {
 	if b.eventBus == nil {
 		return
 	}
@@ -78,12 +92,12 @@ func (b *Bot) publishBookingEvent(eventType string, booking models.Booking, chan
 	}
 
 	if err := b.eventBus.PublishJSON(eventType, payload); err != nil {
-		log.Printf("publish event %s for booking %d: %v", eventType, booking.ID, err)
+		b.logger.Error().Err(err).Str("event_type", eventType).Int64("booking_id", booking.ID).Msg("publish event error")
 	}
 }
 
 // handleMainMenu - главное меню с контактами
-func (b *Bot) handleMainMenu(update tgbotapi.Update) {
+func (b *Bot) handleMainMenu(ctx context.Context, update tgbotapi.Update) {
 	var userID int64
 	var chatID int64
 
@@ -95,7 +109,7 @@ func (b *Bot) handleMainMenu(update tgbotapi.Update) {
 		userID = update.CallbackQuery.From.ID
 		chatID = update.CallbackQuery.Message.Chat.ID
 	} else {
-		log.Printf("Error: cannot determine userID and chatID in handleMainMenu")
+		b.logger.Error().Msg("Error: cannot determine userID and chatID in handleMainMenu")
 		return
 	}
 
@@ -138,12 +152,12 @@ func (b *Bot) handleMainMenu(update tgbotapi.Update) {
 
 	msg.ReplyMarkup = tgbotapi.NewReplyKeyboard(rows...)
 
-	b.setUserState(userID, StateMainMenu, nil)
+	b.setUserState(ctx, userID, StateMainMenu, nil)
 	b.bot.Send(msg)
 }
 
 // showManagerContacts показывает контакты менеджеров
-func (b *Bot) showManagerContacts(update tgbotapi.Update) {
+func (b *Bot) showManagerContacts(ctx context.Context, update tgbotapi.Update) {
 	contacts := b.config.ManagersContacts
 	var message strings.Builder
 	message.WriteString("📞 Контакты менеджера:\n\n")
@@ -157,10 +171,10 @@ func (b *Bot) showManagerContacts(update tgbotapi.Update) {
 }
 
 // showUserBookings показывает заявки пользователя
-func (b *Bot) showUserBookings(update tgbotapi.Update) {
-	bookings, err := b.db.GetUserBookings(context.Background(), update.Message.From.ID)
+func (b *Bot) showUserBookings(ctx context.Context, update tgbotapi.Update) {
+	bookings, err := b.db.GetUserBookings(ctx, update.Message.From.ID)
 	if err != nil {
-		log.Printf("Error getting user bookings: %v", err)
+		b.logger.Error().Err(err).Int64("user_id", update.Message.From.ID).Msg("Error getting user bookings")
 		b.sendMessage(update.Message.Chat.ID, "Ошибка при получении заявок")
 		return
 	}
@@ -195,8 +209,8 @@ func (b *Bot) showUserBookings(update tgbotapi.Update) {
 }
 
 // Обновляем handlePersonalData - добавляем запрос имени
-func (b *Bot) handlePersonalData(update tgbotapi.Update, itemID int64, date time.Time) {
-	state := b.getUserState(update.Message.From.ID)
+func (b *Bot) handlePersonalData(ctx context.Context, update tgbotapi.Update, itemID int64, date time.Time) {
+	state := b.getUserState(ctx, update.Message.From.ID)
 	if state == nil {
 		state = &models.UserState{
 			UserID:   update.Message.From.ID,
@@ -206,7 +220,7 @@ func (b *Bot) handlePersonalData(update tgbotapi.Update, itemID int64, date time
 
 	state.TempData["item_id"] = itemID
 	state.TempData["date"] = date
-	b.setUserState(update.Message.From.ID, StatePersonalData, state.TempData)
+	b.setUserState(ctx, update.Message.From.ID, StatePersonalData, state.TempData)
 
 	msg := tgbotapi.NewMessage(update.Message.Chat.ID,
 		`Для оформления заявки необходимо ваше согласие на обработку персональных данных.
@@ -231,8 +245,8 @@ func (b *Bot) handlePersonalData(update tgbotapi.Update, itemID int64, date time
 }
 
 // Добавляем метод для запроса имени
-func (b *Bot) handleNameRequest(update tgbotapi.Update) {
-	b.debugState(update.Message.From.ID, "handleNameRequest START")
+func (b *Bot) handleNameRequest(ctx context.Context, update tgbotapi.Update) {
+	b.debugState(ctx, update.Message.From.ID, "handleNameRequest START")
 
 	msg := tgbotapi.NewMessage(update.Message.Chat.ID,
 		"Пожалуйста, введите ваше ФИО для заявки:")
@@ -248,16 +262,16 @@ func (b *Bot) handleNameRequest(update tgbotapi.Update) {
 	)
 	msg.ReplyMarkup = keyboard
 
-	state := b.getUserState(update.Message.From.ID)
+	state := b.getUserState(ctx, update.Message.From.ID)
 
-	b.setUserState(update.Message.From.ID, StateEnterName, state.TempData)
+	b.setUserState(ctx, update.Message.From.ID, StateEnterName, state.TempData)
 
-	b.debugState(update.Message.From.ID, "handleNameRequest END")
+	b.debugState(ctx, update.Message.From.ID, "handleNameRequest END")
 	b.bot.Send(msg)
 }
 
 // Обновляем handlePhoneRequest - добавляем контакты
-func (b *Bot) handlePhoneRequest(update tgbotapi.Update) {
+func (b *Bot) handlePhoneRequest(ctx context.Context, update tgbotapi.Update) {
 	msg := tgbotapi.NewMessage(update.Message.Chat.ID,
 		"Пожалуйста, предоставьте ваш номер телефона для связи:\n"+
 			"Вы можете предоставить разрешение на использование номера из контакта телеграмм\n"+
@@ -277,25 +291,105 @@ func (b *Bot) handlePhoneRequest(update tgbotapi.Update) {
 	)
 	msg.ReplyMarkup = keyboard
 
-	state := b.getUserState(update.Message.From.ID)
+	state := b.getUserState(ctx, update.Message.From.ID)
 
-	b.setUserState(update.Message.From.ID, StatePhoneNumber, state.TempData)
+	b.setUserState(ctx, update.Message.From.ID, StatePhoneNumber, state.TempData)
 	b.bot.Send(msg)
 }
 
+func (b *Bot) getInt64FromTempData(data map[string]interface{}, key string) int64 {
+	val, ok := data[key]
+	if !ok {
+		return 0
+	}
+	switch v := val.(type) {
+	case int64:
+		return v
+	case float64:
+		return int64(v)
+	case int:
+		return int64(v)
+	default:
+		return 0
+	}
+}
+
+func (b *Bot) getTimeFromTempData(data map[string]interface{}, key string) time.Time {
+	val, ok := data[key]
+	if !ok {
+		return time.Time{}
+	}
+	switch v := val.(type) {
+	case time.Time:
+		return v
+	case string:
+		t, err := time.Parse(time.RFC3339, v)
+		if err != nil {
+			// Try other formats if needed
+			t, err = time.Parse("2006-01-02T15:04:05Z07:00", v)
+			if err != nil {
+				return time.Time{}
+			}
+		}
+		return t
+	default:
+		return time.Time{}
+	}
+}
+
+func (b *Bot) getDatesFromTempData(data map[string]interface{}, key string) []time.Time {
+	val, ok := data[key]
+	if !ok {
+		return nil
+	}
+	switch v := val.(type) {
+	case []time.Time:
+		return v
+	case []interface{}:
+		var dates []time.Time
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				t, err := time.Parse(time.RFC3339, s)
+				if err != nil {
+					t, err = time.Parse("2006-01-02T15:04:05Z07:00", s)
+				}
+				if err == nil {
+					dates = append(dates, t)
+				}
+			} else if t, ok := item.(time.Time); ok {
+				dates = append(dates, t)
+			}
+		}
+		return dates
+	default:
+		return nil
+	}
+}
+
+func (b *Bot) getStringFromTempData(data map[string]interface{}, key string) string {
+	val, ok := data[key]
+	if !ok {
+		return ""
+	}
+	if s, ok := val.(string); ok {
+		return s
+	}
+	return fmt.Sprintf("%v", val)
+}
+
 // Обновляем finalizeBooking для использования имени
-func (b *Bot) finalizeBooking(update tgbotapi.Update) {
-	state := b.getUserState(update.Message.From.ID)
+func (b *Bot) finalizeBooking(ctx context.Context, update tgbotapi.Update) {
+	state := b.getUserState(ctx, update.Message.From.ID)
 	if state == nil {
 		b.sendMessage(update.Message.Chat.ID, "Сессия устарела. Начните заново.")
-		b.handleMainMenu(update)
+		b.handleMainMenu(ctx, update)
 		return
 	}
 
 	// Получаем данные из состояния
-	itemID := state.TempData["item_id"].(int64)
-	date := state.TempData["date"].(time.Time)
-	phone := state.TempData["phone"].(string)
+	itemID := b.getInt64FromTempData(state.TempData, "item_id")
+	date := b.getTimeFromTempData(state.TempData, "date")
+	phone, _ := state.TempData["phone"].(string)
 	userName, ok := state.TempData["user_name"].(string)
 	if !ok {
 		// Если имя не было введено, используем имя из Telegram
@@ -313,17 +407,17 @@ func (b *Bot) finalizeBooking(update tgbotapi.Update) {
 
 	if selectedItem.ID == 0 {
 		b.sendMessage(update.Message.Chat.ID, "Ошибка: выбранная позиция не найдена.")
-		b.handleMainMenu(update)
+		b.handleMainMenu(ctx, update)
 		return
 	}
 
 	// Финальная проверка доступности
-	available, err := b.db.CheckAvailability(context.Background(), selectedItem.ID, date)
+	available, err := b.db.CheckAvailability(ctx, selectedItem.ID, date)
 	if err != nil || !available {
 		msg := tgbotapi.NewMessage(update.Message.Chat.ID,
 			"К сожалению, выбранная позиция больше не доступна. Пожалуйста, выберите другую дату.")
 		b.bot.Send(msg)
-		b.handleMainMenu(update)
+		b.handleMainMenu(ctx, update)
 		return
 	}
 
@@ -341,19 +435,19 @@ func (b *Bot) finalizeBooking(update tgbotapi.Update) {
 		UpdatedAt:    time.Now(),
 	}
 
-	err = b.db.CreateBookingWithLock(context.Background(), &booking)
+	err = b.db.CreateBookingWithLock(ctx, &booking)
 	if err != nil {
 		if errors.Is(err, database.ErrNotAvailable) {
 			b.sendMessage(update.Message.Chat.ID, "К сожалению, позиция стала недоступна. Попробуйте выбрать другую дату.")
-			b.handleMainMenu(update)
+			b.handleMainMenu(ctx, update)
 			return
 		}
-		log.Printf("Error creating booking: %v", err)
+		b.logger.Error().Err(err).Int64("user_id", update.Message.From.ID).Msg("Error creating booking")
 		b.sendMessage(update.Message.Chat.ID, "Произошла ошибка при создании заявки. Попробуйте позже.")
 		return
 	}
 
-	b.publishBookingEvent(events.EventBookingCreated, booking, "user", update.Message.From.ID)
+	b.publishBookingEvent(ctx, events.EventBookingCreated, booking, "user", update.Message.From.ID)
 
 	// Уведомляем менеджеров
 	b.notifyManagers(booking)
@@ -362,39 +456,39 @@ func (b *Bot) finalizeBooking(update tgbotapi.Update) {
 		fmt.Sprintf("⏳ Ваша заявка #%d на позицию %s успешно создана. \nОжидайте подтверждения.", booking.ID, booking.ItemName))
 
 	// Очищаем состояние
-	b.clearUserState(update.Message.From.ID)
-	b.handleMainMenu(update)
+	b.clearUserState(ctx, update.Message.From.ID)
+	b.handleMainMenu(ctx, update)
 	b.bot.Send(msg)
 }
 
 // handleContactReceived обработка полученного контакта
-func (b *Bot) handleContactReceived(update tgbotapi.Update) {
-	state := b.getUserState(update.Message.From.ID)
+func (b *Bot) handleContactReceived(ctx context.Context, update tgbotapi.Update) {
+	state := b.getUserState(ctx, update.Message.From.ID)
 	if state == nil {
-		b.handleMainMenu(update)
+		b.handleMainMenu(ctx, update)
 		return
 	}
 
 	if state.CurrentStep == StatePhoneNumber {
-		b.handlePhoneReceived(update, update.Message.Contact.PhoneNumber)
+		b.handlePhoneReceived(ctx, update, update.Message.Contact.PhoneNumber)
 	}
 }
 
 // handleViewSchedule - меню просмотра расписания
-func (b *Bot) handleViewSchedule(update tgbotapi.Update) {
+func (b *Bot) handleViewSchedule(ctx context.Context, update tgbotapi.Update) {
 	b.updateUserActivity(update.Message.From.ID)
 
 	// Сохраняем состояние выбора аппарата для расписания
-	b.setUserState(update.Message.From.ID, "schedule_select_item", map[string]interface{}{
+	b.setUserState(ctx, update.Message.From.ID, "schedule_select_item", map[string]interface{}{
 		"page": 0,
 	})
 
 	// Отправляем выбор аппарата
-	b.sendScheduleItemsPage(update.Message.Chat.ID, update.Message.From.ID, 0)
+	b.sendScheduleItemsPage(ctx, update.Message.Chat.ID, update.Message.From.ID, 0)
 }
 
 // sendScheduleItemsPage отправляет страницу с аппаратами для просмотра расписания
-func (b *Bot) sendScheduleItemsPage(chatID, userID int64, page int) {
+func (b *Bot) sendScheduleItemsPage(ctx context.Context, chatID, userID int64, page int) {
 	itemsPerPage := 8
 	startIdx := page * itemsPerPage
 	endIdx := startIdx + itemsPerPage
@@ -452,7 +546,7 @@ func (b *Bot) sendScheduleItemsPage(chatID, userID int64, page int) {
 	b.bot.Send(msg)
 }
 
-func (b *Bot) handleSelectItem(update tgbotapi.Update) {
+func (b *Bot) handleSelectItem(ctx context.Context, update tgbotapi.Update) {
 	var chatID int64
 	var userID int64
 
@@ -470,7 +564,7 @@ func (b *Bot) handleSelectItem(update tgbotapi.Update) {
 		callbackConfig := tgbotapi.NewCallback(update.CallbackQuery.ID, "")
 		b.bot.Request(callbackConfig)
 	} else {
-		log.Printf("Error: cannot determine chatID and userID in handleSelectItem")
+		b.logger.Error().Msg("Error: cannot determine chatID and userID in handleSelectItem")
 		return
 	}
 
@@ -478,16 +572,16 @@ func (b *Bot) handleSelectItem(update tgbotapi.Update) {
 	b.updateUserActivity(userID)
 
 	// Сохраняем состояние
-	b.setUserState(userID, StateSelectItem, map[string]interface{}{
+	b.setUserState(ctx, userID, StateSelectItem, map[string]interface{}{
 		"page": 0,
 	})
 
 	// Отправляем первую страницу
-	b.sendItemsPage(chatID, userID, 0)
+	b.sendItemsPage(ctx, chatID, userID, 0)
 }
 
 // sendItemsPage отправляет страницу с аппаратами
-func (b *Bot) sendItemsPage(chatID, userID int64, page int) {
+func (b *Bot) sendItemsPage(ctx context.Context, chatID, userID int64, page int) {
 	itemsPerPage := 8 // Количество аппаратов на странице
 	startIdx := page * itemsPerPage
 	endIdx := startIdx + itemsPerPage
@@ -548,7 +642,7 @@ func (b *Bot) sendItemsPage(chatID, userID int64, page int) {
 }
 
 // showAvailableItems показывает доступные позиции
-func (b *Bot) showAvailableItems(update tgbotapi.Update) {
+func (b *Bot) showAvailableItems(ctx context.Context, update tgbotapi.Update) {
 	items := b.items
 	var message strings.Builder
 	message.WriteString("🏢 Доступные позиции:\n\n")
@@ -574,19 +668,26 @@ func (b *Bot) showAvailableItems(update tgbotapi.Update) {
 }
 
 // showMonthScheduleForItem показывает расписание на 30 дней для выбранного аппарата
-func (b *Bot) showMonthScheduleForItem(update tgbotapi.Update) {
-	state := b.getUserState(update.Message.From.ID)
-	if state == nil || state.TempData["selected_item"] == nil {
+func (b *Bot) showMonthScheduleForItem(ctx context.Context, update tgbotapi.Update) {
+	state := b.getUserState(ctx, update.Message.From.ID)
+	if state == nil || state.TempData["item_id"] == nil {
 		b.sendMessage(update.Message.Chat.ID, "Ошибка: аппарат не выбран")
 		return
 	}
 
-	selectedItem := state.TempData["selected_item"].(models.Item)
+	itemID := b.getInt64FromTempData(state.TempData, "item_id")
+	var selectedItem models.Item
+	for _, item := range b.items {
+		if item.ID == itemID {
+			selectedItem = item
+			break
+		}
+	}
 	startDate := time.Now()
 
-	availability, err := b.db.GetAvailabilityForPeriod(context.Background(), selectedItem.ID, startDate, 30)
+	availability, err := b.db.GetAvailabilityForPeriod(ctx, selectedItem.ID, startDate, 30)
 	if err != nil {
-		log.Printf("Error getting availability: %v", err)
+		b.logger.Error().Err(err).Int64("item_id", selectedItem.ID).Msg("Error getting availability")
 		b.sendMessage(update.Message.Chat.ID, "Ошибка при получении расписания")
 		return
 	}
@@ -625,14 +726,21 @@ func (b *Bot) showMonthScheduleForItem(update tgbotapi.Update) {
 }
 
 // handleSpecificDateInput обновляем для работы с выбранным аппаратом
-func (b *Bot) handleSpecificDateInput(update tgbotapi.Update, dateStr string) {
-	state := b.getUserState(update.Message.From.ID)
-	if state == nil || state.TempData["selected_item"] == nil {
+func (b *Bot) handleSpecificDateInput(ctx context.Context, update tgbotapi.Update, dateStr string) {
+	state := b.getUserState(ctx, update.Message.From.ID)
+	if state == nil || state.TempData["item_id"] == nil {
 		b.sendMessage(update.Message.Chat.ID, "Ошибка: аппарат не выбран")
 		return
 	}
 
-	selectedItem := state.TempData["selected_item"].(models.Item)
+	itemID := b.getInt64FromTempData(state.TempData, "item_id")
+	var selectedItem models.Item
+	for _, item := range b.items {
+		if item.ID == itemID {
+			selectedItem = item
+			break
+		}
+	}
 
 	date, err := time.Parse("02.01.2006", dateStr)
 	if err != nil {
@@ -642,9 +750,9 @@ func (b *Bot) handleSpecificDateInput(update tgbotapi.Update, dateStr string) {
 		return
 	}
 
-	available, err := b.db.CheckAvailability(context.Background(), selectedItem.ID, date)
+	available, err := b.db.CheckAvailability(ctx, selectedItem.ID, date)
 	if err != nil {
-		log.Printf("Error checking availability: %v", err)
+		b.logger.Error().Err(err).Int64("item_id", selectedItem.ID).Time("date", date).Msg("Error checking availability")
 		b.sendMessage(update.Message.Chat.ID, "Ошибка при проверке доступности")
 		return
 	}
@@ -654,7 +762,7 @@ func (b *Bot) handleSpecificDateInput(update tgbotapi.Update, dateStr string) {
 		status = "❌ Недоступно"
 	}
 
-	booked, _ := b.db.GetBookedCount(context.Background(), selectedItem.ID, date)
+	booked, _ := b.db.GetBookedCount(ctx, selectedItem.ID, date)
 	message := fmt.Sprintf("📅 Доступность *%s* на %s:\n\n%s\n\nЗабронировано: %d/%d",
 		selectedItem.Name,
 		date.Format("02.01.2006"),
@@ -668,25 +776,25 @@ func (b *Bot) handleSpecificDateInput(update tgbotapi.Update, dateStr string) {
 }
 
 // requestSpecificDate запрашивает у пользователя конкретную дату
-func (b *Bot) requestSpecificDate(update tgbotapi.Update) {
+func (b *Bot) requestSpecificDate(ctx context.Context, update tgbotapi.Update) {
 	msg := tgbotapi.NewMessage(update.Message.Chat.ID,
 		"Введите дату в формате ДД.ММ.ГГГГ (например, 25.12.2025):")
 
-	b.setUserState(update.Message.From.ID, "waiting_specific_date", nil)
+	b.setUserState(ctx, update.Message.From.ID, "waiting_specific_date", nil)
 	b.bot.Send(msg)
 }
 
 // handleCustomInput ...
-func (b *Bot) handleCustomInput(update tgbotapi.Update, state *models.UserState) {
+func (b *Bot) handleCustomInput(ctx context.Context, update tgbotapi.Update, state *models.UserState) {
 	switch state.CurrentStep {
 	default:
 		b.sendMessage(update.Message.Chat.ID, "Неизвестная команда. Используйте меню.")
-		b.handleMainMenu(update)
+		b.handleMainMenu(ctx, update)
 	}
 }
 
 // handleDateInput обрабатывает ввод даты для бронирования
-func (b *Bot) handleDateInput(update tgbotapi.Update, dateStr string, state *models.UserState) {
+func (b *Bot) handleDateInput(ctx context.Context, update tgbotapi.Update, dateStr string, state *models.UserState) {
 	b.debugState(update.Message.From.ID, "handleDateInput START")
 
 	date, err := time.Parse("02.01.2006", dateStr)
@@ -705,17 +813,25 @@ func (b *Bot) handleDateInput(update tgbotapi.Update, dateStr string, state *mod
 		return
 	}
 
-	item, ok := state.TempData["selected_item"].(models.Item)
-	if !ok {
+	itemID := b.getInt64FromTempData(state.TempData, "item_id")
+	var item models.Item
+	for _, it := range b.items {
+		if it.ID == itemID {
+			item = it
+			break
+		}
+	}
+
+	if item.ID == 0 {
 		b.sendMessage(update.Message.Chat.ID, "Ошибка: не найден выбранный элемент. Начните заново.")
-		b.handleMainMenu(update)
+		b.handleMainMenu(ctx, update)
 		return
 	}
 
 	// Проверяем доступность
-	available, err := b.db.CheckAvailability(context.Background(), item.ID, date)
+	available, err := b.db.CheckAvailability(ctx, item.ID, date)
 	if err != nil {
-		log.Printf("Error checking availability: %v", err)
+		b.logger.Error().Err(err).Int64("item_id", item.ID).Time("date", date).Msg("Error checking availability")
 		msg := tgbotapi.NewMessage(update.Message.Chat.ID,
 			"Произошла ошибка при проверке доступности. Попробуйте позже.")
 		b.bot.Send(msg)
@@ -732,21 +848,21 @@ func (b *Bot) handleDateInput(update tgbotapi.Update, dateStr string, state *mod
 	// Сохраняем данные в состоянии перед переходом
 	state.TempData["item_id"] = item.ID
 	state.TempData["date"] = date
-	b.setUserState(update.Message.From.ID, "waiting_date", state.TempData)
+	b.setUserState(ctx, update.Message.From.ID, "waiting_date", state.TempData)
 
-	b.debugState(update.Message.From.ID, "handleDateInput END")
+	b.debugState(ctx, update.Message.From.ID, "handleDateInput END")
 
 	// Переходим к запросу персональных данных
-	// b.handlePersonalData(update, item.ID, date)
-	b.handleNameRequest(update)
+	// b.handlePersonalData(ctx, update, item.ID, date)
+	b.handleNameRequest(ctx, update)
 }
 
 // restoreStateOrRestart восстанавливает состояние или начинает заново
-func (b *Bot) restoreStateOrRestart(update tgbotapi.Update, requiredFields ...string) bool {
-	state := b.getUserState(update.Message.From.ID)
+func (b *Bot) restoreStateOrRestart(ctx context.Context, update tgbotapi.Update, requiredFields ...string) bool {
+	state := b.getUserState(ctx, update.Message.From.ID)
 	if state == nil {
 		b.sendMessage(update.Message.Chat.ID, "Сессия устарела. Начните заново.")
-		b.handleMainMenu(update)
+		b.handleMainMenu(ctx, update)
 		return false
 	}
 
@@ -754,7 +870,7 @@ func (b *Bot) restoreStateOrRestart(update tgbotapi.Update, requiredFields ...st
 		if _, exists := state.TempData[field]; !exists {
 			b.sendMessage(update.Message.Chat.ID,
 				fmt.Sprintf("Ошибка: отсутствуют данные (%s). Начните заново.", field))
-			b.handleMainMenu(update)
+			b.handleMainMenu(ctx, update)
 			return false
 		}
 	}
@@ -763,26 +879,29 @@ func (b *Bot) restoreStateOrRestart(update tgbotapi.Update, requiredFields ...st
 }
 
 // Добавьте этот метод в utils.go для отладки
-func (b *Bot) debugState(userID int64, message string) {
-	state := b.getUserState(userID)
+func (b *Bot) debugState(ctx context.Context, userID int64, message string) {
+	state := b.getUserState(ctx, userID)
 	if state != nil {
-		log.Printf("DEBUG [%s] UserID: %d, Step: %s, TempData: %+v",
-			message, userID, state.CurrentStep, state.TempData)
+		b.logger.Debug().
+			Int64("user_id", userID).
+			Str("step", state.CurrentStep).
+			Interface("temp_data", state.TempData).
+			Msg(message)
 	} else {
-		log.Printf("DEBUG [%s] UserID: %d, State: nil", message, userID)
+		b.logger.Debug().Int64("user_id", userID).Msg(message + " (state is nil)")
 	}
 }
 
 // handlePhoneReceived обработка полученного номера телефона
-func (b *Bot) handlePhoneReceived(update tgbotapi.Update, phone string) {
-	b.debugState(update.Message.From.ID, "handlePhoneReceived START")
+func (b *Bot) handlePhoneReceived(ctx context.Context, update tgbotapi.Update, phone string) {
+	b.debugState(ctx, update.Message.From.ID, "handlePhoneReceived START")
 
 	// Проверяем и восстанавливаем состояние
-	if !b.restoreStateOrRestart(update, "item_id", "date") {
+	if !b.restoreStateOrRestart(ctx, update, "item_id", "date") {
 		return
 	}
 
-	state := b.getUserState(update.Message.From.ID)
+	state := b.getUserState(ctx, update.Message.From.ID)
 
 	// Проверяем и нормализуем номер телефона
 	normalizedPhone := b.normalizePhone(phone)
@@ -806,26 +925,26 @@ func (b *Bot) handlePhoneReceived(update tgbotapi.Update, phone string) {
 
 	if selectedItem.ID == 0 {
 		b.sendMessage(update.Message.Chat.ID, "Ошибка: выбранная позиция не найдена. Начните заново.")
-		b.handleMainMenu(update)
+		b.handleMainMenu(ctx, update)
 		return
 	}
 
 	state.TempData["phone"] = normalizedPhone
-	state.TempData["selected_item"] = selectedItem // Сохраняем элемент для подтверждения
-	b.setUserState(update.Message.From.ID, StateConfirmation, state.TempData)
+	state.TempData["item_id"] = selectedItem.ID // Сохраняем ID элемента для подтверждения
+	b.setUserState(ctx, update.Message.From.ID, StateConfirmation, state.TempData)
 
-	b.debugState(update.Message.From.ID, "handlePhoneReceived END")
+	b.debugState(ctx, update.Message.From.ID, "handlePhoneReceived END")
 
 	// Сохраняем телефон пользователя
 	b.updateUserPhone(update.Message.From.ID, normalizedPhone)
 
 	// Проверяем доступность еще раз
-	available, err := b.db.CheckAvailability(context.Background(), selectedItem.ID, date)
+	available, err := b.db.CheckAvailability(ctx, selectedItem.ID, date)
 	if err != nil || !available {
 		msg := tgbotapi.NewMessage(update.Message.Chat.ID,
 			"К сожалению, выбранная позиция больше не доступна на эту дату. Пожалуйста, начните заново.")
 		b.bot.Send(msg)
-		b.handleMainMenu(update)
+		b.handleMainMenu(ctx, update)
 		return
 	}
 
@@ -857,7 +976,7 @@ func (b *Bot) handlePhoneReceived(update tgbotapi.Update, phone string) {
 	// msg.ReplyMarkup = keyboard
 
 	b.bot.Send(msg)
-	b.finalizeBooking(update)
+	b.finalizeBooking(ctx, update)
 }
 
 // normalizePhone нормализует номер телефона

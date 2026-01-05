@@ -15,8 +15,10 @@ import (
 	"bronivik/internal/database"
 	"bronivik/internal/events"
 	"bronivik/internal/google"
+	"bronivik/internal/logging"
 	"bronivik/internal/models"
 	"bronivik/internal/repository"
+	"bronivik/internal/service"
 	"bronivik/internal/worker"
 	"github.com/redis/go-redis/v9"
 	"gopkg.in/yaml.v2"
@@ -38,39 +40,53 @@ func main() {
 		log.Fatalf("Error loading config: %v", err)
 	}
 
+	// Инициализация логгера
+	baseLogger, closer, err := logging.New(cfg.Logging, cfg.App)
+	if err != nil {
+		log.Fatalf("init logger: %v", err)
+	}
+	if closer != nil {
+		defer closer.Close()
+	}
+	logger := baseLogger.With().Str("component", "bot-main").Logger()
+
 	if _, err := os.Stat("configs/items.yaml"); os.IsNotExist(err) {
-		log.Fatalf("Config file does not exist: %s", "configs/items.yaml")
+		logger.Fatal().Msgf("Config file does not exist: %s", "configs/items.yaml")
 	}
 
 	// Загрузка позиций из отдельного файла
 	itemsData, err := os.ReadFile("configs/items.yaml")
 	if err != nil {
-		log.Fatal("Ошибка чтения items.yaml:", err)
+		logger.Fatal().Err(err).Msg("Ошибка чтения items.yaml")
 	}
 
 	var itemsConfig struct {
 		Items []models.Item `yaml:"items"`
 	}
 	if err := yaml.Unmarshal(itemsData, &itemsConfig); err != nil {
-		log.Fatal("Ошибка парсинга items.yaml:", err)
+		logger.Fatal().Err(err).Msg("Ошибка парсинга items.yaml")
+	}
+
+	if err := config.ValidateItems(itemsConfig.Items); err != nil {
+		logger.Fatal().Err(err).Msg("Items validation failed")
 	}
 
 	// Создаем необходимые директории
 	if cfg == nil {
-		log.Fatal("Cfg configuration is missing in config")
+		logger.Fatal().Msg("Cfg configuration is missing in config")
 	}
 	if err := os.MkdirAll(filepath.Dir(cfg.Database.Path), 0755); err != nil {
-		log.Fatal("Ошибка создания директории для базы данных:", err)
+		logger.Fatal().Err(err).Msg("Ошибка создания директории для базы данных")
 	}
 
 	if err := os.MkdirAll(cfg.Exports.Path, 0755); err != nil {
-		log.Fatal("Ошибка создания директории для экспорта:", err)
+		logger.Fatal().Err(err).Msg("Ошибка создания директории для экспорта")
 	}
 
 	// Инициализация базы данных
 	db, err := database.NewDB(cfg.Database.Path)
 	if err != nil {
-		log.Fatal("Ошибка инициализации базы данных:", err)
+		logger.Fatal().Err(err).Msg("Ошибка инициализации базы данных")
 	}
 	defer db.Close()
 
@@ -78,7 +94,7 @@ func main() {
 	db.SetItems(itemsConfig.Items)
 
 	if cfg.Telegram.BotToken == "YOUR_BOT_TOKEN_HERE" {
-		log.Fatal("Задайте токен бота в config.yaml")
+		logger.Fatal().Msg("Задайте токен бота в config.yaml")
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -87,7 +103,7 @@ func main() {
 	// Инициализация Google Sheets через API Key
 	var sheetsService *google.SheetsService
 	if cfg.Google.GoogleCredentialsFile == "" || cfg.Google.UsersSpreadSheetId == "" || cfg.Google.BookingSpreadSheetId == "" {
-		log.Fatal("Нехватает переменных для подключения к Гуглу", err)
+		logger.Fatal().Msg("Нехватает переменных для подключения к Гуглу")
 	}
 
 	service, err := google.NewSimpleSheetsService(
@@ -96,60 +112,61 @@ func main() {
 		cfg.Google.BookingSpreadSheetId,
 	)
 	if err != nil {
-		log.Printf("Warning: Failed to initialize Google Sheets service: %v", err)
+		logger.Warn().Err(err).Msg("Failed to initialize Google Sheets service")
 	}
 
 	// Тестируем подключение
 	if err := service.TestConnection(); err != nil {
-		log.Fatalf("Warning: Google Sheets connection test failed: %v", err)
+		logger.Fatal().Err(err).Msg("Google Sheets connection test failed")
 	} else {
 		sheetsService = service
-		log.Println("Google Sheets service initialized successfully")
+		logger.Info().Msg("Google Sheets service initialized successfully")
 	}
 
-	// Инициализация Redis (необязательно)
+	// Инициализация Redis
 	var redisClient *redis.Client
 	if cfg.Redis.Address != "" {
 		redisClient = repository.NewRedisClient(cfg.Redis)
 		if err := repository.Ping(ctx, redisClient); err != nil {
-			log.Printf("Redis unavailable, falling back to in-memory queue: %v", err)
-			redisClient = nil
+			logger.Warn().Err(err).Msg("Redis unavailable")
 		}
 	}
+
+	// Инициализация сервиса состояний
+	stateRepo := repository.NewRedisStateRepository(redisClient, 24*time.Hour)
+	stateService := service.NewStateService(stateRepo)
 
 	// Запускаем воркер синхронизации Google Sheets
 	var sheetsWorker *worker.SheetsWorker
 	if sheetsService != nil {
 		retryPolicy := worker.RetryPolicy{MaxRetries: 5, InitialDelay: 2 * time.Second, MaxDelay: time.Minute, BackoffFactor: 2}
-		sheetsWorker = worker.NewSheetsWorker(db, sheetsService, redisClient, retryPolicy, log.Default())
+		sheetsWorker = worker.NewSheetsWorker(db, sheetsService, redisClient, retryPolicy, &logger)
 		go sheetsWorker.Start(ctx)
 	}
 
 	eventBus := events.NewEventBus()
-	subscribeBookingEvents(ctx, eventBus, db, sheetsWorker, log.Default())
+	subscribeBookingEvents(ctx, eventBus, db, sheetsWorker, &logger)
 
 	// Создание и запуск бота
-	telegramBot, err := bot.NewBot(cfg.Telegram.BotToken, cfg, itemsConfig.Items, db, sheetsService, sheetsWorker, eventBus)
+	telegramBot, err := bot.NewBot(cfg.Telegram.BotToken, cfg, itemsConfig.Items, db, stateService, sheetsService, sheetsWorker, eventBus, &logger)
 	if err != nil {
-		log.Fatal("Ошибка создания бота:", err)
+		logger.Fatal().Err(err).Msg("Ошибка создания бота")
 	}
 
-	log.Println("Бот запущен...")
-	go telegramBot.Start()
+	logger.Info().Msg("Бот запущен...")
+	
+	// Запускаем напоминания
 	telegramBot.StartReminders(ctx)
 
-	<-ctx.Done()
-	log.Println("Shutdown signal received...")
+	// Запускаем бота (блокирующий вызов)
+	telegramBot.Start(ctx)
 
-	telegramBot.Stop()
+	logger.Info().Msg("Shutdown complete.")
 }
 
-func subscribeBookingEvents(ctx context.Context, bus *events.EventBus, db *database.DB, sheetsWorker *worker.SheetsWorker, logger *log.Logger) {
+func subscribeBookingEvents(ctx context.Context, bus *events.EventBus, db *database.DB, sheetsWorker *worker.SheetsWorker, logger *zerolog.Logger) {
 	if bus == nil || sheetsWorker == nil || db == nil {
 		return
-	}
-	if logger == nil {
-		logger = log.Default()
 	}
 
 	decode := func(ev events.Event) (events.BookingEventPayload, error) {
@@ -163,18 +180,18 @@ func subscribeBookingEvents(ctx context.Context, bus *events.EventBus, db *datab
 	upsertHandler := func(ev events.Event) error {
 		payload, err := decode(ev)
 		if err != nil {
-			logger.Printf("event bus: decode payload for %s: %v", ev.Type, err)
+			logger.Error().Err(err).Str("event", ev.Type).Msg("event bus: decode payload")
 			return nil
 		}
 
 		booking, err := db.GetBooking(ctx, payload.BookingID)
 		if err != nil {
-			logger.Printf("event bus: load booking %d: %v", payload.BookingID, err)
+			logger.Error().Err(err).Int64("booking_id", payload.BookingID).Msg("event bus: load booking")
 			return nil
 		}
 
 		if err := sheetsWorker.EnqueueTask(ctx, worker.SheetTask{Type: worker.TaskUpsert, BookingID: booking.ID, Booking: booking}); err != nil {
-			logger.Printf("event bus: enqueue upsert %d: %v", booking.ID, err)
+			logger.Error().Err(err).Int64("booking_id", booking.ID).Msg("event bus: enqueue upsert")
 		}
 		return nil
 	}
@@ -182,7 +199,7 @@ func subscribeBookingEvents(ctx context.Context, bus *events.EventBus, db *datab
 	statusHandler := func(ev events.Event) error {
 		payload, err := decode(ev)
 		if err != nil {
-			logger.Printf("event bus: decode payload for %s: %v", ev.Type, err)
+			logger.Error().Err(err).Str("event", ev.Type).Msg("event bus: decode payload")
 			return nil
 		}
 
@@ -195,12 +212,12 @@ func subscribeBookingEvents(ctx context.Context, bus *events.EventBus, db *datab
 		}
 
 		if status == "" {
-			logger.Printf("event bus: missing status for booking %d", payload.BookingID)
+			logger.Error().Int64("booking_id", payload.BookingID).Msg("event bus: missing status")
 			return nil
 		}
 
 		if err := sheetsWorker.EnqueueTask(ctx, worker.SheetTask{Type: worker.TaskUpdateStatus, BookingID: payload.BookingID, Status: status}); err != nil {
-			logger.Printf("event bus: enqueue status %d: %v", payload.BookingID, err)
+			logger.Error().Err(err).Int64("booking_id", payload.BookingID).Msg("event bus: enqueue status")
 		}
 		return nil
 	}
