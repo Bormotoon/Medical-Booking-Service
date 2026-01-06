@@ -55,7 +55,7 @@ func TestGetAvailabilityForPeriod(t *testing.T) {
 	}
 
 	for _, b := range bookings {
-		err := db.CreateBooking(ctx, &b)
+		err = db.CreateBooking(ctx, &b)
 		require.NoError(t, err)
 	}
 

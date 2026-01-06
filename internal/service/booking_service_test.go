@@ -217,57 +217,25 @@ func TestBookingService(t *testing.T) {
 		repo.AssertExpectations(t)
 	})
 
-	t.Run("ConfirmBooking", func(t *testing.T) {
-		booking := &models.Booking{ID: 10, Status: models.StatusConfirmed}
-		repo.On("UpdateBookingStatusWithVersion", ctx, int64(10), int64(1), models.StatusConfirmed).Return(nil).Once()
-		repo.On("GetBooking", ctx, int64(10)).Return(booking, nil).Once()
-		bus.On("PublishJSON", mock.Anything, mock.Anything).Return(nil).Once()
-		worker.On("EnqueueTask", ctx, "update_status", int64(10), booking, models.StatusConfirmed).Return(nil).Once()
-		worker.On("EnqueueSyncSchedule", ctx, mock.Anything, mock.Anything).Return(nil).Once()
+	testStatusUpdate := func(name string, bookingID int64, version int64, status string, method func(context.Context, int64, int64, int64) error) {
+		t.Run(name, func(t *testing.T) {
+			booking := &models.Booking{ID: bookingID, Status: status}
+			repo.On("UpdateBookingStatusWithVersion", ctx, bookingID, version, status).Return(nil).Once()
+			repo.On("GetBooking", ctx, bookingID).Return(booking, nil).Once()
+			bus.On("PublishJSON", mock.Anything, mock.Anything).Return(nil).Once()
+			worker.On("EnqueueTask", ctx, "update_status", bookingID, booking, status).Return(nil).Once()
+			worker.On("EnqueueSyncSchedule", ctx, mock.Anything, mock.Anything).Return(nil).Once()
 
-		err := svc.ConfirmBooking(ctx, 10, 1, 100)
-		assert.NoError(t, err)
-		repo.AssertExpectations(t)
-	})
+			err := method(ctx, bookingID, version, 100)
+			assert.NoError(t, err)
+			repo.AssertExpectations(t)
+		})
+	}
 
-	t.Run("RejectBooking", func(t *testing.T) {
-		booking := &models.Booking{ID: 11, Status: models.StatusCanceled}
-		repo.On("UpdateBookingStatusWithVersion", ctx, int64(11), int64(2), models.StatusCanceled).Return(nil).Once()
-		repo.On("GetBooking", ctx, int64(11)).Return(booking, nil).Once()
-		bus.On("PublishJSON", mock.Anything, mock.Anything).Return(nil).Once()
-		worker.On("EnqueueTask", ctx, "update_status", int64(11), booking, models.StatusCanceled).Return(nil).Once()
-		worker.On("EnqueueSyncSchedule", ctx, mock.Anything, mock.Anything).Return(nil).Once()
-
-		err := svc.RejectBooking(ctx, 11, 2, 100)
-		assert.NoError(t, err)
-		repo.AssertExpectations(t)
-	})
-
-	t.Run("CompleteBooking", func(t *testing.T) {
-		booking := &models.Booking{ID: 12, Status: models.StatusCompleted}
-		repo.On("UpdateBookingStatusWithVersion", ctx, int64(12), int64(3), models.StatusCompleted).Return(nil).Once()
-		repo.On("GetBooking", ctx, int64(12)).Return(booking, nil).Once()
-		bus.On("PublishJSON", mock.Anything, mock.Anything).Return(nil).Once()
-		worker.On("EnqueueTask", ctx, "update_status", int64(12), booking, models.StatusCompleted).Return(nil).Once()
-		worker.On("EnqueueSyncSchedule", ctx, mock.Anything, mock.Anything).Return(nil).Once()
-
-		err := svc.CompleteBooking(ctx, 12, 3, 100)
-		assert.NoError(t, err)
-		repo.AssertExpectations(t)
-	})
-
-	t.Run("ReopenBooking", func(t *testing.T) {
-		booking := &models.Booking{ID: 13, Status: models.StatusPending}
-		repo.On("UpdateBookingStatusWithVersion", ctx, int64(13), int64(4), models.StatusPending).Return(nil).Once()
-		repo.On("GetBooking", ctx, int64(13)).Return(booking, nil).Once()
-		bus.On("PublishJSON", mock.Anything, mock.Anything).Return(nil).Once()
-		worker.On("EnqueueTask", ctx, "update_status", int64(13), booking, models.StatusPending).Return(nil).Once()
-		worker.On("EnqueueSyncSchedule", ctx, mock.Anything, mock.Anything).Return(nil).Once()
-
-		err := svc.ReopenBooking(ctx, 13, 4, 100)
-		assert.NoError(t, err)
-		repo.AssertExpectations(t)
-	})
+	testStatusUpdate("ConfirmBooking", 10, 1, models.StatusConfirmed, svc.ConfirmBooking)
+	testStatusUpdate("RejectBooking", 11, 2, models.StatusCanceled, svc.RejectBooking)
+	testStatusUpdate("CompleteBooking", 12, 3, models.StatusCompleted, svc.CompleteBooking)
+	testStatusUpdate("ReopenBooking", 13, 4, models.StatusPending, svc.ReopenBooking)
 
 	t.Run("ChangeBookingItem", func(t *testing.T) {
 		oldBooking := &models.Booking{ID: 14, ItemID: 1, ItemName: "Old Item", Status: models.StatusPending}

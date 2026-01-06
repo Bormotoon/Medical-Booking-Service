@@ -45,7 +45,7 @@ func (s *ItemService) DeactivateItem(ctx context.Context, id int64) error {
 	return s.repo.DeactivateItem(ctx, id)
 }
 
-func (s *ItemService) ReorderItem(ctx context.Context, id int64, newOrder int64) error {
+func (s *ItemService) ReorderItem(ctx context.Context, id, newOrder int64) error {
 	return s.repo.ReorderItem(ctx, id, newOrder)
 }
 

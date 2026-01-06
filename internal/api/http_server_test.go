@@ -283,7 +283,8 @@ func TestAuth(t *testing.T) {
 	t.Cleanup(ts.Close)
 
 	t.Run("MissingHeaders", func(t *testing.T) {
-		resp, err := http.Get(ts.URL + "/api/v1/items")
+		req, _ := http.NewRequest("GET", ts.URL+"/api/v1/items", http.NoBody)
+		resp, err := http.DefaultClient.Do(req)
 		assert.NoError(t, err)
 		defer resp.Body.Close()
 		if resp.StatusCode != http.StatusUnauthorized {
@@ -292,7 +293,7 @@ func TestAuth(t *testing.T) {
 	})
 
 	t.Run("InvalidKey", func(t *testing.T) {
-		req, _ := http.NewRequest("GET", ts.URL+"/api/v1/items", nil)
+		req, _ := http.NewRequest("GET", ts.URL+"/api/v1/items", http.NoBody)
 		req.Header.Set("x-api-key", "wrong")
 		req.Header.Set("x-api-extra", "valid-extra")
 		resp, err := http.DefaultClient.Do(req)
@@ -304,7 +305,7 @@ func TestAuth(t *testing.T) {
 	})
 
 	t.Run("ValidKey", func(t *testing.T) {
-		req, _ := http.NewRequest("GET", ts.URL+"/api/v1/items", nil)
+		req, _ := http.NewRequest("GET", ts.URL+"/api/v1/items", http.NoBody)
 		req.Header.Set("x-api-key", "valid-key")
 		req.Header.Set("x-api-extra", "valid-extra")
 		resp, err := http.DefaultClient.Do(req)
@@ -316,7 +317,7 @@ func TestAuth(t *testing.T) {
 	})
 
 	t.Run("WrongPermission", func(t *testing.T) {
-		req, _ := http.NewRequest("GET", ts.URL+"/api/v1/availability/camera?date=2025-01-01", nil)
+		req, _ := http.NewRequest("GET", ts.URL+"/api/v1/availability/camera?date=2025-01-01", http.NoBody)
 		req.Header.Set("x-api-key", "valid-key")
 		req.Header.Set("x-api-extra", "valid-extra")
 		resp, err := http.DefaultClient.Do(req)
@@ -335,7 +336,7 @@ func TestAvailabilityErrors(t *testing.T) {
 	t.Cleanup(ts.Close)
 
 	t.Run("MethodNotAllowed", func(t *testing.T) {
-		resp, err := http.Post(ts.URL+"/api/v1/availability/camera", "application/json", nil)
+		resp, err := http.Post(ts.URL+"/api/v1/availability/camera", "application/json", http.NoBody)
 		assert.NoError(t, err)
 		defer resp.Body.Close()
 		if resp.StatusCode != http.StatusMethodNotAllowed {
@@ -435,7 +436,7 @@ func TestCORS(t *testing.T) {
 	ts := httptest.NewServer(server.server.Handler)
 	t.Cleanup(ts.Close)
 
-	req, _ := http.NewRequest("OPTIONS", ts.URL+"/api/v1/items", nil)
+	req, _ := http.NewRequest("OPTIONS", ts.URL+"/api/v1/items", http.NoBody)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("request failed: %v", err)

@@ -108,7 +108,7 @@ func TestBackupService_Extended(t *testing.T) {
 
 	t.Run("Fallback", func(t *testing.T) {
 		backupPath := filepath.Join(storagePath, "fallback_test.db")
-		err = os.MkdirAll(storagePath, 0755)
+		err = os.MkdirAll(storagePath, 0o755)
 		assert.NoError(t, err)
 
 		err = s.performBackupFallback(backupPath)

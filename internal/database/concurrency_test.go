@@ -50,8 +50,8 @@ func TestConcurrentBooking(t *testing.T) {
 				Status:   models.StatusPending,
 			}
 			// We use CreateBookingWithLock which has internal locking/checks
-			err := db.CreateBookingWithLock(ctx, booking)
-			results <- err
+			bErr := db.CreateBookingWithLock(ctx, booking)
+			results <- bErr
 		}(i)
 	}
 
