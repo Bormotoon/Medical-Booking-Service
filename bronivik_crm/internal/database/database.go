@@ -68,12 +68,12 @@ func (db *DB) GetOrCreateUserByTelegramID(
 	} else {
 		// best-effort update of profile fields; phone only if provided
 		if phone != "" {
-				_, _ = tx.ExecContext(ctx, `
+			_, _ = tx.ExecContext(ctx, `
 					UPDATE users SET username = ?, first_name = ?, last_name = ?, phone = ?, updated_at = ? 
 					WHERE id = ?`, username, firstName, lastName, phone, now, u.ID)
 			u.Phone = phone
 		} else {
-				_, _ = tx.ExecContext(ctx, `
+			_, _ = tx.ExecContext(ctx, `
 					UPDATE users SET username = ?, first_name = ?, last_name = ?, updated_at = ? 
 					WHERE id = ?`, username, firstName, lastName, now, u.ID)
 		}
@@ -574,8 +574,8 @@ func (db *DB) CreateHourlyBookingWithChecks(ctx context.Context, booking *models
 	}
 	defer func() { _ = tx.Rollback() }()
 
-if aErr := validateSlotAlignmentTx(ctx, tx, booking.CabinetID, booking.StartTime, booking.EndTime); aErr != nil {
-			return aErr
+	if aErr := validateSlotAlignmentTx(ctx, tx, booking.CabinetID, booking.StartTime, booking.EndTime); aErr != nil {
+		return aErr
 	}
 
 	// slot availability

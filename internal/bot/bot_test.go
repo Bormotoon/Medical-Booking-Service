@@ -362,7 +362,6 @@ func (m *mockUserService) GetActiveUsers(ctx context.Context, days int) ([]model
 	return users, nil
 }
 
-
 // func (m *mockUserService) setUsers(users map[int64]*models.User) {
 // 	m.mu.Lock()
 // 	defer m.mu.Unlock()

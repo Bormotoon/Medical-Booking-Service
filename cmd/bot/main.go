@@ -241,7 +241,6 @@ func startBot(ctx context.Context, cfg *config.Config, stateService *service.Sta
 	return nil
 }
 
-
 func subscribeBookingEvents(ctx context.Context, bus *events.EventBus, db *database.DB, sheetsWorker *worker.SheetsWorker, logger *zerolog.Logger) {
 	if bus == nil || sheetsWorker == nil || db == nil {
 		return
