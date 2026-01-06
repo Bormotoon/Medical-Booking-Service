@@ -44,7 +44,7 @@ func run() error {
 		defer (func(c io.Closer) { _ = c.Close() })(closer)
 	}
 
-	if err := prepareDirectories(cfg, &logger); err != nil {
+	if err = prepareDirectories(cfg, &logger); err != nil {
 		return err
 	}
 
@@ -212,7 +212,19 @@ func initStateService(ctx context.Context, cfg *config.Config, logger *zerolog.L
 	return redisClient, service.NewStateService(stateRepo, logger)
 }
 
-func startBot(ctx context.Context, cfg *config.Config, stateService *service.StateService, sheetsService *google.SheetsService, sheetsWorker *worker.SheetsWorker, eventBus *events.EventBus, bookingService *service.BookingService, userService *service.UserService, itemService *service.ItemService, metrics *bot.Metrics, logger *zerolog.Logger) error {
+func startBot(
+	ctx context.Context,
+	cfg *config.Config,
+	stateService *service.StateService,
+	sheetsService *google.SheetsService,
+	sheetsWorker *worker.SheetsWorker,
+	eventBus *events.EventBus,
+	bookingService *service.BookingService,
+	userService *service.UserService,
+	itemService *service.ItemService,
+	metrics *bot.Metrics,
+	logger *zerolog.Logger,
+) error {
 	if cfg.Telegram.BotToken == "YOUR_BOT_TOKEN_HERE" {
 		logger.Error().Msg("Задайте токен бота в config.yaml")
 		return os.ErrInvalid
@@ -227,7 +239,11 @@ func startBot(ctx context.Context, cfg *config.Config, stateService *service.Sta
 	botWrapper := bot.NewBotWrapper(botAPI)
 	tgService := service.NewTelegramService(botWrapper)
 
-	telegramBot, err := bot.NewBot(tgService, cfg, stateService, sheetsService, sheetsWorker, eventBus, bookingService, userService, itemService, metrics, logger)
+	telegramBot, err := bot.NewBot(
+		tgService, cfg, stateService, sheetsService,
+		sheetsWorker, eventBus, bookingService, userService,
+		itemService, metrics, logger,
+	)
 	if err != nil {
 		logger.Error().Err(err).Msg("Ошибка создания бота")
 		return err
@@ -241,7 +257,13 @@ func startBot(ctx context.Context, cfg *config.Config, stateService *service.Sta
 	return nil
 }
 
-func subscribeBookingEvents(ctx context.Context, bus *events.EventBus, db *database.DB, sheetsWorker *worker.SheetsWorker, logger *zerolog.Logger) {
+func subscribeBookingEvents(
+	ctx context.Context,
+	bus *events.EventBus,
+	db *database.DB,
+	sheetsWorker *worker.SheetsWorker,
+	logger *zerolog.Logger,
+) {
 	if bus == nil || sheetsWorker == nil || db == nil {
 		return
 	}

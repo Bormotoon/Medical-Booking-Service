@@ -17,7 +17,7 @@ import (
 func TestSheetsService_WithMockAPI(t *testing.T) {
 	ctx := context.Background()
 
-	setupMockServer := func(t *testing.T) (*http.ServeMux, *httptest.Server, *SheetsService) {
+	setupMockServer := func(_ *testing.T) (*http.ServeMux, *httptest.Server, *SheetsService) {
 		mux := http.NewServeMux()
 		server := httptest.NewServer(mux)
 		srv, _ := sheets.NewService(ctx, option.WithEndpoint(server.URL), option.WithoutAuthentication())
@@ -34,7 +34,7 @@ func TestSheetsService_WithMockAPI(t *testing.T) {
 		mux, server, s := setupMockServer(t)
 		defer server.Close()
 		mux.HandleFunc("/v4/spreadsheets/users_tid/values/Users!A1", func(w http.ResponseWriter, r *http.Request) {
-			json.NewEncoder(w).Encode(sheets.ValueRange{Values: [][]interface{}{{"test"}}})
+			_ = json.NewEncoder(w).Encode(sheets.ValueRange{Values: [][]interface{}{{"test"}}})
 		})
 		err := s.TestConnection(ctx)
 		if err != nil {
@@ -47,7 +47,7 @@ func TestSheetsService_WithMockAPI(t *testing.T) {
 		defer server.Close()
 		mux.HandleFunc("/v4/spreadsheets/users_tid/values/Users!A1:K2", func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(sheets.UpdateValuesResponse{})
+			_ = json.NewEncoder(w).Encode(sheets.UpdateValuesResponse{})
 		})
 		users := []*models.User{{ID: 1, Username: "test", CreatedAt: time.Now(), LastActivity: time.Now()}}
 		err := s.UpdateUsersSheet(ctx, users)
@@ -60,7 +60,7 @@ func TestSheetsService_WithMockAPI(t *testing.T) {
 		mux, server, s := setupMockServer(t)
 		defer server.Close()
 		mux.HandleFunc("/v4/spreadsheets/bookings_tid/values/Bookings!A:A", func(w http.ResponseWriter, r *http.Request) {
-			json.NewEncoder(w).Encode(sheets.ValueRange{
+			_ = json.NewEncoder(w).Encode(sheets.ValueRange{
 				Values: [][]interface{}{{"ID"}, {"123"}, {"456"}},
 			})
 		})
@@ -77,7 +77,7 @@ func TestSheetsService_WithMockAPI(t *testing.T) {
 		mux, server, s := setupMockServer(t)
 		defer server.Close()
 		mux.HandleFunc("/v4/spreadsheets/bookings_tid/values/Bookings!A:A:append", func(w http.ResponseWriter, r *http.Request) {
-			json.NewEncoder(w).Encode(sheets.AppendValuesResponse{
+			_ = json.NewEncoder(w).Encode(sheets.AppendValuesResponse{
 				Updates: &sheets.UpdateValuesResponse{
 					UpdatedRange: "Bookings!A10:J10",
 				},
@@ -98,7 +98,7 @@ func TestSheetsService_WithMockAPI(t *testing.T) {
 		defer server.Close()
 		s.setCachedRow(123, 2)
 		mux.HandleFunc("/v4/spreadsheets/bookings_tid/values/Bookings!A2:J2", func(w http.ResponseWriter, r *http.Request) {
-			json.NewEncoder(w).Encode(sheets.UpdateValuesResponse{})
+			_ = json.NewEncoder(w).Encode(sheets.UpdateValuesResponse{})
 		})
 		booking := &models.Booking{ID: 123, Date: time.Now(), CreatedAt: time.Now(), UpdatedAt: time.Now()}
 		err := s.UpsertBooking(ctx, booking)
@@ -112,7 +112,7 @@ func TestSheetsService_WithMockAPI(t *testing.T) {
 		defer server.Close()
 		s.setCachedRow(456, 3)
 		mux.HandleFunc("/v4/spreadsheets/bookings_tid/values/Bookings!A3:J3:clear", func(w http.ResponseWriter, r *http.Request) {
-			json.NewEncoder(w).Encode(sheets.ClearValuesResponse{})
+			_ = json.NewEncoder(w).Encode(sheets.ClearValuesResponse{})
 		})
 		err := s.DeleteBookingRow(ctx, 456)
 		if err != nil {
@@ -129,10 +129,10 @@ func TestSheetsService_WithMockAPI(t *testing.T) {
 		s.setCachedRow(123, 2)
 		// Mock two calls: one for status, one for updated_at
 		mux.HandleFunc("/v4/spreadsheets/bookings_tid/values/Bookings!E2:E2", func(w http.ResponseWriter, r *http.Request) {
-			json.NewEncoder(w).Encode(sheets.UpdateValuesResponse{})
+			_ = json.NewEncoder(w).Encode(sheets.UpdateValuesResponse{})
 		})
 		mux.HandleFunc("/v4/spreadsheets/bookings_tid/values/Bookings!J2:J2", func(w http.ResponseWriter, r *http.Request) {
-			json.NewEncoder(w).Encode(sheets.UpdateValuesResponse{})
+			_ = json.NewEncoder(w).Encode(sheets.UpdateValuesResponse{})
 		})
 		err := s.UpdateBookingStatus(ctx, 123, "confirmed")
 		if err != nil {
@@ -144,7 +144,7 @@ func TestSheetsService_WithMockAPI(t *testing.T) {
 		mux, server, s := setupMockServer(t)
 		defer server.Close()
 		mux.HandleFunc("/v4/spreadsheets/bookings_tid", func(w http.ResponseWriter, r *http.Request) {
-			json.NewEncoder(w).Encode(sheets.Spreadsheet{
+			_ = json.NewEncoder(w).Encode(sheets.Spreadsheet{
 				Sheets: []*sheets.Sheet{
 					{
 						Properties: &sheets.SheetProperties{
@@ -169,7 +169,7 @@ func TestSheetsService_WithMockAPI(t *testing.T) {
 		defer server.Close()
 		mux.HandleFunc("/v4/spreadsheets/bookings_tid/values/Bookings!A1:J2", func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(sheets.UpdateValuesResponse{})
+			_ = json.NewEncoder(w).Encode(sheets.UpdateValuesResponse{})
 		})
 		bookings := []*models.Booking{{ID: 1, UserName: "test", Date: time.Now(), CreatedAt: time.Now(), UpdatedAt: time.Now()}}
 		err := s.UpdateBookingsSheet(ctx, bookings)
@@ -183,11 +183,11 @@ func TestSheetsService_WithMockAPI(t *testing.T) {
 		defer server.Close()
 		// Clear
 		mux.HandleFunc("/v4/spreadsheets/bookings_tid/values/Bookings!A2:Z:clear", func(w http.ResponseWriter, r *http.Request) {
-			json.NewEncoder(w).Encode(sheets.ClearValuesResponse{})
+			_ = json.NewEncoder(w).Encode(sheets.ClearValuesResponse{})
 		})
 		// Update
 		mux.HandleFunc("/v4/spreadsheets/bookings_tid/values/Bookings!A2", func(w http.ResponseWriter, r *http.Request) {
-			json.NewEncoder(w).Encode(sheets.UpdateValuesResponse{})
+			_ = json.NewEncoder(w).Encode(sheets.UpdateValuesResponse{})
 		})
 		bookings := []*models.Booking{{ID: 1, UserName: "test", Date: time.Now(), CreatedAt: time.Now(), UpdatedAt: time.Now()}}
 		err := s.ReplaceBookingsSheet(ctx, bookings)
@@ -204,7 +204,7 @@ func TestSheetsService_WithMockAPI(t *testing.T) {
 		defer server.Close()
 		// GetSheetIdByName
 		mux.HandleFunc("/v4/spreadsheets/bookings_tid", func(w http.ResponseWriter, r *http.Request) {
-			json.NewEncoder(w).Encode(sheets.Spreadsheet{
+			_ = json.NewEncoder(w).Encode(sheets.Spreadsheet{
 				Sheets: []*sheets.Sheet{
 					{
 						Properties: &sheets.SheetProperties{
@@ -217,15 +217,15 @@ func TestSheetsService_WithMockAPI(t *testing.T) {
 		})
 		// clearScheduleSheet
 		mux.HandleFunc("/v4/spreadsheets/bookings_tid/values/Бронирования!A:Z:clear", func(w http.ResponseWriter, r *http.Request) {
-			json.NewEncoder(w).Encode(sheets.ClearValuesResponse{})
+			_ = json.NewEncoder(w).Encode(sheets.ClearValuesResponse{})
 		})
 		// writeScheduleData
 		mux.HandleFunc("/v4/spreadsheets/bookings_tid/values/Бронирования!A1", func(w http.ResponseWriter, r *http.Request) {
-			json.NewEncoder(w).Encode(sheets.UpdateValuesResponse{})
+			_ = json.NewEncoder(w).Encode(sheets.UpdateValuesResponse{})
 		})
 		// applyBatchUpdate & adjustColumnWidths
 		mux.HandleFunc("/v4/spreadsheets/bookings_tid:batchUpdate", func(w http.ResponseWriter, r *http.Request) {
-			json.NewEncoder(w).Encode(sheets.BatchUpdateSpreadsheetResponse{})
+			_ = json.NewEncoder(w).Encode(sheets.BatchUpdateSpreadsheetResponse{})
 		})
 
 		startDate := time.Now()
@@ -245,7 +245,7 @@ func TestSheetsService_WithMockAPI(t *testing.T) {
 		mux, server, s := setupMockServer(t)
 		defer server.Close()
 		mux.HandleFunc("/v4/spreadsheets/bookings_tid/values/Bookings!A:A", func(w http.ResponseWriter, r *http.Request) {
-			json.NewEncoder(w).Encode(sheets.ValueRange{
+			_ = json.NewEncoder(w).Encode(sheets.ValueRange{
 				Values: [][]interface{}{{"ID"}, {"999"}},
 			})
 		})

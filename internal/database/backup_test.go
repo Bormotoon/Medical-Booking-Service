@@ -50,7 +50,7 @@ func TestBackupService(t *testing.T) {
 	t.Run("CleanupOldBackups", func(t *testing.T) {
 		// Create an old file
 		oldFile := filepath.Join(storagePath, "backup_old.db")
-		err := os.WriteFile(oldFile, []byte("old"), 0644)
+		err := os.WriteFile(oldFile, []byte("old"), 0o644)
 		require.NoError(t, err)
 
 		// Set mod time to 2 days ago

@@ -93,8 +93,8 @@ func TestRedisStateRepository(t *testing.T) {
 	})
 
 	t.Run("NilClient", func(t *testing.T) {
-		repo := NewRedisStateRepository(nil, time.Hour)
-		_, err := repo.GetState(ctx, 123)
+		nilRepo := NewRedisStateRepository(nil, time.Hour)
+		_, err := nilRepo.GetState(ctx, 123)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "redis client is nil")
 	})

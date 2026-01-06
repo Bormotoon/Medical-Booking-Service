@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"bronivik/internal/config"
@@ -20,7 +19,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
-	"golang.org/x/time/rate"
 )
 
 // HTTPServer exposes a lightweight HTTP API alongside the gRPC service.
@@ -183,7 +181,7 @@ func (s *HTTPServer) handleAvailabilityBulk(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusOK, map[string]any{"results": results})
 }
 
-func (s *HTTPServer) processBulkAvailability(ctx context.Context, items []string, dates []string) ([]map[string]any, error) {
+func (s *HTTPServer) processBulkAvailability(ctx context.Context, items, dates []string) ([]map[string]any, error) {
 	results := make([]map[string]any, 0, len(items)*len(dates))
 	for _, rawItem := range items {
 		itemName := strings.TrimSpace(rawItem)
@@ -292,9 +290,9 @@ func corsMiddleware(next http.Handler) http.Handler {
 
 // HTTPAuth provides API-key auth and per-key rate limiting for HTTP endpoints.
 type HTTPAuth struct {
-	cfg      *config.APIConfig
-	clients  map[string]config.APIClientKey
-	limiters sync.Map // map[string]*rate.Limiter
+	cfg     *config.APIConfig
+	clients map[string]config.APIClientKey
+	limiter *rateLimiter
 }
 
 func NewHTTPAuth(cfg *config.APIConfig) *HTTPAuth {
@@ -302,7 +300,11 @@ func NewHTTPAuth(cfg *config.APIConfig) *HTTPAuth {
 	for _, k := range cfg.Auth.APIKeys {
 		m[k.Key] = k
 	}
-	return &HTTPAuth{cfg: cfg, clients: m}
+	return &HTTPAuth{
+		cfg:     cfg,
+		clients: m,
+		limiter: newRateLimiter(cfg),
+	}
 }
 
 func (a *HTTPAuth) Wrap(next http.Handler) http.Handler {
@@ -398,7 +400,7 @@ func (a *HTTPAuth) checkRateLimit(r *http.Request) error {
 	}
 
 	key := a.clientKey(r)
-	lim := a.getLimiter(key)
+	lim := a.limiter.getLimiter(key)
 	if !lim.Allow() {
 		return fmt.Errorf("rate limit exceeded")
 	}
@@ -420,28 +422,6 @@ func (a *HTTPAuth) clientKey(r *http.Request) string {
 		return host
 	}
 	return "unknown"
-}
-
-func (a *HTTPAuth) getLimiter(key string) *rate.Limiter {
-	if v, ok := a.limiters.Load(key); ok {
-		if lim, ok := v.(*rate.Limiter); ok {
-			return lim
-		}
-	}
-
-	burst := a.cfg.RateLimit.Burst
-	if burst <= 0 {
-		burst = 5
-	}
-
-	lim := rate.NewLimiter(rate.Limit(a.cfg.RateLimit.RPS), burst)
-	actual, loaded := a.limiters.LoadOrStore(key, lim)
-	if loaded {
-		if lim, ok := actual.(*rate.Limiter); ok {
-			return lim
-		}
-	}
-	return lim
 }
 
 func (s *HTTPServer) loggingMiddleware(next http.Handler) http.Handler {

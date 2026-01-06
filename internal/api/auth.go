@@ -4,14 +4,12 @@ import (
 	"context"
 	"crypto/subtle"
 	"strings"
-	"sync"
 	"time"
 
 	"bronivik/internal/config"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
-	"golang.org/x/time/rate"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -23,7 +21,7 @@ type AuthInterceptor struct {
 	cfg *config.APIConfig
 
 	clientsByAPIKey map[string]config.APIClientKey
-	limiters        sync.Map // map[string]*rate.Limiter
+	limiter         *rateLimiter
 }
 
 func NewAuthInterceptor(cfg *config.APIConfig) *AuthInterceptor {
@@ -32,7 +30,11 @@ func NewAuthInterceptor(cfg *config.APIConfig) *AuthInterceptor {
 		m[k.Key] = k
 	}
 
-	return &AuthInterceptor{cfg: cfg, clientsByAPIKey: m}
+	return &AuthInterceptor{
+		cfg:             cfg,
+		clientsByAPIKey: m,
+		limiter:         newRateLimiter(cfg),
+	}
 }
 
 func (a *AuthInterceptor) Unary() grpc.UnaryServerInterceptor {
@@ -130,7 +132,7 @@ func (a *AuthInterceptor) checkRateLimit(ctx context.Context) error {
 	}
 
 	key := a.clientKey(ctx)
-	lim := a.getLimiter(key)
+	lim := a.limiter.getLimiter(key)
 	if !lim.Allow() {
 		return status.Error(codes.ResourceExhausted, "rate limit exceeded")
 	}
@@ -152,28 +154,6 @@ func (a *AuthInterceptor) clientKey(ctx context.Context) string {
 		return p.Addr.String()
 	}
 	return "unknown"
-}
-
-func (a *AuthInterceptor) getLimiter(key string) *rate.Limiter {
-	if v, ok := a.limiters.Load(key); ok {
-		if lim, ok := v.(*rate.Limiter); ok {
-			return lim
-		}
-	}
-
-	burst := a.cfg.RateLimit.Burst
-	if burst <= 0 {
-		burst = 5
-	}
-
-	lim := rate.NewLimiter(rate.Limit(a.cfg.RateLimit.RPS), burst)
-	actual, loaded := a.limiters.LoadOrStore(key, lim)
-	if loaded {
-		if lim, ok := actual.(*rate.Limiter); ok {
-			return lim
-		}
-	}
-	return lim
 }
 
 func first(vals []string) string {

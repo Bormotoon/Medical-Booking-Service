@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"flag"
 	"fmt"
-	"log"
 	"os"
 	"time"
 
@@ -21,6 +20,13 @@ type ItemsConfig struct {
 }
 
 func main() {
+	if err := run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	logger := zerolog.New(os.Stdout).With().Timestamp().Logger()
 	var (
 		itemsPath = flag.String("items", "configs/items.yaml", "path to items.yaml")
@@ -30,19 +36,19 @@ func main() {
 
 	data, err := os.ReadFile(*itemsPath)
 	if err != nil {
-		log.Fatalf("read items: %v", err)
+		return fmt.Errorf("read items: %w", err)
 	}
 	var cfg ItemsConfig
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		log.Fatalf("parse items: %v", err)
+	if err = yaml.Unmarshal(data, &cfg); err != nil {
+		return fmt.Errorf("parse items: %w", err)
 	}
 	if len(cfg.Items) == 0 {
-		log.Fatal("no items in yaml")
+		return fmt.Errorf("no items in yaml")
 	}
 
 	db, err := database.NewDB(*dbPath, &logger)
 	if err != nil {
-		log.Fatalf("open db: %v", err)
+		return fmt.Errorf("open db: %w", err)
 	}
 	defer db.Close()
 
@@ -55,22 +61,23 @@ func main() {
 		if it.Name == "" {
 			continue
 		}
-		_, err := db.GetItemByName(ctx, it.Name)
+		_, err = db.GetItemByName(ctx, it.Name)
 		if err == nil {
-			if err := db.UpdateItem(ctx, &it); err != nil {
-				log.Fatalf("update %s: %v", it.Name, err)
+			if err = db.UpdateItem(ctx, &it); err != nil {
+				return fmt.Errorf("update %s: %w", it.Name, err)
 			}
 			updated++
 			continue
 		}
 		if err != sql.ErrNoRows {
-			log.Fatalf("get %s: %v", it.Name, err)
+			return fmt.Errorf("get %s: %w", it.Name, err)
 		}
-		if err := db.CreateItem(ctx, &it); err != nil {
-			log.Fatalf("create %s: %v", it.Name, err)
+		if err = db.CreateItem(ctx, &it); err != nil {
+			return fmt.Errorf("create %s: %w", it.Name, err)
 		}
 		created++
 	}
 
 	fmt.Printf("done: created=%d updated=%d\n", created, updated)
+	return nil
 }

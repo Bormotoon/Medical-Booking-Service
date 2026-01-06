@@ -70,7 +70,7 @@ func TestHTTPServer_Shutdown(_ *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
-	s.Shutdown(ctx)
+	_ = s.Shutdown(ctx)
 }
 
 func TestHTTPServer_Start(_ *testing.T) {
@@ -91,7 +91,7 @@ func TestHTTPServer_Start(_ *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
-	s.Shutdown(ctx)
+	_ = s.Shutdown(ctx)
 }
 
 func TestHTTPServer_Readyz_Full(t *testing.T) {

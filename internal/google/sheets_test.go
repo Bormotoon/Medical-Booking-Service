@@ -209,10 +209,10 @@ func TestGetServiceAccountEmail(t *testing.T) {
 	}
 	defer os.Remove(tmpfile.Name())
 
-	if _, err := tmpfile.Write([]byte(content)); err != nil {
+	if _, err = tmpfile.WriteString(content); err != nil {
 		t.Fatal(err)
 	}
-	if err := tmpfile.Close(); err != nil {
+	if err = tmpfile.Close(); err != nil {
 		t.Fatal(err)
 	}
 

@@ -59,7 +59,7 @@ func (s *TelegramService) EditMessage(chatID int64, messageID int, text string, 
 	return s.bot.Send(msg)
 }
 
-func (s *TelegramService) AnswerCallback(callbackID string, text string) error {
+func (s *TelegramService) AnswerCallback(callbackID, text string) error {
 	callback := tgbotapi.NewCallback(callbackID, text)
 	_, err := s.bot.Request(callback)
 	return err

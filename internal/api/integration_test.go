@@ -33,7 +33,7 @@ func TestAvailabilityReflectsBookings(t *testing.T) {
 
 	checkAvailable(t, ts.URL, item.Name, dateStr, true, 0, item.TotalQuantity)
 
-	insertIntegrationBooking(t, db, item, date, "pending")
+	insertIntegrationBooking(t, db, &item, date, "pending")
 
 	checkAvailable(t, ts.URL, item.Name, dateStr, false, 1, item.TotalQuantity)
 }
@@ -65,7 +65,7 @@ func createIntegrationItem(t *testing.T, db *database.DB, name string, total int
 	return item
 }
 
-func insertIntegrationBooking(t *testing.T, db *database.DB, item models.Item, date time.Time, status string) {
+func insertIntegrationBooking(t *testing.T, db *database.DB, item *models.Item, date time.Time, status string) {
 	t.Helper()
 	_, err := db.ExecContext(context.Background(), `
 		INSERT INTO bookings (user_id, user_name, user_nickname, phone, item_id, item_name, date, status, comment, created_at, updated_at, version)

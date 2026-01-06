@@ -45,7 +45,7 @@ func (db *DB) SyncItems(ctx context.Context, configItems []models.Item) error {
 		if err == sql.ErrNoRows {
 			// Create new item
 			item := *cfgItem
-			if err := db.CreateItem(ctx, &item); err != nil {
+			if err = db.CreateItem(ctx, &item); err != nil {
 				return fmt.Errorf("failed to sync item %s: %w", cfgItem.Name, err)
 			}
 		} else if err != nil {

@@ -341,9 +341,10 @@ func TestSheetsWorker_HandleSheetTask(t *testing.T) {
 
 	t.Run("SyncSchedule", func(t *testing.T) {
 		// Create an item to satisfy GetActiveItems
-		db.CreateItem(ctx, &models.Item{Name: "Item1", TotalQuantity: 1})
+		err := db.CreateItem(ctx, &models.Item{Name: "Item1", TotalQuantity: 1})
+		require.NoError(t, err)
 
-		err := worker.handleSheetTask(ctx, TaskSyncSchedule, &sheetTaskPayload{
+		err = worker.handleSheetTask(ctx, TaskSyncSchedule, &sheetTaskPayload{
 			StartDate: time.Now(),
 			EndDate:   time.Now().Add(24 * time.Hour),
 		})
@@ -353,8 +354,9 @@ func TestSheetsWorker_HandleSheetTask(t *testing.T) {
 	})
 
 	t.Run("SyncSchedule_EmptyDates", func(t *testing.T) {
-		db.CreateItem(ctx, &models.Item{Name: "Item1", TotalQuantity: 1})
-		err := worker.handleSheetTask(ctx, TaskSyncSchedule, &sheetTaskPayload{})
+		err := db.CreateItem(ctx, &models.Item{Name: "ItemEmpty", TotalQuantity: 1})
+		require.NoError(t, err)
+		err = worker.handleSheetTask(ctx, TaskSyncSchedule, &sheetTaskPayload{})
 		if err != nil {
 			t.Fatalf("handle: %v", err)
 		}

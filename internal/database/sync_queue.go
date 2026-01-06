@@ -61,7 +61,7 @@ func (db *DB) GetPendingSyncTasks(ctx context.Context, limit int) ([]models.Sync
 	return tasks, nil
 }
 
-func (db *DB) UpdateSyncTaskStatus(ctx context.Context, id int64, status string, errMsg string, nextRetryAt *time.Time) error {
+func (db *DB) UpdateSyncTaskStatus(ctx context.Context, id int64, status, errMsg string, nextRetryAt *time.Time) error {
 	var query string
 	var args []interface{}
 	now := time.Now()

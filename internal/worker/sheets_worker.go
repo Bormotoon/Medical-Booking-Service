@@ -297,8 +297,8 @@ func (w *SheetsWorker) retryOrFail(ctx context.Context, task *models.SyncTask, c
 }
 
 func (w *SheetsWorker) failTask(ctx context.Context, task *models.SyncTask, err error) {
-	if err := w.db.UpdateSyncTaskStatus(ctx, task.ID, "failed", err.Error(), nil); err != nil {
-		w.logger.Error().Err(err).Int64("task_id", task.ID).Msg("sheets_worker: mark failed")
+	if uerr := w.db.UpdateSyncTaskStatus(ctx, task.ID, "failed", err.Error(), nil); uerr != nil {
+		w.logger.Error().Err(uerr).Int64("task_id", task.ID).Msg("sheets_worker: mark failed")
 	}
 	w.pushDeadLetter(ctx, task)
 }
