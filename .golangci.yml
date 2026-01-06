@@ -1,12 +1,9 @@
 linters-settings:
   govet:
-    check-shadowing: true
-  golint:
-    min-confidence: 0.8
+    enable:
+      - shadow
   gocyclo:
     min-complexity: 15
-  maligned:
-    suggest-new: true
   dupl:
     threshold: 100
   goconst:
@@ -43,10 +40,7 @@ linters:
     - staticcheck
     - unused
     - gosimple
-    - structcheck
-    - varcheck
     - ineffassign
-    - deadcode
     - typecheck
     - bodyclose
     - gocyclo
@@ -58,10 +52,11 @@ linters:
     - unparam
     - nakedret
     - prealloc
-    - exportloopref
+    - copyloopvar
 
 run:
   timeout: 5m
   tests: true
-  skip-dirs:
+issues:
+  exclude-dirs:
     - vendor

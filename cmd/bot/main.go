@@ -36,15 +36,15 @@ func main() {
 }
 
 func run() error {
-	cfg, items, logger, closer, err := loadConfigAndLogger()
-	if err != nil {
-		return err
+	cfg, items, logger, closer, loadErr := loadConfigAndLogger()
+	if loadErr != nil {
+		return loadErr
 	}
 	if closer != nil {
 		defer (func(c io.Closer) { _ = c.Close() })(closer)
 	}
 
-	if err = prepareDirectories(cfg, &logger); err != nil {
+	if err := prepareDirectories(cfg, &logger); err != nil {
 		return err
 	}
 
