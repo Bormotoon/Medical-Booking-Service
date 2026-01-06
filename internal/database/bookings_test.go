@@ -198,3 +198,110 @@ func TestUpdateBookingItem(t *testing.T) {
 	assert.Equal(t, "Item 2", updated.ItemName)
 	assert.Equal(t, models.StatusChanged, updated.Status)
 }
+
+func TestBookingUpdateExtras(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+
+	ctx := context.Background()
+
+	booking := &models.Booking{
+		ItemID: 1, ItemName: "Item 1", Date: time.Now(), UserID: 1, UserName: "User 1", Phone: "123", Status: models.StatusPending,
+	}
+	db.CreateBooking(ctx, booking)
+
+	t.Run("UpdateComment", func(t *testing.T) {
+		err := db.UpdateBookingComment(ctx, booking.ID, "New Comment")
+		require.NoError(t, err)
+		updated, _ := db.GetBooking(ctx, booking.ID)
+		assert.Equal(t, "New Comment", updated.Comment)
+	})
+
+	t.Run("UpdateStatus", func(t *testing.T) {
+		err := db.UpdateBookingStatus(ctx, booking.ID, models.StatusConfirmed)
+		require.NoError(t, err)
+		updated, _ := db.GetBooking(ctx, booking.ID)
+		assert.Equal(t, models.StatusConfirmed, updated.Status)
+	})
+
+	t.Run("UpdateItem", func(t *testing.T) {
+		err := db.UpdateBookingItem(ctx, booking.ID, 2, "Item 2")
+		require.NoError(t, err)
+		updated, _ := db.GetBooking(ctx, booking.ID)
+		assert.Equal(t, int64(2), updated.ItemID)
+		assert.Equal(t, "Item 2", updated.ItemName)
+	})
+
+	t.Run("UpdateItemWithVersion", func(t *testing.T) {
+		// Version should have increased from previous updates (2 updates = +0 since not using WithVersion versions of update in subtests above until now)
+		// Wait, UpdateBookingComment and UpdateBookingStatus do NOT increment version in the current implementation!
+		// Only WithVersion versions increment it.
+		// Let's check GetBooking to see current version.
+		current, _ := db.GetBooking(ctx, booking.ID)
+		v := current.Version
+
+		err := db.UpdateBookingItemWithVersion(ctx, booking.ID, v, 3, "Item 3")
+		require.NoError(t, err)
+
+		err = db.UpdateBookingItemWithVersion(ctx, booking.ID, v, 4, "Item 4")
+		assert.ErrorIs(t, err, ErrConcurrentModification)
+	})
+}
+
+func TestGetBookingWithAvailability(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+
+	ctx := context.Background()
+
+	item1 := &models.Item{Name: "Item 1", TotalQuantity: 1, IsActive: true}
+	err := db.CreateItem(ctx, item1)
+	require.NoError(t, err)
+
+	date := time.Date(2025, 12, 1, 0, 0, 0, 0, time.UTC)
+	booking := &models.Booking{
+		ItemID:   item1.ID,
+		ItemName: item1.Name,
+		Date:     date,
+		UserID:   1,
+		UserName: "U1",
+		Phone:    "1",
+		Status:   models.StatusConfirmed,
+	}
+	err = db.CreateBooking(ctx, booking)
+	require.NoError(t, err)
+
+	// Check another item at same date
+	item2 := &models.Item{Name: "Item 2", TotalQuantity: 1, IsActive: true}
+	err = db.CreateItem(ctx, item2)
+	require.NoError(t, err)
+
+	b, available, err := db.GetBookingWithAvailability(ctx, booking.ID, item2.ID)
+	require.NoError(t, err)
+	assert.Equal(t, booking.ID, b.ID)
+	assert.True(t, available)
+
+	// Check same item (should be unavailable since it's fully booked by itself)
+	_, available, err = db.GetBookingWithAvailability(ctx, booking.ID, item1.ID)
+	require.NoError(t, err)
+	assert.False(t, available)
+}
+
+func TestCreateBookingWithLock_Failure(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+
+	ctx := context.Background()
+	item := &models.Item{Name: "Item 1", TotalQuantity: 1, IsActive: true}
+	err := db.CreateItem(ctx, item)
+	require.NoError(t, err)
+
+	date := time.Date(2025, 12, 1, 0, 0, 0, 0, time.UTC)
+	b1 := &models.Booking{ItemID: item.ID, ItemName: "Item 1", Date: date, UserID: 1, UserName: "U1", Phone: "1", Status: models.StatusConfirmed}
+	err = db.CreateBookingWithLock(ctx, b1)
+	require.NoError(t, err)
+
+	b2 := &models.Booking{ItemID: item.ID, ItemName: "Item 1", Date: date, UserID: 2, UserName: "U2", Phone: "2", Status: models.StatusConfirmed}
+	err = db.CreateBookingWithLock(ctx, b2)
+	assert.ErrorIs(t, err, ErrNotAvailable)
+}

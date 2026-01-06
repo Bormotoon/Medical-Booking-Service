@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"bronivik/internal/config"
 	"bronivik/internal/models"
 
 	"github.com/alicebob/miniredis/v2"
@@ -100,6 +101,68 @@ func TestRedisStateRepository(t *testing.T) {
 	t.Run("Ping", func(t *testing.T) {
 		err := Ping(ctx, client)
 		assert.NoError(t, err)
+	})
+
+	t.Run("UnmarshalError", func(t *testing.T) {
+		key := "user_state:999"
+		s.Set(key, "invalid json")
+		_, err := repo.GetState(ctx, 999)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to unmarshal state")
+	})
+
+	t.Run("MiscCoverage", func(t *testing.T) {
+		err := Close(nil)
+		assert.NoError(t, err)
+
+		repo.client = nil
+		err = repo.SetState(ctx, &models.UserState{UserID: 1})
+		assert.Error(t, err)
+		err = repo.ClearState(ctx, 1)
+		assert.Error(t, err)
+		_, err = repo.CheckRateLimit(ctx, 1, 1, time.Second)
+		assert.Error(t, err)
+
+		// Test marshal error
+		repo.client = client
+		err = repo.SetState(ctx, &models.UserState{
+			TempData: map[string]interface{}{
+				"fn": func() {},
+			},
+		})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to marshal state")
+	})
+
+	t.Run("NewRedisClient", func(t *testing.T) {
+		cfg := config.RedisConfig{
+			Address: "localhost:6379",
+		}
+		c := NewRedisClient(cfg)
+		assert.NotNil(t, c)
+		c.Close()
+	})
+
+	t.Run("RedisErrors", func(t *testing.T) {
+		// Create a client and close it to trigger errors
+		badClient := redis.NewClient(&redis.Options{Addr: "localhost:0"})
+		badClient.Close()
+		badRepo := NewRedisStateRepository(badClient, time.Hour)
+
+		_, err := badRepo.GetState(ctx, 123)
+		assert.Error(t, err)
+
+		err = badRepo.SetState(ctx, &models.UserState{UserID: 123})
+		assert.Error(t, err)
+
+		err = badRepo.ClearState(ctx, 123)
+		assert.Error(t, err)
+
+		_, err = badRepo.CheckRateLimit(ctx, 123, 10, time.Minute)
+		assert.Error(t, err)
+
+		err = Ping(ctx, badClient)
+		assert.Error(t, err)
 	})
 
 	t.Run("Close", func(t *testing.T) {

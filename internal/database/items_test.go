@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"testing"
+	"time"
 
 	"bronivik/internal/models"
 
@@ -128,4 +129,67 @@ func TestItemCache(t *testing.T) {
 	// Now should have updated value
 	found, _ = db.GetItemByID(ctx, item.ID)
 	assert.Equal(t, int64(100), found.TotalQuantity)
+}
+
+func TestItemAvailabilityInfo(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+
+	ctx := context.Background()
+
+	item := &models.Item{Name: "Camera", TotalQuantity: 2, IsActive: true}
+	db.CreateItem(ctx, item)
+
+	date := time.Now()
+
+	// Available
+	info, err := db.GetItemAvailabilityByName(ctx, "Camera", date)
+	require.NoError(t, err)
+	assert.True(t, info.Available)
+	assert.Equal(t, int64(0), info.BookedCount)
+
+	// Book one
+	db.CreateBooking(ctx, &models.Booking{ItemID: item.ID, ItemName: item.Name, Date: date, Status: models.StatusConfirmed})
+
+	info, _ = db.GetItemAvailabilityByName(ctx, "Camera", date)
+	assert.True(t, info.Available)
+	assert.Equal(t, int64(1), info.BookedCount)
+
+	// Book another
+	db.CreateBooking(ctx, &models.Booking{ItemID: item.ID, ItemName: item.Name, Date: date, Status: models.StatusConfirmed})
+
+	info, _ = db.GetItemAvailabilityByName(ctx, "Camera", date)
+	assert.False(t, info.Available)
+	assert.Equal(t, int64(2), info.BookedCount)
+}
+
+func TestGetItems(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+
+	db.CreateItem(context.Background(), &models.Item{Name: "I1", TotalQuantity: 1})
+	db.CreateItem(context.Background(), &models.Item{Name: "I2", TotalQuantity: 2})
+
+	items := db.GetItems()
+	assert.Len(t, items, 2)
+}
+
+func TestSetItems(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+
+	items := []models.Item{
+		{ID: 10, Name: "SI1", TotalQuantity: 1},
+		{ID: 11, Name: "SI2", TotalQuantity: 2},
+	}
+
+	db.SetItems(items)
+
+	cached := db.GetItems()
+	assert.Len(t, cached, 2)
+	
+	// Since GetItems returns map values which are unordered, we check names flexibly
+	names := []string{cached[0].Name, cached[1].Name}
+	assert.Contains(t, names, "SI1")
+	assert.Contains(t, names, "SI2")
 }

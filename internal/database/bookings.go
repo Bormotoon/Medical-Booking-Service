@@ -137,7 +137,7 @@ func (db *DB) UpdateBookingComment(ctx context.Context, bookingID int64, comment
 func (db *DB) GetBooking(ctx context.Context, id int64) (*models.Booking, error) {
 	var booking models.Booking
 	var dateStr string
-	query := `SELECT id, user_id, user_name, user_nickname, phone, item_id, item_name, date, status, comment, created_at, updated_at, version 
+	query := `SELECT id, user_id, user_name, user_nickname, phone, item_id, item_name, date(date), status, comment, created_at, updated_at, version 
               FROM bookings WHERE id = ?`
 	err := db.QueryRowContext(ctx, query, id).Scan(
 		&booking.ID, &booking.UserID, &booking.UserName, &booking.UserNickname, &booking.Phone,
@@ -148,7 +148,10 @@ func (db *DB) GetBooking(ctx context.Context, id int64) (*models.Booking, error)
 		return nil, fmt.Errorf("failed to get booking: %w", err)
 	}
 
-	booking.Date, _ = time.Parse("2006-01-02", dateStr)
+	booking.Date, err = time.Parse("2006-01-02", dateStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse booking date %s: %w", dateStr, err)
+	}
 	return &booking, nil
 }
 
@@ -283,7 +286,7 @@ func (db *DB) UpdateBookingItemAndStatusWithVersion(ctx context.Context, id int6
 func (db *DB) GetUserBookings(ctx context.Context, userID int64) ([]models.Booking, error) {
 	// Get bookings for the last 2 weeks and future ones
 	twoWeeksAgo := time.Now().AddDate(0, 0, -14).Format("2006-01-02")
-	query := `SELECT id, user_id, user_name, user_nickname, phone, item_id, item_name, date, status, comment, created_at, updated_at, version 
+	query := `SELECT id, user_id, user_name, user_nickname, phone, item_id, item_name, date(date), status, comment, created_at, updated_at, version 
               FROM bookings WHERE user_id = ? AND date >= ? ORDER BY date DESC`
 	rows, err := db.QueryContext(ctx, query, userID, twoWeeksAgo)
 	if err != nil {
@@ -303,7 +306,10 @@ func (db *DB) GetUserBookings(ctx context.Context, userID int64) ([]models.Booki
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan booking: %w", err)
 		}
-		b.Date, _ = time.Parse("2006-01-02", dateStr)
+		b.Date, err = time.Parse("2006-01-02", dateStr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse booking date %s: %w", dateStr, err)
+		}
 		bookings = append(bookings, b)
 	}
 	return bookings, nil

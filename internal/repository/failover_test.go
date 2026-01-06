@@ -83,4 +83,118 @@ assert.Equal(t, state, got)
 assert.False(t, repo.isDown.Load())
 primary.AssertExpectations(t)
 })
+
+	t.Run("RecoveryAttemptFail", func(t *testing.T) {
+		repo.isDown.Store(true)
+		repo.lastCheck = time.Now().Add(-2 * time.Minute)
+
+		primary.On("GetState", ctx, int64(33)).Return(nil, errors.New("still fail")).Once()
+		fallback.On("GetState", ctx, int64(33)).Return(nil, nil).Once()
+
+		_, err := repo.GetState(ctx, 33)
+		assert.NoError(t, err)
+		assert.True(t, repo.isDown.Load())
+		primary.AssertExpectations(t)
+		fallback.AssertExpectations(t)
+	})
+
+	t.Run("SetStateSuccess", func(t *testing.T) {
+		repo.isDown.Store(false)
+		state := &models.UserState{UserID: 77}
+		primary.On("SetState", ctx, state).Return(nil).Once()
+
+		err := repo.SetState(ctx, state)
+		assert.NoError(t, err)
+		primary.AssertExpectations(t)
+	})
+
+	t.Run("ClearStateSuccess", func(t *testing.T) {
+		repo.isDown.Store(false)
+		primary.On("ClearState", ctx, int64(88)).Return(nil).Once()
+
+		err := repo.ClearState(ctx, 88)
+		assert.NoError(t, err)
+		primary.AssertExpectations(t)
+	})
+
+	t.Run("CheckRateLimitSuccess", func(t *testing.T) {
+		repo.isDown.Store(false)
+		primary.On("CheckRateLimit", ctx, int64(99), 10, time.Minute).Return(true, nil).Once()
+
+		allowed, err := repo.CheckRateLimit(ctx, 99, 10, time.Minute)
+		assert.NoError(t, err)
+		assert.True(t, allowed)
+		primary.AssertExpectations(t)
+	})
+
+	t.Run("SetStateFailover", func(t *testing.T) {
+		repo.isDown.Store(false)
+		state := &models.UserState{UserID: 4}
+		primary.On("SetState", ctx, state).Return(errors.New("fail")).Once()
+		fallback.On("SetState", ctx, state).Return(nil).Once()
+
+		err := repo.SetState(ctx, state)
+		assert.NoError(t, err)
+		assert.True(t, repo.isDown.Load())
+		primary.AssertExpectations(t)
+		fallback.AssertExpectations(t)
+	})
+
+	t.Run("ClearStateFailover", func(t *testing.T) {
+		repo.isDown.Store(false)
+		primary.On("ClearState", ctx, int64(5)).Return(errors.New("fail")).Once()
+		fallback.On("ClearState", ctx, int64(5)).Return(nil).Once()
+
+		err := repo.ClearState(ctx, 5)
+		assert.NoError(t, err)
+		assert.True(t, repo.isDown.Load())
+		primary.AssertExpectations(t)
+		fallback.AssertExpectations(t)
+	})
+
+	t.Run("CheckRateLimitFailover", func(t *testing.T) {
+		repo.isDown.Store(false)
+		primary.On("CheckRateLimit", ctx, int64(6), 10, time.Minute).Return(false, errors.New("fail")).Once()
+		fallback.On("CheckRateLimit", ctx, int64(6), 10, time.Minute).Return(true, nil).Once()
+
+		allowed, err := repo.CheckRateLimit(ctx, 6, 10, time.Minute)
+		assert.NoError(t, err)
+		assert.True(t, allowed)
+		assert.True(t, repo.isDown.Load())
+		primary.AssertExpectations(t)
+		fallback.AssertExpectations(t)
+	})
+
+	t.Run("SetStateAlreadyDown", func(t *testing.T) {
+		repo.isDown.Store(true)
+		state := &models.UserState{UserID: 44}
+		fallback.On("SetState", ctx, state).Return(nil).Once()
+
+		err := repo.SetState(ctx, state)
+		assert.NoError(t, err)
+		fallback.AssertExpectations(t)
+	})
+
+	t.Run("ClearStateAlreadyDown", func(t *testing.T) {
+		repo.isDown.Store(true)
+		fallback.On("ClearState", ctx, int64(55)).Return(nil).Once()
+
+		err := repo.ClearState(ctx, 55)
+		assert.NoError(t, err)
+		fallback.AssertExpectations(t)
+	})
+
+	t.Run("CheckRateLimitAlreadyDown", func(t *testing.T) {
+		repo.isDown.Store(true)
+		fallback.On("CheckRateLimit", ctx, int64(66), 10, time.Minute).Return(true, nil).Once()
+
+		allowed, err := repo.CheckRateLimit(ctx, 66, 10, time.Minute)
+		assert.NoError(t, err)
+		assert.True(t, allowed)
+		fallback.AssertExpectations(t)
+	})
+
+	t.Run("HealthCheckDoesNothing", func(t *testing.T) {
+		repo.checkHealth() // Just for coverage
+	})
 }

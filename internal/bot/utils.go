@@ -52,7 +52,7 @@ func (b *Bot) isManager(userID int64) bool {
 
 func (b *Bot) getItemByID(id int64) (models.Item, bool) {
 	item, err := b.itemService.GetItemByID(context.Background(), id)
-	if err != nil {
+	if err != nil || item == nil {
 		return models.Item{}, false
 	}
 	return *item, true
