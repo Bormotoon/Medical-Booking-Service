@@ -187,7 +187,7 @@ func TestSetItems(t *testing.T) {
 
 	cached := db.GetItems()
 	assert.Len(t, cached, 2)
-	
+
 	// Since GetItems returns map values which are unordered, we check names flexibly
 	names := []string{cached[0].Name, cached[1].Name}
 	assert.Contains(t, names, "SI1")

@@ -305,6 +305,131 @@ func TestAuth(t *testing.T) {
 			t.Errorf("expected 200, got %d", resp.StatusCode)
 		}
 	})
+
+	t.Run("WrongPermission", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", ts.URL+"/api/v1/availability/camera?date=2025-01-01", nil)
+		req.Header.Set("x-api-key", "valid-key")
+		req.Header.Set("x-api-extra", "valid-extra")
+		resp, _ := http.DefaultClient.Do(req)
+		if resp.StatusCode != http.StatusForbidden {
+			t.Errorf("expected 403, got %d", resp.StatusCode)
+		}
+	})
+}
+
+func TestAvailabilityErrors(t *testing.T) {
+	db := newTestDB(t)
+	server := newTestHTTPServer(db)
+	ts := httptest.NewServer(server.server.Handler)
+	t.Cleanup(ts.Close)
+
+	t.Run("MethodNotAllowed", func(t *testing.T) {
+		resp, _ := http.Post(ts.URL+"/api/v1/availability/camera", "application/json", nil)
+		if resp.StatusCode != http.StatusMethodNotAllowed {
+			t.Errorf("expected 405, got %d", resp.StatusCode)
+		}
+	})
+
+	t.Run("MissingDate", func(t *testing.T) {
+		resp, _ := http.Get(ts.URL + "/api/v1/availability/camera")
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("expected 400, got %d", resp.StatusCode)
+		}
+	})
+
+	t.Run("InvalidDate", func(t *testing.T) {
+		resp, _ := http.Get(ts.URL + "/api/v1/availability/camera?date=invalid")
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("expected 400, got %d", resp.StatusCode)
+		}
+	})
+
+	t.Run("EmptyItemName", func(t *testing.T) {
+		resp, _ := http.Get(ts.URL + "/api/v1/availability/??date=2025-01-01")
+		// itemName map logic will trim ?? to empty
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("expected 400, got %d", resp.StatusCode)
+		}
+	})
+}
+
+func TestReadyz_DBFail(t *testing.T) {
+	db := newTestDB(t)
+	db.Close() // Make it fail
+	server := newTestHTTPServer(db)
+	ts := httptest.NewServer(server.server.Handler)
+	t.Cleanup(ts.Close)
+
+	resp, _ := http.Get(ts.URL + "/readyz")
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Errorf("expected 503, got %d", resp.StatusCode)
+	}
+}
+
+func TestRateLimit(t *testing.T) {
+	db := newTestDB(t)
+	cfg := config.APIConfig{
+		Enabled: true,
+		HTTP:    config.APIHTTPConfig{Enabled: true, Port: 0},
+		RateLimit: config.APIRateLimitConfig{
+			RPS:   1,
+			Burst: 1,
+		},
+	}
+	logger := zerolog.New(io.Discard)
+	server := NewHTTPServer(cfg, db, nil, nil, &logger)
+	ts := httptest.NewServer(server.server.Handler)
+	t.Cleanup(ts.Close)
+
+	// First request - ok
+	resp, _ := http.Get(ts.URL + "/api/v1/items")
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+
+	// Second request immediately - should fail
+	resp, _ = http.Get(ts.URL + "/api/v1/items")
+	if resp.StatusCode != http.StatusTooManyRequests {
+		t.Errorf("expected 429, got %d", resp.StatusCode)
+	}
+}
+
+func TestCORS(t *testing.T) {
+	db := newTestDB(t)
+	server := newTestHTTPServer(db)
+	ts := httptest.NewServer(server.server.Handler)
+	t.Cleanup(ts.Close)
+
+	req, _ := http.NewRequest("OPTIONS", ts.URL+"/api/v1/items", nil)
+	resp, _ := http.DefaultClient.Do(req)
+
+	if resp.StatusCode != http.StatusNoContent {
+		t.Errorf("expected 204, got %d", resp.StatusCode)
+	}
+	if resp.Header.Get("Access-Control-Allow-Origin") != "*" {
+		t.Errorf("expected CORS header")
+	}
+}
+
+func TestHTTPServer_StartStop(t *testing.T) {
+	db := newTestDB(t)
+	cfg := config.APIConfig{
+		HTTP: config.APIHTTPConfig{Enabled: true, Port: 0},
+	}
+	logger := zerolog.New(io.Discard)
+	server := NewHTTPServer(cfg, db, nil, nil, &logger)
+
+	// Port 0 will bind to random port, but we need to know it to stop it if we use Start in background.
+	// Actually, Start() blocks. So let's test Shutdown on unstarted server or just mock it.
+
+	err := server.Shutdown(context.Background())
+	if err != nil {
+		t.Errorf("shutdown unstarted server: %v", err)
+	}
+}
+
+func (s *HTTPServer) GetHandler() http.Handler {
+	return s.server.Handler
 }
 
 func newTestHTTPServer(db *database.DB) *HTTPServer {

@@ -12,6 +12,8 @@ import (
 	"bronivik/internal/database"
 	"bronivik/internal/models"
 
+	"github.com/alicebob/miniredis/v2"
+	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 )
 
@@ -145,6 +147,74 @@ func TestRetryPolicyNextDelay(t *testing.T) {
 	if d3 != 5*time.Second {
 		t.Fatalf("attempt5 expected capped 5s, got %s", d3)
 	}
+
+	// Test with 0 or negative
+	d0 := policy.NextDelay(0)
+	if d0 != time.Second {
+		t.Errorf("expected 1s for attempt 0, got %s", d0)
+	}
+}
+
+func TestSheetsWorker_RedisErrors(t *testing.T) {
+	db := newTestDB(t)
+	sheets := &fakeSheets{}
+
+	t.Run("NilRedis", func(t *testing.T) {
+		worker := NewSheetsWorker(db, sheets, nil, RetryPolicy{}, nil)
+		err := worker.pushRedis(context.Background(), models.SyncTask{})
+		if err == nil {
+			t.Errorf("expected error for nil redis")
+		}
+
+		_, ok := worker.tryRedis(context.Background())
+		if ok {
+			t.Errorf("expected no task for nil redis")
+		}
+	})
+
+	t.Run("RedisClosed", func(t *testing.T) {
+		s := miniredis.RunT(t)
+		rdb := redis.NewClient(&redis.Options{Addr: s.Addr()})
+		worker := NewSheetsWorker(db, sheets, rdb, RetryPolicy{}, nil)
+		s.Close()
+
+		err := worker.pushRedis(context.Background(), models.SyncTask{})
+		if err == nil {
+			t.Errorf("expected error for closed redis")
+		}
+
+		_, ok := worker.tryRedis(context.Background())
+		if ok {
+			t.Errorf("expected no task for closed redis")
+		}
+	})
+}
+
+func TestSheetsWorker_EnqueueSyncSchedule_Redis(t *testing.T) {
+	s := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: s.Addr()})
+	db := newTestDB(t)
+	sheets := &fakeSheets{}
+	worker := NewSheetsWorker(db, sheets, rdb, RetryPolicy{}, nil)
+
+	err := worker.EnqueueSyncSchedule(context.Background(), time.Now(), time.Now())
+	if err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+
+	res, _ := rdb.LPop(context.Background(), worker.redisQueueKey).Result()
+	if res == "" {
+		t.Errorf("expected task in redis")
+	}
+}
+
+func TestSheetsWorker_RetryOrFail_Errors(t *testing.T) {
+	db := newTestDB(t)
+	db.Close() // Make updates fail
+
+	worker := NewSheetsWorker(db, nil, nil, RetryPolicy{MaxRetries: 1}, nil)
+	worker.retryOrFail(context.Background(), &models.SyncTask{ID: 1}, errors.New("boom"))
+	// Should log error and continue (no crash)
 }
 
 func TestSheetsWorker_EnqueueTask(t *testing.T) {
@@ -267,6 +337,27 @@ func TestSheetsWorker_HandleSheetTask(t *testing.T) {
 		}
 	})
 
+	t.Run("SyncSchedule", func(t *testing.T) {
+		// Create an item to satisfy GetActiveItems
+		db.CreateItem(ctx, &models.Item{Name: "Item1", TotalQuantity: 1})
+
+		err := worker.handleSheetTask(ctx, TaskSyncSchedule, sheetTaskPayload{
+			StartDate: time.Now(),
+			EndDate:   time.Now().Add(24 * time.Hour),
+		})
+		if err != nil {
+			t.Fatalf("handle: %v", err)
+		}
+	})
+
+	t.Run("SyncSchedule_EmptyDates", func(t *testing.T) {
+		db.CreateItem(ctx, &models.Item{Name: "Item1", TotalQuantity: 1})
+		err := worker.handleSheetTask(ctx, TaskSyncSchedule, sheetTaskPayload{})
+		if err != nil {
+			t.Fatalf("handle: %v", err)
+		}
+	})
+
 	t.Run("UnknownTaskType", func(t *testing.T) {
 		err := worker.handleSheetTask(ctx, "unknown", sheetTaskPayload{})
 		if err == nil {
@@ -294,6 +385,86 @@ func TestSheetsWorker_HandleSheetTask(t *testing.T) {
 			t.Fatalf("expected error for missing status data")
 		}
 	})
+}
+
+func TestSheetsWorker_StartStop(t *testing.T) {
+	db := newTestDB(t)
+	sheets := &fakeSheets{}
+	worker := NewSheetsWorker(db, sheets, nil, RetryPolicy{}, nil)
+	worker.pollInterval = 10 * time.Millisecond
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	// Add a task to the queue before starting
+	booking := &models.Booking{ID: 1, ItemName: "Test"}
+	worker.EnqueueTask(ctx, TaskUpsert, 1, booking, "")
+
+	// This should process the task and stop when ctx is done
+	worker.Start(ctx)
+
+	if sheets.upsertCalls == 0 {
+		t.Errorf("expected upsert call during Start")
+	}
+}
+
+func TestSheetsWorker_Redis(t *testing.T) {
+	s := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: s.Addr()})
+
+	db := newTestDB(t)
+	sheets := &fakeSheets{}
+	worker := NewSheetsWorker(db, sheets, rdb, RetryPolicy{}, nil)
+	worker.pollInterval = 10 * time.Millisecond
+
+	ctx := context.Background()
+	booking := &models.Booking{ID: 1, ItemName: "Test"}
+
+	t.Run("PushAndPop", func(t *testing.T) {
+		err := worker.EnqueueTask(ctx, TaskUpsert, 1, booking, "")
+		if err != nil {
+			t.Fatalf("enqueue: %v", err)
+		}
+
+		task, ok := worker.tryRedis(ctx)
+		if !ok {
+			t.Fatalf("expected task from redis")
+		}
+		if task.BookingID != 1 {
+			t.Errorf("expected booking ID 1, got %d", task.BookingID)
+		}
+	})
+
+	t.Run("DeadLetter", func(t *testing.T) {
+		task := &models.SyncTask{ID: 123, TaskType: "test"}
+		worker.pushDeadLetter(ctx, task)
+
+		res, _ := rdb.LPop(ctx, worker.deadLetterKey).Result()
+		if res == "" {
+			t.Errorf("expected dead letter in redis")
+		}
+	})
+}
+
+func TestSheetsWorker_FailTaskPath(t *testing.T) {
+	db := newTestDB(t)
+	sheets := &fakeSheets{}
+	worker := NewSheetsWorker(db, sheets, nil, RetryPolicy{}, nil)
+	ctx := context.Background()
+
+	task := &models.SyncTask{
+		TaskType: "test",
+		Payload:  "invalid",
+		Status:   "pending",
+	}
+	db.CreateSyncTask(ctx, task)
+
+	worker.processTask(ctx, task)
+
+	status, _, _ := loadTaskStatus(t, db, task.ID)
+	if status != "failed" {
+		t.Errorf("expected failed status, got %s", status)
+	}
 }
 
 // Helpers

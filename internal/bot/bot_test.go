@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -54,7 +55,7 @@ func setupTestBot() (*Bot, *botMocks) {
 	b, _ := NewBot(tg, cfg, state, sheetsSvc, worker, events, bookingSvc, userSvc, itemSvc, nil, &logger)
 
 	// Add manager to user service
-	userSvc.users[123] = &models.User{TelegramID: 123, IsManager: true}
+	userSvc.SaveUser(context.Background(), &models.User{TelegramID: 123, IsManager: true})
 
 	return b, &botMocks{
 		tg:      tg,
@@ -73,6 +74,7 @@ type mockTelegramService struct {
 	domain.TelegramService
 	updatesChan  chan tgbotapi.Update
 	sentMessages []tgbotapi.Chattable
+	mu           sync.RWMutex
 }
 
 func (m *mockTelegramService) GetUpdatesChan(config tgbotapi.UpdateConfig) tgbotapi.UpdatesChannel {
@@ -80,6 +82,8 @@ func (m *mockTelegramService) GetUpdatesChan(config tgbotapi.UpdateConfig) tgbot
 }
 
 func (m *mockTelegramService) Send(c tgbotapi.Chattable) (tgbotapi.Message, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.sentMessages = append(m.sentMessages, c)
 	return tgbotapi.Message{}, nil
 }
@@ -93,11 +97,15 @@ func (m *mockTelegramService) Request(c tgbotapi.Chattable) (*tgbotapi.APIRespon
 }
 
 func (m *mockTelegramService) SendMessage(chatID int64, text string) (tgbotapi.Message, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.sentMessages = append(m.sentMessages, tgbotapi.NewMessage(chatID, text))
 	return tgbotapi.Message{}, nil
 }
 
 func (m *mockTelegramService) SendMarkdown(chatID int64, text string) (tgbotapi.Message, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	msg := tgbotapi.NewMessage(chatID, text)
 	msg.ParseMode = models.ParseModeMarkdown
 	m.sentMessages = append(m.sentMessages, msg)
@@ -105,6 +113,8 @@ func (m *mockTelegramService) SendMarkdown(chatID int64, text string) (tgbotapi.
 }
 
 func (m *mockTelegramService) SendWithKeyboard(chatID int64, text string, keyboard tgbotapi.ReplyKeyboardMarkup) (tgbotapi.Message, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	msg := tgbotapi.NewMessage(chatID, text)
 	msg.ReplyMarkup = keyboard
 	m.sentMessages = append(m.sentMessages, msg)
@@ -112,10 +122,24 @@ func (m *mockTelegramService) SendWithKeyboard(chatID int64, text string, keyboa
 }
 
 func (m *mockTelegramService) SendWithInlineKeyboard(chatID int64, text string, keyboard tgbotapi.InlineKeyboardMarkup) (tgbotapi.Message, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	msg := tgbotapi.NewMessage(chatID, text)
 	msg.ReplyMarkup = keyboard
 	m.sentMessages = append(m.sentMessages, msg)
 	return tgbotapi.Message{}, nil
+}
+
+func (m *mockTelegramService) getSentMessages() []tgbotapi.Chattable {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.sentMessages
+}
+
+func (m *mockTelegramService) clearSentMessages() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.sentMessages = nil
 }
 
 func (m *mockTelegramService) EditMessage(chatID int64, messageID int, text string, keyboard *tgbotapi.InlineKeyboardMarkup) (tgbotapi.Message, error) {
@@ -131,9 +155,12 @@ func (m *mockTelegramService) StopReceivingUpdates() {}
 type mockStateManager struct {
 	domain.StateManager
 	states map[int64]*models.UserState
+	mu     sync.RWMutex
 }
 
 func (m *mockStateManager) SetUserState(ctx context.Context, userID int64, step string, data map[string]interface{}) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.states == nil {
 		m.states = make(map[int64]*models.UserState)
 	}
@@ -147,6 +174,8 @@ func (m *mockStateManager) SetUserState(ctx context.Context, userID int64, step 
 }
 
 func (m *mockStateManager) GetUserState(ctx context.Context, userID int64) (*models.UserState, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	if m.states == nil {
 		return nil, nil
 	}
@@ -163,10 +192,22 @@ func (m *mockStateManager) GetUserState(ctx context.Context, userID int64) (*mod
 }
 
 func (m *mockStateManager) ClearUserState(ctx context.Context, userID int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.states != nil {
 		delete(m.states, userID)
 	}
 	return nil
+}
+
+func (m *mockStateManager) getStates() map[int64]*models.UserState {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	cp := make(map[int64]*models.UserState)
+	for k, v := range m.states {
+		cp[k] = v
+	}
+	return cp
 }
 
 func (m *mockStateManager) CheckRateLimit(ctx context.Context, userID int64, limit int, window time.Duration) (bool, error) {
@@ -180,9 +221,12 @@ type mockUserService struct {
 	saveError           error
 	updateActivityError error
 	updatePhoneError    error
+	mu                  sync.RWMutex
 }
 
 func (m *mockUserService) SaveUser(ctx context.Context, user *models.User) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.saveError != nil {
 		return m.saveError
 	}
@@ -201,6 +245,8 @@ func (m *mockUserService) UpdateUserActivity(ctx context.Context, telegramID int
 }
 
 func (m *mockUserService) UpdateUserPhone(ctx context.Context, telegramID int64, phone string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.updatePhoneError != nil {
 		return m.updatePhoneError
 	}
@@ -211,6 +257,8 @@ func (m *mockUserService) UpdateUserPhone(ctx context.Context, telegramID int64,
 }
 
 func (m *mockUserService) IsManager(userID int64) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	if u, ok := m.users[userID]; ok {
 		return u.IsManager
 	}
@@ -218,6 +266,8 @@ func (m *mockUserService) IsManager(userID int64) bool {
 }
 
 func (m *mockUserService) IsBlacklisted(userID int64) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	if u, ok := m.users[userID]; ok {
 		return u.IsBlacklisted
 	}
@@ -225,6 +275,8 @@ func (m *mockUserService) IsBlacklisted(userID int64) bool {
 }
 
 func (m *mockUserService) GetManagers(ctx context.Context) ([]models.User, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	var managers []models.User
 	for _, u := range m.users {
 		if u.IsManager {
@@ -246,6 +298,8 @@ func (m *mockUserService) GetUserByID(ctx context.Context, id int64) (*models.Us
 		}
 		return args.Get(0).(*models.User), args.Error(1)
 	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	for _, u := range m.users {
 		if int64(u.ID) == id {
 			return u, nil
@@ -259,6 +313,8 @@ func (m *mockUserService) GetUserByID(ctx context.Context, id int64) (*models.Us
 }
 
 func (m *mockUserService) GetAllUsers(ctx context.Context) ([]models.User, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	var users []models.User
 	for _, u := range m.users {
 		users = append(users, *u)
@@ -267,6 +323,8 @@ func (m *mockUserService) GetAllUsers(ctx context.Context) ([]models.User, error
 }
 
 func (m *mockUserService) GetActiveUsers(ctx context.Context, days int) ([]models.User, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	var users []models.User
 	cutoff := time.Now().AddDate(0, 0, -days)
 	for _, u := range m.users {
@@ -277,16 +335,37 @@ func (m *mockUserService) GetActiveUsers(ctx context.Context, days int) ([]model
 	return users, nil
 }
 
+func (m *mockUserService) setUsers(users map[int64]*models.User) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.users = users
+}
+
+func (m *mockUserService) getUsers() map[int64]*models.User {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	cp := make(map[int64]*models.User)
+	for k, v := range m.users {
+		cp[k] = v
+	}
+	return cp
+}
+
 type mockItemService struct {
 	domain.ItemService
 	items []models.Item
+	mu    sync.RWMutex
 }
 
 func (m *mockItemService) GetActiveItems(ctx context.Context) ([]models.Item, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	return m.items, nil
 }
 
 func (m *mockItemService) GetItemByID(ctx context.Context, id int64) (*models.Item, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	for _, item := range m.items {
 		if item.ID == id {
 			return &item, nil
@@ -296,6 +375,8 @@ func (m *mockItemService) GetItemByID(ctx context.Context, id int64) (*models.It
 }
 
 func (m *mockItemService) GetItemByName(ctx context.Context, name string) (*models.Item, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	for _, item := range m.items {
 		if item.Name == name {
 			return &item, nil
@@ -305,12 +386,16 @@ func (m *mockItemService) GetItemByName(ctx context.Context, name string) (*mode
 }
 
 func (m *mockItemService) CreateItem(ctx context.Context, item *models.Item) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	item.ID = int64(len(m.items) + 1)
 	m.items = append(m.items, *item)
 	return nil
 }
 
 func (m *mockItemService) UpdateItem(ctx context.Context, item *models.Item) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	for i, it := range m.items {
 		if it.ID == item.ID {
 			m.items[i] = *item
@@ -321,6 +406,8 @@ func (m *mockItemService) UpdateItem(ctx context.Context, item *models.Item) err
 }
 
 func (m *mockItemService) DeactivateItem(ctx context.Context, id int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	for i, it := range m.items {
 		if it.ID == id {
 			m.items[i].IsActive = false
@@ -331,6 +418,8 @@ func (m *mockItemService) DeactivateItem(ctx context.Context, id int64) error {
 }
 
 func (m *mockItemService) ReorderItem(ctx context.Context, id int64, order int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	for i, it := range m.items {
 		if it.ID == id {
 			m.items[i].SortOrder = order
@@ -340,11 +429,26 @@ func (m *mockItemService) ReorderItem(ctx context.Context, id int64, order int64
 	return errors.New("not found")
 }
 
+func (m *mockItemService) setItems(items []models.Item) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.items = items
+}
+
+func (m *mockItemService) getItems() []models.Item {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	cp := make([]models.Item, len(m.items))
+	copy(cp, m.items)
+	return cp
+}
+
 type mockBookingService struct {
 	mock.Mock
 	domain.BookingService
 	available bool
 	bookings  map[int64]*models.Booking
+	mu        sync.RWMutex
 }
 
 func (m *mockBookingService) CheckAvailability(ctx context.Context, itemID int64, date time.Time) (bool, error) {
@@ -361,6 +465,8 @@ func (m *mockBookingService) CheckAvailability(ctx context.Context, itemID int64
 }
 
 func (m *mockBookingService) CreateBooking(ctx context.Context, booking *models.Booking) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.ExpectedCalls == nil {
 		booking.ID = int64(len(m.bookings) + 1)
 		if m.bookings == nil {
@@ -405,6 +511,8 @@ func (m *mockBookingService) GetBookedCount(ctx context.Context, itemID int64, d
 }
 
 func (m *mockBookingService) ConfirmBooking(ctx context.Context, bookingID int64, version int64, managerID int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if b, ok := m.bookings[bookingID]; ok {
 		b.Status = models.StatusConfirmed
 		return nil
@@ -413,6 +521,8 @@ func (m *mockBookingService) ConfirmBooking(ctx context.Context, bookingID int64
 }
 
 func (m *mockBookingService) CompleteBooking(ctx context.Context, bookingID int64, version int64, managerID int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if b, ok := m.bookings[bookingID]; ok {
 		b.Status = models.StatusCompleted
 		return nil
@@ -421,6 +531,8 @@ func (m *mockBookingService) CompleteBooking(ctx context.Context, bookingID int6
 }
 
 func (m *mockBookingService) ReopenBooking(ctx context.Context, bookingID int64, version int64, managerID int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if b, ok := m.bookings[bookingID]; ok {
 		b.Status = models.StatusPending
 		return nil
@@ -429,6 +541,8 @@ func (m *mockBookingService) ReopenBooking(ctx context.Context, bookingID int64,
 }
 
 func (m *mockBookingService) ChangeBookingItem(ctx context.Context, bookingID int64, version int64, newItemID int64, managerID int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if b, ok := m.bookings[bookingID]; ok {
 		b.ItemID = newItemID
 		b.Status = models.StatusChanged
@@ -438,6 +552,8 @@ func (m *mockBookingService) ChangeBookingItem(ctx context.Context, bookingID in
 }
 
 func (m *mockBookingService) RescheduleBooking(ctx context.Context, bookingID int64, managerID int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if b, ok := m.bookings[bookingID]; ok {
 		b.Status = models.StatusChanged
 		return nil
@@ -446,10 +562,14 @@ func (m *mockBookingService) RescheduleBooking(ctx context.Context, bookingID in
 }
 
 func (m *mockBookingService) GetBooking(ctx context.Context, id int64) (*models.Booking, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	return m.bookings[id], nil
 }
 
 func (m *mockBookingService) GetBookingsByDateRange(ctx context.Context, start, end time.Time) ([]models.Booking, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	var result []models.Booking
 	for _, b := range m.bookings {
 		if (b.Date.After(start) || b.Date.Equal(start)) && (b.Date.Before(end) || b.Date.Equal(end)) {
@@ -467,10 +587,28 @@ func (m *mockBookingService) GetAvailability(ctx context.Context, itemID int64, 
 }
 
 func (m *mockBookingService) RejectBooking(ctx context.Context, bookingID int64, version int64, managerID int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if b, ok := m.bookings[bookingID]; ok {
 		b.Status = models.StatusCancelled
 	}
 	return nil
+}
+
+func (m *mockBookingService) getBookings() map[int64]*models.Booking {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	cp := make(map[int64]*models.Booking)
+	for k, v := range m.bookings {
+		cp[k] = v
+	}
+	return cp
+}
+
+func (m *mockBookingService) setBookings(bookings map[int64]*models.Booking) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.bookings = bookings
 }
 
 type mockSheetsWriter struct {
@@ -562,15 +700,16 @@ func TestBotStart(t *testing.T) {
 	// Give it a moment to process
 	time.Sleep(100 * time.Millisecond)
 
-	if len(userSvc.users) != 1 {
-		t.Errorf("expected 1 user in repo, got %d", len(userSvc.users))
+	users := userSvc.getUsers()
+	if len(users) != 1 {
+		t.Errorf("expected 1 user in repo, got %d", len(users))
 	}
 
-	if userSvc.users[123].Username != "testuser" {
-		t.Errorf("expected username testuser, got %s", userSvc.users[123].Username)
+	if users[123].Username != "testuser" {
+		t.Errorf("expected username testuser, got %s", users[123].Username)
 	}
 
-	if len(tg.sentMessages) == 0 {
+	if len(tg.getSentMessages()) == 0 {
 		t.Errorf("expected at least one message sent")
 	}
 }
@@ -607,11 +746,12 @@ func TestHandleSelectItem(t *testing.T) {
 
 	b.handleMessage(context.Background(), update)
 
-	if state.states[123].CurrentStep != models.StateSelectItem {
-		t.Errorf("expected state %s, got %s", models.StateSelectItem, state.states[123].CurrentStep)
+	states := state.getStates()
+	if states[123].CurrentStep != models.StateSelectItem {
+		t.Errorf("expected state %s, got %s", models.StateSelectItem, states[123].CurrentStep)
 	}
 
-	if len(tg.sentMessages) == 0 {
+	if len(tg.getSentMessages()) == 0 {
 		t.Errorf("expected message sent")
 	}
 }
@@ -652,8 +792,9 @@ func TestHandleCallbackQuery(t *testing.T) {
 	b.handleCallbackQuery(context.Background(), update)
 
 	// After selecting an item, it should ask for a date
-	if state.states[123].CurrentStep != models.StateWaitingDate {
-		t.Errorf("expected state %s, got %s", models.StateWaitingDate, state.states[123].CurrentStep)
+	states := state.getStates()
+	if states[123].CurrentStep != models.StateWaitingDate {
+		t.Errorf("expected state %s, got %s", models.StateWaitingDate, states[123].CurrentStep)
 	}
 }
 
@@ -674,7 +815,7 @@ func TestHandleCallbackQuery_BackToMain(t *testing.T) {
 
 	b, _ := NewBot(tg, cfg, state, sheetsSvc, worker, events, bookingSvc, userSvc, itemSvc, nil, &logger)
 
-	state.states[123] = &models.UserState{UserID: 123, CurrentStep: "some_step"}
+	state.SetUserState(context.Background(), 123, "some_step", nil)
 
 	update := tgbotapi.Update{
 		CallbackQuery: &tgbotapi.CallbackQuery{
@@ -689,10 +830,11 @@ func TestHandleCallbackQuery_BackToMain(t *testing.T) {
 
 	b.handleCallbackQuery(context.Background(), update)
 
-	if state.states[123] == nil {
+	states := state.getStates()
+	if states[123] == nil {
 		t.Errorf("expected state to be set to main menu")
-	} else if state.states[123].CurrentStep != models.StateMainMenu {
-		t.Errorf("expected state %s, got %s", models.StateMainMenu, state.states[123].CurrentStep)
+	} else if states[123].CurrentStep != models.StateMainMenu {
+		t.Errorf("expected state %s, got %s", models.StateMainMenu, states[123].CurrentStep)
 	}
 }
 
@@ -728,19 +870,16 @@ func TestHandleCallbackQuery_ScheduleSelectItem(t *testing.T) {
 
 	b.handleCallbackQuery(context.Background(), update)
 
-	if state.states[123].CurrentStep != models.StateViewSchedule {
-		t.Errorf("expected state %s, got %s", models.StateViewSchedule, state.states[123].CurrentStep)
+	states := state.getStates()
+	if states[123].CurrentStep != models.StateViewSchedule {
+		t.Errorf("expected state %s, got %s", models.StateViewSchedule, states[123].CurrentStep)
 	}
 }
 
 func TestHandleDateInput(t *testing.T) {
 	b, mocks := setupTestBot()
 
-	mocks.state.states[123] = &models.UserState{
-		UserID:      123,
-		CurrentStep: models.StateWaitingDate,
-		TempData:    map[string]interface{}{"item_id": int64(1)},
-	}
+	mocks.state.SetUserState(context.Background(), 123, models.StateWaitingDate, map[string]interface{}{"item_id": int64(1)})
 
 	futureDate := time.Now().AddDate(0, 0, 5).Format("02.01.2006")
 	update := tgbotapi.Update{
@@ -794,7 +933,8 @@ func TestHandleStartWithUserTracking(t *testing.T) {
 
 	b.handleStartWithUserTracking(context.Background(), update)
 
-	user, ok := userSvc.users[123]
+	users := userSvc.getUsers()
+	user, ok := users[123]
 	if !ok {
 		t.Fatal("user not created in repo")
 	}
@@ -803,8 +943,9 @@ func TestHandleStartWithUserTracking(t *testing.T) {
 		t.Errorf("user data mismatch: %+v", user)
 	}
 
-	if state.states[123].CurrentStep != models.StateMainMenu {
-		t.Errorf("expected state %s, got %s", models.StateMainMenu, state.states[123].CurrentStep)
+	states := state.getStates()
+	if states[123].CurrentStep != models.StateMainMenu {
+		t.Errorf("expected state %s, got %s", models.StateMainMenu, states[123].CurrentStep)
 	}
 }
 
@@ -829,15 +970,11 @@ func TestHandlePhoneReceived(t *testing.T) {
 
 	b, _ := NewBot(tg, cfg, state, sheetsSvc, worker, events, bookingSvc, userSvc, itemSvc, nil, &logger)
 
-	state.states[123] = &models.UserState{
-		UserID:      123,
-		CurrentStep: models.StatePhoneNumber,
-		TempData: map[string]interface{}{
-			"item_id":   int64(1),
-			"date":      time.Now().AddDate(0, 0, 5),
-			"user_name": "Test User",
-		},
-	}
+	state.SetUserState(context.Background(), 123, models.StatePhoneNumber, map[string]interface{}{
+		"item_id":   int64(1),
+		"date":      time.Now().AddDate(0, 0, 5),
+		"user_name": "Test User",
+	})
 
 	update := tgbotapi.Update{
 		Message: &tgbotapi.Message{
@@ -849,8 +986,9 @@ func TestHandlePhoneReceived(t *testing.T) {
 
 	b.handleMessage(context.Background(), update)
 
-	if state.states[123] == nil || state.states[123].CurrentStep != models.StateMainMenu {
-		t.Errorf("expected state to be %s, but it is %v", models.StateMainMenu, state.states[123])
+	states := state.getStates()
+	if states[123] == nil || states[123].CurrentStep != models.StateMainMenu {
+		t.Errorf("expected state to be %s, but it is %v", models.StateMainMenu, states[123])
 	}
 }
 
@@ -914,10 +1052,11 @@ func TestBookingFlow(t *testing.T) {
 	}
 
 	// Check if booking was created
-	if len(mocks.booking.bookings) != 1 {
-		t.Fatalf("expected 1 booking, got %d", len(mocks.booking.bookings))
+	bookings := mocks.booking.getBookings()
+	if len(bookings) != 1 {
+		t.Fatalf("expected 1 booking, got %d", len(bookings))
 	}
-	booking := mocks.booking.bookings[1]
+	booking := bookings[1]
 	if booking.Status != models.StatusPending {
 		t.Errorf("expected status %s, got %s", models.StatusPending, booking.Status)
 	}
@@ -953,7 +1092,7 @@ func TestHandleBlacklistedUser(t *testing.T) {
 	b, _ := NewBot(tg, cfg, state, sheetsSvc, worker, events, bookingSvc, userSvc, itemSvc, nil, &logger)
 
 	// Mock blacklist
-	userSvc.users[123] = &models.User{TelegramID: 123, IsBlacklisted: true}
+	userSvc.SaveUser(context.Background(), &models.User{TelegramID: 123, IsBlacklisted: true})
 
 	update := tgbotapi.Update{
 		Message: &tgbotapi.Message{
@@ -966,8 +1105,8 @@ func TestHandleBlacklistedUser(t *testing.T) {
 	b.handleMessage(context.Background(), update)
 
 	// Should not send any messages
-	if len(tg.sentMessages) > 0 {
-		t.Errorf("expected no messages for blacklisted user, got %d", len(tg.sentMessages))
+	if len(tg.getSentMessages()) > 0 {
+		t.Errorf("expected no messages for blacklisted user, got %d", len(tg.getSentMessages()))
 	}
 }
 
@@ -1089,7 +1228,7 @@ func TestHandleManagerCommand_AllBookings(t *testing.T) {
 	b, _ := NewBot(tg, cfg, state, sheetsSvc, worker, events, bookingSvc, userSvc, itemSvc, nil, &logger)
 
 	// Set user as manager
-	userSvc.users[123] = &models.User{TelegramID: 123, IsManager: true}
+	userSvc.SaveUser(context.Background(), &models.User{TelegramID: 123, IsManager: true})
 
 	update := tgbotapi.Update{
 		Message: &tgbotapi.Message{
@@ -1101,7 +1240,7 @@ func TestHandleManagerCommand_AllBookings(t *testing.T) {
 
 	b.handleMessage(context.Background(), update)
 
-	if len(tg.sentMessages) == 0 {
+	if len(tg.getSentMessages()) == 0 {
 		t.Errorf("expected message sent to manager")
 	}
 }
@@ -1128,7 +1267,7 @@ func TestHandleManagerCallback_Confirm(t *testing.T) {
 	b, _ := NewBot(tg, cfg, state, sheetsSvc, worker, events, bookingSvc, userSvc, itemSvc, nil, &logger)
 
 	// Set user as manager
-	userSvc.users[123] = &models.User{TelegramID: 123, IsManager: true}
+	userSvc.SaveUser(context.Background(), &models.User{TelegramID: 123, IsManager: true})
 
 	update := tgbotapi.Update{
 		CallbackQuery: &tgbotapi.CallbackQuery{
@@ -1144,8 +1283,9 @@ func TestHandleManagerCallback_Confirm(t *testing.T) {
 
 	b.handleCallbackQuery(context.Background(), update)
 
-	if bookingSvc.bookings[1].Status != models.StatusConfirmed {
-		t.Errorf("expected status %s, got %s", models.StatusConfirmed, bookingSvc.bookings[1].Status)
+	bookings := bookingSvc.getBookings()
+	if bookings[1].Status != models.StatusConfirmed {
+		t.Errorf("expected status %s, got %s", models.StatusConfirmed, bookings[1].Status)
 	}
 }
 
@@ -1166,7 +1306,7 @@ func TestHandleCancel(t *testing.T) {
 
 	b, _ := NewBot(tg, cfg, state, sheetsSvc, worker, events, bookingSvc, userSvc, itemSvc, nil, &logger)
 
-	state.states[123] = &models.UserState{UserID: 123, CurrentStep: models.StateWaitingDate}
+	state.SetUserState(context.Background(), 123, models.StateWaitingDate, nil)
 
 	update := tgbotapi.Update{
 		Message: &tgbotapi.Message{
@@ -1206,11 +1346,7 @@ func TestHandleBack_ToDate(t *testing.T) {
 	b, _ := NewBot(tg, cfg, state, sheetsSvc, worker, events, bookingSvc, userSvc, itemSvc, nil, &logger)
 
 	// From StateEnterName back to StateWaitingDate
-	state.states[123] = &models.UserState{
-		UserID:      123,
-		CurrentStep: models.StateEnterName,
-		TempData:    map[string]interface{}{"item_id": int64(1)},
-	}
+	state.SetUserState(context.Background(), 123, models.StateEnterName, map[string]interface{}{"item_id": int64(1)})
 
 	update := tgbotapi.Update{
 		Message: &tgbotapi.Message{
@@ -1248,11 +1384,7 @@ func TestHandleBack_ToName(t *testing.T) {
 	b, _ := NewBot(tg, cfg, state, sheetsSvc, worker, events, bookingSvc, userSvc, itemSvc, nil, &logger)
 
 	// From StatePhoneNumber back to StateEnterName
-	state.states[123] = &models.UserState{
-		UserID:      123,
-		CurrentStep: models.StatePhoneNumber,
-		TempData:    map[string]interface{}{"item_id": int64(1)},
-	}
+	state.SetUserState(context.Background(), 123, models.StatePhoneNumber, map[string]interface{}{"item_id": int64(1)})
 
 	update := tgbotapi.Update{
 		Message: &tgbotapi.Message{
@@ -1320,10 +1452,10 @@ func TestManagerBookingFlow(t *testing.T) {
 	assert.NotNil(t, state)
 	assert.Equal(t, models.StateManagerWaitingClientName, state.CurrentStep)
 	assert.True(t, state.TempData["is_manager_booking"].(bool))
-	assert.Len(t, mocks.tg.sentMessages, 1)
+	assert.Len(t, mocks.tg.getSentMessages(), 1)
 
 	// 2. Handle Client Name
-	mocks.tg.sentMessages = nil
+	mocks.tg.clearSentMessages()
 	b.handleManagerClientName(ctx, update, "John Doe", state)
 
 	state = b.getUserState(ctx, managerID)
@@ -1331,7 +1463,7 @@ func TestManagerBookingFlow(t *testing.T) {
 	assert.Equal(t, "John Doe", state.TempData["client_name"])
 
 	// 3. Handle Client Phone
-	mocks.tg.sentMessages = nil
+	mocks.tg.clearSentMessages()
 	b.handleManagerClientPhone(ctx, update, "+79991234567", state)
 
 	state = b.getUserState(ctx, managerID)
@@ -1339,7 +1471,7 @@ func TestManagerBookingFlow(t *testing.T) {
 	assert.Equal(t, "79991234567", state.TempData["client_phone"])
 
 	// 4. Handle Item Selection
-	mocks.tg.sentMessages = nil
+	mocks.tg.clearSentMessages()
 	callbackUpdate := tgbotapi.Update{
 		CallbackQuery: &tgbotapi.CallbackQuery{
 			From: &tgbotapi.User{ID: managerID},
@@ -1357,7 +1489,7 @@ func TestManagerBookingFlow(t *testing.T) {
 	assert.Equal(t, int64(1), state.TempData["item_id"])
 
 	// 5. Handle Date Type (Single)
-	mocks.tg.sentMessages = nil
+	mocks.tg.clearSentMessages()
 	callbackUpdate.CallbackQuery.Data = "manager_single_date"
 	b.handleManagerDateType(ctx, callbackUpdate, "single")
 
@@ -1366,7 +1498,7 @@ func TestManagerBookingFlow(t *testing.T) {
 	assert.Equal(t, "single", state.TempData["date_type"])
 
 	// 6. Handle Single Date
-	mocks.tg.sentMessages = nil
+	mocks.tg.clearSentMessages()
 	dateStr := time.Now().AddDate(0, 0, 1).Format("02.01.2006")
 	mocks.booking.On("ValidateBookingDate", mock.Anything).Return(nil)
 	b.handleManagerSingleDate(ctx, update, dateStr, state)
@@ -1376,7 +1508,7 @@ func TestManagerBookingFlow(t *testing.T) {
 	assert.NotEmpty(t, state.TempData["dates"])
 
 	// 7. Handle Comment
-	mocks.tg.sentMessages = nil
+	mocks.tg.clearSentMessages()
 	b.handleManagerComment(ctx, update, "Test comment", state)
 
 	state = b.getUserState(ctx, managerID)
@@ -1384,7 +1516,7 @@ func TestManagerBookingFlow(t *testing.T) {
 	assert.Equal(t, "Test comment", state.TempData["comment"])
 
 	// 8. Create Bookings
-	mocks.tg.sentMessages = nil
+	mocks.tg.clearSentMessages()
 	mocks.booking.On("CheckAvailability", mock.Anything, int64(1), mock.Anything).Return(true, nil)
 	mocks.booking.On("CreateBooking", mock.Anything, mock.Anything).Return(nil)
 	b.createManagerBookings(ctx, update, state)
@@ -1467,44 +1599,44 @@ func TestManagerItemsCommands(t *testing.T) {
 	// 1. Add Item
 	update.Message.Text = "/add_item NewItem 5"
 	b.handleAddItemCommand(ctx, update)
-	assert.Len(t, mocks.tg.sentMessages, 1)
-	assert.Contains(t, mocks.tg.sentMessages[0].(tgbotapi.MessageConfig).Text, "✅ Аппарат 'NewItem' добавлен")
+	assert.Len(t, mocks.tg.getSentMessages(), 1)
+	assert.Contains(t, mocks.tg.getSentMessages()[0].(tgbotapi.MessageConfig).Text, "✅ Аппарат 'NewItem' добавлен")
 
 	// 2. List Items
-	mocks.tg.sentMessages = nil
-	mocks.item.items = []models.Item{{ID: 1, Name: "Item 1", TotalQuantity: 10, SortOrder: 1}}
+	mocks.tg.clearSentMessages()
+	mocks.item.setItems([]models.Item{{ID: 1, Name: "Item 1", TotalQuantity: 10, SortOrder: 1}})
 	update.Message.Text = "/list_items"
 	b.handleListItemsCommand(ctx, update)
-	assert.Len(t, mocks.tg.sentMessages, 1)
-	assert.Contains(t, mocks.tg.sentMessages[0].(tgbotapi.MessageConfig).Text, "📋 Список активных аппаратов")
+	assert.Len(t, mocks.tg.getSentMessages(), 1)
+	assert.Contains(t, mocks.tg.getSentMessages()[0].(tgbotapi.MessageConfig).Text, "📋 Список активных аппаратов")
 
 	// 3. Edit Item
-	mocks.tg.sentMessages = nil
+	mocks.tg.clearSentMessages()
 	update.Message.Text = "/edit_item Item 1 20"
 	b.handleEditItemCommand(ctx, update)
-	assert.Len(t, mocks.tg.sentMessages, 1)
-	assert.Contains(t, mocks.tg.sentMessages[0].(tgbotapi.MessageConfig).Text, "✅ Аппарат 'Item 1' обновлён")
+	assert.Len(t, mocks.tg.getSentMessages(), 1)
+	assert.Contains(t, mocks.tg.getSentMessages()[0].(tgbotapi.MessageConfig).Text, "✅ Аппарат 'Item 1' обновлён")
 
 	// 4. Set Item Order
-	mocks.tg.sentMessages = nil
+	mocks.tg.clearSentMessages()
 	update.Message.Text = "/set_item_order Item 1 5"
 	b.handleSetItemOrderCommand(ctx, update)
-	assert.Len(t, mocks.tg.sentMessages, 1)
-	assert.Contains(t, mocks.tg.sentMessages[0].(tgbotapi.MessageConfig).Text, "↕️ Порядок 'Item 1' установлен на 5")
+	assert.Len(t, mocks.tg.getSentMessages(), 1)
+	assert.Contains(t, mocks.tg.getSentMessages()[0].(tgbotapi.MessageConfig).Text, "↕️ Порядок 'Item 1' установлен на 5")
 
 	// 5. Move Item Up/Down
-	mocks.tg.sentMessages = nil
+	mocks.tg.clearSentMessages()
 	update.Message.Text = "/move_item_up Item 1"
 	b.handleMoveItemCommand(ctx, update, -1)
-	assert.Len(t, mocks.tg.sentMessages, 1)
-	assert.Contains(t, mocks.tg.sentMessages[0].(tgbotapi.MessageConfig).Text, "перемещён вверх")
+	assert.Len(t, mocks.tg.getSentMessages(), 1)
+	assert.Contains(t, mocks.tg.getSentMessages()[0].(tgbotapi.MessageConfig).Text, "перемещён вверх")
 
 	// 6. Disable Item
-	mocks.tg.sentMessages = nil
+	mocks.tg.clearSentMessages()
 	update.Message.Text = "/disable_item Item 1"
 	b.handleDisableItemCommand(ctx, update)
-	assert.Len(t, mocks.tg.sentMessages, 1)
-	assert.Contains(t, mocks.tg.sentMessages[0].(tgbotapi.MessageConfig).Text, "деактивирован")
+	assert.Len(t, mocks.tg.getSentMessages(), 1)
+	assert.Contains(t, mocks.tg.getSentMessages()[0].(tgbotapi.MessageConfig).Text, "деактивирован")
 }
 
 func TestExportToExcel(t *testing.T) {
@@ -1521,10 +1653,10 @@ func TestExportToExcel(t *testing.T) {
 	endDate := startDate.AddDate(0, 0, 7)
 
 	// Mock data
-	mocks.item.items = []models.Item{{ID: 1, Name: "Item 1", TotalQuantity: 5}}
-	mocks.booking.bookings = map[int64]*models.Booking{
+	mocks.item.setItems([]models.Item{{ID: 1, Name: "Item 1", TotalQuantity: 5}})
+	mocks.booking.setBookings(map[int64]*models.Booking{
 		1: {ID: 1, ItemID: 1, Date: startDate, Status: models.StatusConfirmed, UserName: "User 1"},
-	}
+	})
 
 	filePath, err := b.exportToExcel(ctx, startDate, endDate)
 	assert.NoError(t, err)
@@ -1561,12 +1693,14 @@ func TestManagerStats(t *testing.T) {
 	b.config.Exports.Path = tmpDir
 
 	// Add some users
-	mocks.user.users[1] = &models.User{TelegramID: 1, FirstName: "User 1", LastActivity: time.Now()}
-	mocks.user.users[2] = &models.User{TelegramID: 2, FirstName: "User 2", LastActivity: time.Now().AddDate(0, 0, -40), IsBlacklisted: true}
+	mocks.user.SaveUser(context.Background(), &models.User{TelegramID: 1, FirstName: "User 1", LastActivity: time.Now()})
+	mocks.user.SaveUser(context.Background(), &models.User{TelegramID: 2, FirstName: "User 2", LastActivity: time.Now().AddDate(0, 0, -40), IsBlacklisted: true})
 
 	// Add some bookings
-	mocks.booking.bookings[1] = &models.Booking{ID: 1, ItemName: "Item 1", Status: models.StatusConfirmed, Date: time.Now()}
-	mocks.booking.bookings[2] = &models.Booking{ID: 2, ItemName: "Item 1", Status: models.StatusPending, Date: time.Now()}
+	mocks.booking.setBookings(map[int64]*models.Booking{
+		1: {ID: 1, ItemName: "Item 1", Status: models.StatusConfirmed, Date: time.Now()},
+		2: {ID: 2, ItemName: "Item 1", Status: models.StatusPending, Date: time.Now()},
+	})
 
 	// Test getUserStats
 	update := tgbotapi.Update{
@@ -1578,8 +1712,9 @@ func TestManagerStats(t *testing.T) {
 	}
 
 	b.getUserStats(context.Background(), update)
-	assert.True(t, len(mocks.tg.sentMessages) > 0)
-	msg := mocks.tg.sentMessages[len(mocks.tg.sentMessages)-1].(tgbotapi.MessageConfig)
+	assert.True(t, len(mocks.tg.getSentMessages()) > 0)
+	sentMsgs := mocks.tg.getSentMessages()
+	msg := sentMsgs[len(sentMsgs)-1].(tgbotapi.MessageConfig)
 	assert.Contains(t, msg.Text, "Статистика")
 	assert.Contains(t, msg.Text, "Всего: *3*") // 123 (manager), 1, 2
 	assert.Contains(t, msg.Text, "В черном списке: *1*")
@@ -1598,7 +1733,7 @@ func TestManagerStats(t *testing.T) {
 	b.handleExportUsers(context.Background(), callbackUpdate)
 	// Should send a document
 	foundDoc := false
-	for _, m := range mocks.tg.sentMessages {
+	for _, m := range mocks.tg.getSentMessages() {
 		if _, ok := m.(tgbotapi.DocumentConfig); ok {
 			foundDoc = true
 			break
@@ -1646,27 +1781,29 @@ func TestReminders(t *testing.T) {
 	tomorrow := time.Now().Add(24 * time.Hour).Truncate(24 * time.Hour)
 
 	// Add a user
-	mocks.user.users[1] = &models.User{
+	mocks.user.SaveUser(ctx, &models.User{
 		TelegramID: 1,
 		FirstName:  "User 1",
-	}
-	mocks.user.users[1].ID = 1
+	})
 
 	// Add a booking for tomorrow
-	mocks.booking.bookings[1] = &models.Booking{
-		ID:       1,
-		UserID:   1,
-		ItemName: "Item 1",
-		Status:   models.StatusConfirmed,
-		Date:     tomorrow,
-	}
+	mocks.booking.setBookings(map[int64]*models.Booking{
+		1: {
+			ID:       1,
+			UserID:   1,
+			ItemName: "Item 1",
+			Status:   models.StatusConfirmed,
+			Date:     tomorrow,
+		},
+	})
 
 	// Run reminders
 	b.sendTomorrowReminders(ctx)
 
 	// Check if message was sent
-	assert.True(t, len(mocks.tg.sentMessages) > 0)
-	msg := mocks.tg.sentMessages[len(mocks.tg.sentMessages)-1].(tgbotapi.MessageConfig)
+	sentMsgs := mocks.tg.getSentMessages()
+	assert.True(t, len(sentMsgs) > 0)
+	msg := sentMsgs[len(sentMsgs)-1].(tgbotapi.MessageConfig)
 	assert.Equal(t, int64(1), msg.ChatID)
 	assert.Contains(t, msg.Text, "Напоминание")
 	assert.Contains(t, msg.Text, "Item 1")
@@ -1720,7 +1857,7 @@ func TestManagerBookingActions(t *testing.T) {
 		Status:   models.StatusConfirmed,
 		Date:     time.Now(),
 	}
-	mocks.booking.bookings[1] = booking
+	mocks.booking.setBookings(map[int64]*models.Booking{1: booking})
 
 	// Test showManagerBookingDetail
 	update := tgbotapi.Update{
@@ -1729,7 +1866,7 @@ func TestManagerBookingActions(t *testing.T) {
 		},
 	}
 	b.showManagerBookingDetail(ctx, update, 1)
-	assert.True(t, len(mocks.tg.sentMessages) > 0)
+	assert.True(t, len(mocks.tg.getSentMessages()) > 0)
 
 	// Test reopenBooking
 	b.reopenBooking(ctx, booking, 123)
@@ -1808,16 +1945,16 @@ func TestUtilsMoreCoverage(t *testing.T) {
 
 	// Test showAvailableItems
 	b.showAvailableItems(ctx, tgbotapi.Update{Message: &tgbotapi.Message{Chat: &tgbotapi.Chat{ID: 123}}})
-	assert.True(t, len(mocks.tg.sentMessages) > 0)
+	assert.True(t, len(mocks.tg.getSentMessages()) > 0)
 
 	// Test handleSpecificDateInput
 	b.setUserState(ctx, 123, models.StateWaitingSpecificDate, map[string]interface{}{"item_id": int64(1)})
 	b.handleSpecificDateInput(ctx, tgbotapi.Update{Message: &tgbotapi.Message{From: &tgbotapi.User{ID: 123}, Chat: &tgbotapi.Chat{ID: 123}}}, time.Now().Format("02.01.2006"))
-	assert.True(t, len(mocks.tg.sentMessages) > 1)
+	assert.True(t, len(mocks.tg.getSentMessages()) > 1)
 
 	// Test showMonthScheduleForItem
 	b.showMonthScheduleForItem(ctx, tgbotapi.Update{Message: &tgbotapi.Message{From: &tgbotapi.User{ID: 123}, Chat: &tgbotapi.Chat{ID: 123}}})
-	assert.True(t, len(mocks.tg.sentMessages) > 2)
+	assert.True(t, len(mocks.tg.getSentMessages()) > 2)
 
 	// Test restoreStateOrRestart failures
 	b.restoreStateOrRestart(ctx, tgbotapi.Update{Message: &tgbotapi.Message{From: &tgbotapi.User{ID: 999}, Chat: &tgbotapi.Chat{ID: 999}}}, "missing_field")
@@ -1855,7 +1992,7 @@ func TestPagination(t *testing.T) {
 	}
 
 	b.renderPaginatedItems(params)
-	assert.True(t, len(mocks.tg.sentMessages) > 0)
+	assert.True(t, len(mocks.tg.getSentMessages()) > 0)
 
 	// Test renderPaginatedBookings
 	bookings := []models.Booking{
@@ -1866,7 +2003,7 @@ func TestPagination(t *testing.T) {
 	params.Title = "Test Bookings"
 	params.ItemPrefix = "booking_"
 	b.renderPaginatedBookings(params, bookings)
-	assert.True(t, len(mocks.tg.sentMessages) > 1)
+	assert.True(t, len(mocks.tg.getSentMessages()) > 1)
 }
 
 func TestSyncBookingsToSheets(t *testing.T) {
@@ -1874,10 +2011,12 @@ func TestSyncBookingsToSheets(t *testing.T) {
 	ctx := context.Background()
 
 	// Mock bookings
-	mocks.booking.bookings[1] = &models.Booking{
-		ID: 1, UserID: 1, ItemID: 1, Date: time.Now(), Status: models.StatusConfirmed,
-		UserName: "User 1", Phone: "123", ItemName: "Item 1",
-	}
+	mocks.booking.setBookings(map[int64]*models.Booking{
+		1: {
+			ID: 1, UserID: 1, ItemID: 1, Date: time.Now(), Status: models.StatusConfirmed,
+			UserName: "User 1", Phone: "123", ItemName: "Item 1",
+		},
+	})
 
 	b.SyncBookingsToSheets(ctx)
 	// Should not panic and call sheets service
@@ -1888,10 +2027,12 @@ func TestSyncScheduleToSheets(t *testing.T) {
 	ctx := context.Background()
 
 	// Mock bookings
-	mocks.booking.bookings[1] = &models.Booking{
-		ID: 1, UserID: 1, ItemID: 1, Date: time.Now(), Status: models.StatusConfirmed,
-		UserName: "User 1", Phone: "123", ItemName: "Item 1",
-	}
+	mocks.booking.setBookings(map[int64]*models.Booking{
+		1: {
+			ID: 1, UserID: 1, ItemID: 1, Date: time.Now(), Status: models.StatusConfirmed,
+			UserName: "User 1", Phone: "123", ItemName: "Item 1",
+		},
+	})
 
 	b.SyncScheduleToSheets(ctx)
 	// Should not panic and call sheets service
