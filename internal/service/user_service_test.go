@@ -41,7 +41,7 @@ func (m *MockRepository) UpdateBookingStatus(ctx context.Context, id int64, stat
 	return args.Error(0)
 }
 
-func (m *MockRepository) UpdateBookingStatusWithVersion(ctx context.Context, id int64, version int64, status string) error {
+func (m *MockRepository) UpdateBookingStatusWithVersion(ctx context.Context, id, version int64, status string) error {
 	args := m.Called(ctx, id, version, status)
 	return args.Error(0)
 }
@@ -106,7 +106,7 @@ func (m *MockRepository) DeactivateItem(ctx context.Context, id int64) error {
 	return args.Error(0)
 }
 
-func (m *MockRepository) ReorderItem(ctx context.Context, id int64, newOrder int64) error {
+func (m *MockRepository) ReorderItem(ctx context.Context, id, newOrder int64) error {
 	args := m.Called(ctx, id, newOrder)
 	return args.Error(0)
 }
@@ -163,7 +163,7 @@ func (m *MockRepository) GetBookedCount(ctx context.Context, itemID int64, date 
 	return args.Int(0), args.Error(1)
 }
 
-func (m *MockRepository) GetBookingWithAvailability(ctx context.Context, id int64, newItemID int64) (*models.Booking, bool, error) {
+func (m *MockRepository) GetBookingWithAvailability(ctx context.Context, id, newItemID int64) (*models.Booking, bool, error) {
 	args := m.Called(ctx, id, newItemID)
 	if args.Get(0) == nil {
 		return nil, args.Bool(1), args.Error(2)
@@ -171,7 +171,7 @@ func (m *MockRepository) GetBookingWithAvailability(ctx context.Context, id int6
 	return args.Get(0).(*models.Booking), args.Bool(1), args.Error(2)
 }
 
-func (m *MockRepository) UpdateBookingItemAndStatusWithVersion(ctx context.Context, id int64, version int64, itemID int64, itemName string, status string) error {
+func (m *MockRepository) UpdateBookingItemAndStatusWithVersion(ctx context.Context, id, version, itemID int64, itemName, status string) error {
 	args := m.Called(ctx, id, version, itemID, itemName, status)
 	return args.Error(0)
 }

@@ -462,15 +462,6 @@ func (m *mockItemService) setItems(items []*models.Item) {
 	m.items = items
 }
 
-func (m *mockItemService) getItems() []*models.Item {
-	_ = m.mu.RLock
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	cp := make([]*models.Item, len(m.items))
-	copy(cp, m.items)
-	return cp
-}
-
 type mockBookingService struct {
 	mock.Mock
 	domain.BookingService
