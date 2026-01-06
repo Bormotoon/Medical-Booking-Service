@@ -467,6 +467,33 @@ func TestSheetsWorker_FailTaskPath(t *testing.T) {
 	}
 }
 
+func TestSheetsWorker_DeadLetter_RedisError(t *testing.T) {
+	s := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: s.Addr()})
+	db := newTestDB(t)
+	worker := NewSheetsWorker(db, nil, rdb, RetryPolicy{}, nil)
+	s.Close() // Force redis error
+
+	worker.pushDeadLetter(context.Background(), &models.SyncTask{ID: 1})
+	// Should log error and not panic
+}
+
+func TestSheetsWorker_EnqueueSyncSchedule_QueueFull(t *testing.T) {
+	db := newTestDB(t)
+	worker := NewSheetsWorker(db, &fakeSheets{}, nil, RetryPolicy{}, nil)
+
+	// Fill the queue
+	for i := 0; i < cap(worker.queue); i++ {
+		worker.queue <- models.SyncTask{}
+	}
+
+	// Now enqueue should trigger the default case in select
+	err := worker.EnqueueSyncSchedule(context.Background(), time.Now(), time.Now())
+	if err != nil {
+		t.Fatalf("expected no error even if queue full (polling fallback), got %v", err)
+	}
+}
+
 // Helpers
 
 type fakeSheets struct {

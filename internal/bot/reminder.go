@@ -75,7 +75,7 @@ func (b *Bot) sendTomorrowReminders(ctx context.Context) {
 
 func shouldRemindStatus(status string) bool {
 	switch status {
-	case models.StatusPending, models.StatusConfirmed, models.StatusChanged:
+	case models.StatusConfirmed, models.StatusChanged:
 		return true
 	default:
 		return false

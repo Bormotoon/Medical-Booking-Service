@@ -180,7 +180,7 @@ func (b *Bot) exportToExcel(ctx context.Context, startDate, endDate time.Time) (
 func parseDate(dateStr string) time.Time {
 	date, err := time.Parse("2006-01-02", dateStr)
 	if err != nil {
-		return time.Now()
+		return time.Time{}
 	}
 	return date
 }

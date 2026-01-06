@@ -287,6 +287,23 @@ func (m *mockUserService) GetManagers(ctx context.Context) ([]models.User, error
 }
 
 func (m *mockUserService) GetUserBookings(ctx context.Context, userID int64) ([]models.Booking, error) {
+	if m.ExpectedCalls != nil {
+		found := false
+		for _, call := range m.ExpectedCalls {
+			if call.Method == "GetUserBookings" {
+				found = true
+				break
+			}
+		}
+		if found {
+			args := m.Called(ctx, userID)
+			var res []models.Booking
+			if args.Get(0) != nil {
+				res = args.Get(0).([]models.Booking)
+			}
+			return res, args.Error(1)
+		}
+	}
 	return []models.Booking{}, nil
 }
 
@@ -570,6 +587,25 @@ func (m *mockBookingService) GetBooking(ctx context.Context, id int64) (*models.
 func (m *mockBookingService) GetBookingsByDateRange(ctx context.Context, start, end time.Time) ([]models.Booking, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+
+	if m.ExpectedCalls != nil {
+		found := false
+		for _, call := range m.ExpectedCalls {
+			if call.Method == "GetBookingsByDateRange" {
+				found = true
+				break
+			}
+		}
+		if found {
+			args := m.Called(ctx, start, end)
+			var res []models.Booking
+			if args.Get(0) != nil {
+				res = args.Get(0).([]models.Booking)
+			}
+			return res, args.Error(1)
+		}
+	}
+
 	var result []models.Booking
 	for _, b := range m.bookings {
 		if (b.Date.After(start) || b.Date.Equal(start)) && (b.Date.Before(end) || b.Date.Equal(end)) {
