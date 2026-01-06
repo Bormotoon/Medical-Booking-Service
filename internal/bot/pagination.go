@@ -113,25 +113,25 @@ func (b *Bot) renderPaginatedItems(params *PaginationParams) {
 			currentItems := items[startIdx:endIdx]
 			keyboard := make([][]tgbotapi.InlineKeyboardButton, 0, len(currentItems))
 
-		for i, item := range currentItems {
-			content.WriteString(fmt.Sprintf("%d. *%s*\n", startIdx+i+1, item.Name))
-			if item.Description != "" {
-				content.WriteString(fmt.Sprintf("   📝 %s\n", item.Description))
-			}
-			if params.ShowCapacity {
-				content.WriteString(fmt.Sprintf("   👥 Всего: %d\n", item.TotalQuantity))
-			}
-			content.WriteString("\n")
+			for i, item := range currentItems {
+				content.WriteString(fmt.Sprintf("%d. *%s*\n", startIdx+i+1, item.Name))
+				if item.Description != "" {
+					content.WriteString(fmt.Sprintf("   📝 %s\n", item.Description))
+				}
+				if params.ShowCapacity {
+					content.WriteString(fmt.Sprintf("   👥 Всего: %d\n", item.TotalQuantity))
+				}
+				content.WriteString("\n")
 
-			btn := tgbotapi.NewInlineKeyboardButtonData(
-				fmt.Sprintf("%d. %s", startIdx+i+1, item.Name),
-				fmt.Sprintf("%s%d", params.ItemPrefix, item.ID),
-			)
-			keyboard = append(keyboard, []tgbotapi.InlineKeyboardButton{btn})
-		}
+				btn := tgbotapi.NewInlineKeyboardButtonData(
+					fmt.Sprintf("%d. %s", startIdx+i+1, item.Name),
+					fmt.Sprintf("%s%d", params.ItemPrefix, item.ID),
+				)
+				keyboard = append(keyboard, []tgbotapi.InlineKeyboardButton{btn})
+			}
 
-		return content.String(), keyboard
-	})
+			return content.String(), keyboard
+		})
 }
 
 // renderPaginatedBookings - обертка для списка заявок

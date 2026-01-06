@@ -219,7 +219,6 @@ func startServers(ctx context.Context, grpcServer *api.GRPCServer, httpServer *a
 	return nil
 }
 
-
 func startMetricsServer(ctx context.Context, port int, logger *zerolog.Logger) {
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.Handler())

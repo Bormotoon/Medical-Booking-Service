@@ -632,9 +632,9 @@ func (b *Bot) finalizeBooking(ctx context.Context, cq *tgbotapi.CallbackQuery, s
 	if item == "" {
 		item = "Без аппарата"
 	}
-			msg := fmt.Sprintf("Заявка #%d создана. Кабинет: %s, %s %s, %s",
-				bk.ID, st.Draft.CabinetName, st.Draft.Date, st.Draft.TimeLabel, item)
-			b.reply(cq.Message.Chat.ID, msg)
+	msg := fmt.Sprintf("Заявка #%d создана. Кабинет: %s, %s %s, %s",
+		bk.ID, st.Draft.CabinetName, st.Draft.Date, st.Draft.TimeLabel, item)
+	b.reply(cq.Message.Chat.ID, msg)
 	b.notifyManagersNewBooking(bk.ID, st.Draft.CabinetName, item, st.Draft.Date, st.Draft.TimeLabel, st.Draft.ClientName, st.Draft.ClientPhone)
 	return nil
 }
@@ -702,8 +702,8 @@ func (b *Bot) notifyManagersNewBooking(id int64, cabinet, item, date, timeLabel,
 			tgbotapi.NewInlineKeyboardButtonData("❌ Reject", fmt.Sprintf("mgr:reject:%d", id)),
 		},
 	}
-		text := fmt.Sprintf("Новая заявка #%d\nКабинет: %s\nАппарат: %s\nДата: %s\nВремя: %s\nКлиент: %s\nТелефон: %s",
-			id, cabinet, item, date, timeLabel, clientName, clientPhone)
+	text := fmt.Sprintf("Новая заявка #%d\nКабинет: %s\nАппарат: %s\nДата: %s\nВремя: %s\nКлиент: %s\nТелефон: %s",
+		id, cabinet, item, date, timeLabel, clientName, clientPhone)
 	for mgrID := range b.managers {
 		msg := tgbotapi.NewMessage(mgrID, text)
 		msg.ReplyMarkup = tgbotapi.InlineKeyboardMarkup{InlineKeyboard: rows}
@@ -713,7 +713,7 @@ func (b *Bot) notifyManagersNewBooking(id int64, cabinet, item, date, timeLabel,
 
 func (b *Bot) notifyBookingStatus(ctx context.Context, bookingID int64, status string) {
 	// best effort: load booking + user telegram id
-		row := b.db.QueryRowContext(ctx, `
+	row := b.db.QueryRowContext(ctx, `
 			SELECT u.telegram_id FROM hourly_bookings hb 
 			JOIN users u ON u.id = hb.user_id 
 			WHERE hb.id = ?`, bookingID)
