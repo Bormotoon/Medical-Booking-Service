@@ -8,10 +8,10 @@ import (
 func TestEventBus(t *testing.T) {
 bus := NewEventBus()
 
-var received Event
+var received *Event
 var callCount int
 
-handler := func(event Event) error {
+handler := func(event *Event) error {
 received = event
 callCount++
 return nil
@@ -47,10 +47,10 @@ func TestEventBusMultipleSubscribers(t *testing.T) {
 bus := NewEventBus()
 var count1, count2 int
 
-bus.Subscribe("event", func(e Event) error { count1++; return nil })
-bus.Subscribe("event", func(e Event) error { count2++; return nil })
+bus.Subscribe("event", func(_ *Event) error { count1++; return nil })
+	bus.Subscribe("event", func(_ *Event) error { count2++; return nil })
 
-bus.Publish(Event{Type: "event"})
+bus.Publish(&Event{Type: "event"})
 
 if count1 != 1 || count2 != 1 {
 t.Errorf("expected both handlers to be called once, got %d and %d", count1, count2)
@@ -60,7 +60,7 @@ t.Errorf("expected both handlers to be called once, got %d and %d", count1, coun
 func TestEventBusNoSubscribers(t *testing.T) {
 bus := NewEventBus()
 // Should not panic
-bus.Publish(Event{Type: "unknown"})
+bus.Publish(&Event{Type: "unknown"})
 err := bus.PublishJSON("unknown", nil)
 if err != nil {
 t.Errorf("PublishJSON failed: %v", err)

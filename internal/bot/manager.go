@@ -224,7 +224,7 @@ func (b *Bot) handleManagerCallback(ctx context.Context, update tgbotapi.Update)
 	if action != "change_item_" {
 		editMsg := tgbotapi.NewEditMessageText(callback.Message.Chat.ID, callback.Message.MessageID,
 			fmt.Sprintf("✅ Заявка #%d обработана\nДействие: %s", bookingID, action))
-		b.tgService.Send(editMsg)
+		_, _ = b.tgService.Send(editMsg)
 	}
 
 	return true

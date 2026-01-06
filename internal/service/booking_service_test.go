@@ -207,11 +207,11 @@ func TestBookingService(t *testing.T) {
 	})
 
 	t.Run("RejectBooking", func(t *testing.T) {
-		booking := &models.Booking{ID: 11, Status: models.StatusCancelled}
-		repo.On("UpdateBookingStatusWithVersion", ctx, int64(11), int64(2), models.StatusCancelled).Return(nil).Once()
+		booking := &models.Booking{ID: 11, Status: models.StatusCanceled}
+		repo.On("UpdateBookingStatusWithVersion", ctx, int64(11), int64(2), models.StatusCanceled).Return(nil).Once()
 		repo.On("GetBooking", ctx, int64(11)).Return(booking, nil).Once()
 		bus.On("PublishJSON", mock.Anything, mock.Anything).Return(nil).Once()
-		worker.On("EnqueueTask", ctx, "update_status", int64(11), booking, models.StatusCancelled).Return(nil).Once()
+		worker.On("EnqueueTask", ctx, "update_status", int64(11), booking, models.StatusCanceled).Return(nil).Once()
 		worker.On("EnqueueSyncSchedule", ctx, mock.Anything, mock.Anything).Return(nil).Once()
 
 		err := svc.RejectBooking(ctx, 11, 2, 100)

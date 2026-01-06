@@ -23,12 +23,12 @@ items:
     name: "Item 1"
     total_quantity: 1
 `
-	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0o644); err != nil {
 		t.Fatalf("failed to write temp config: %v", err)
 	}
 
 	// Mock .env file
-	if err := os.WriteFile(".env", []byte(""), 0644); err != nil {
+	if err := os.WriteFile(".env", []byte(""), 0o644); err != nil {
 		t.Fatalf("failed to write .env: %v", err)
 	}
 	defer os.Remove(".env")

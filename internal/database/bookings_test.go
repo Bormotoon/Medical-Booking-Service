@@ -136,13 +136,13 @@ func TestOptimisticLocking(t *testing.T) {
 	require.NoError(t, err)
 
 	// Failed update with old version
-	err = db.UpdateBookingStatusWithVersion(ctx, booking.ID, booking.Version, models.StatusCancelled)
+	err = db.UpdateBookingStatusWithVersion(ctx, booking.ID, booking.Version, models.StatusCanceled)
 	assert.ErrorIs(t, err, ErrConcurrentModification)
 
 	// Successful update with new version
 	updated, _ := db.GetBooking(ctx, booking.ID)
 	assert.Equal(t, int64(2), updated.Version)
-	err = db.UpdateBookingStatusWithVersion(ctx, updated.ID, updated.Version, models.StatusCancelled)
+	err = db.UpdateBookingStatusWithVersion(ctx, updated.ID, updated.Version, models.StatusCanceled)
 	require.NoError(t, err)
 }
 
@@ -170,9 +170,10 @@ func TestGetUserBookings(t *testing.T) {
 
 	ctx := context.Background()
 
-	db.CreateBooking(ctx, &models.Booking{
+	err := db.CreateBooking(ctx, &models.Booking{
 		ItemID: 1, ItemName: "Item 1", Date: time.Now(), UserID: 123, UserName: "User 1", Phone: "123", Status: models.StatusConfirmed,
 	})
+	require.NoError(t, err)
 
 	bookings, err := db.GetUserBookings(ctx, 123)
 	require.NoError(t, err)
@@ -188,9 +189,10 @@ func TestUpdateBookingItem(t *testing.T) {
 	booking := &models.Booking{
 		ItemID: 1, ItemName: "Item 1", Date: time.Now(), UserID: 1, UserName: "User 1", Phone: "123", Status: models.StatusPending,
 	}
-	db.CreateBooking(ctx, booking)
+	err := db.CreateBooking(ctx, booking)
+	require.NoError(t, err)
 
-	err := db.UpdateBookingItemAndStatusWithVersion(ctx, booking.ID, booking.Version, 2, "Item 2", models.StatusChanged)
+	err = db.UpdateBookingItemAndStatusWithVersion(ctx, booking.ID, booking.Version, 2, "Item 2", models.StatusChanged)
 	require.NoError(t, err)
 
 	updated, _ := db.GetBooking(ctx, booking.ID)
@@ -208,7 +210,8 @@ func TestBookingUpdateExtras(t *testing.T) {
 	booking := &models.Booking{
 		ItemID: 1, ItemName: "Item 1", Date: time.Now(), UserID: 1, UserName: "User 1", Phone: "123", Status: models.StatusPending,
 	}
-	db.CreateBooking(ctx, booking)
+	err := db.CreateBooking(ctx, booking)
+	require.NoError(t, err)
 
 	t.Run("UpdateComment", func(t *testing.T) {
 		err := db.UpdateBookingComment(ctx, booking.ID, "New Comment")

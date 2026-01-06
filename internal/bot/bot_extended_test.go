@@ -43,7 +43,9 @@ func TestHandleManagerCommand(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mocks.tg.clearSentMessages()
-			mocks.state.ClearUserState(ctx, managerID) // Clear state each time
+			err := mocks.state.ClearUserState(ctx, managerID) // Clear state each time
+			assert.NoError(t, err)
+
 			update := tgbotapi.Update{
 				Message: &tgbotapi.Message{
 					From: &tgbotapi.User{ID: managerID},
@@ -84,7 +86,7 @@ func TestHandleManagerCallback(t *testing.T) {
 		status string
 	}{
 		{"Confirm", "confirm_1", models.StatusConfirmed},
-		{"Reject", "reject_1", models.StatusCancelled},
+		{"Reject", "reject_1", models.StatusCanceled},
 		{"Complete", "complete_1", models.StatusCompleted},
 		{"Reopen", "reopen_1", models.StatusPending},
 		{"Details", "details_1", ""},

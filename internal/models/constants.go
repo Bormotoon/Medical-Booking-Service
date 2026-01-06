@@ -3,7 +3,7 @@ package models
 const (
 	StatusPending   = "pending"
 	StatusConfirmed = "confirmed"
-	StatusCancelled = "cancelled"
+	StatusCanceled  = "canceled"
 	StatusChanged   = "changed"
 	StatusCompleted = "completed"
 )

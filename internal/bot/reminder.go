@@ -21,7 +21,11 @@ func (b *Bot) StartReminders(ctx context.Context) {
 		hour := 9
 		if b.config.Bot.ReminderTime != "" {
 			var m int
-			fmt.Sscanf(b.config.Bot.ReminderTime, "%d:%d", &hour, &m)
+			_, err := fmt.Sscanf(b.config.Bot.ReminderTime, "%d:%d", &hour, &m)
+	if err != nil {
+		b.logger.Error().Err(err).Str("reminder_time", b.config.Bot.ReminderTime).Msg("Invalid reminder time format")
+		return
+	}
 		}
 
 		// First wait until next reminder time local time, then tick every 24h.

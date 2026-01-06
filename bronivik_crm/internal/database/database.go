@@ -427,13 +427,13 @@ func (db *DB) DeleteHourlyBooking(ctx context.Context, id int64) error {
 	return err
 }
 
-// CancelUserBooking sets status to cancelled if the booking belongs to the user and not started yet.
+// CancelUserBooking sets status to canceled if the booking belongs to the user and not started yet.
 func (db *DB) CancelUserBooking(ctx context.Context, bookingID, userID int64) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	var ownerID int64
 	var status string
@@ -451,19 +451,19 @@ func (db *DB) CancelUserBooking(ctx context.Context, bookingID, userID int64) er
 	if !start.After(now) {
 		return ErrBookingTooLate
 	}
-	if status == "cancelled" || status == "rejected" {
+	if status == "canceled" || status == "rejected" {
 		return ErrBookingFinalized
 	}
 
-	if _, err := tx.ExecContext(ctx, `UPDATE hourly_bookings SET status = 'cancelled', updated_at = ? WHERE id = ?`, now, bookingID); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE hourly_bookings SET status = 'canceled', updated_at = ? WHERE id = ?`, now, bookingID); err != nil {
 		return err
 	}
 	return tx.Commit()
 }
 
-// CountActiveUserBookings returns count of future, non-cancelled bookings for a user.
+// CountActiveUserBookings returns count of future, non-canceled bookings for a user.
 func (db *DB) CountActiveUserBookings(ctx context.Context, userID int64) (int, error) {
-	row := db.QueryRowContext(ctx, `SELECT COUNT(1) FROM hourly_bookings WHERE user_id = ? AND end_time >= ? AND status NOT IN ('cancelled','rejected')`, userID, time.Now())
+	row := db.QueryRowContext(ctx, `SELECT COUNT(1) FROM hourly_bookings WHERE user_id = ? AND end_time >= ? AND status NOT IN ('canceled','rejected')`, userID, time.Now())
 	var count int
 	if err := row.Scan(&count); err != nil {
 		return 0, err
@@ -477,7 +477,7 @@ func (db *DB) CheckSlotAvailability(ctx context.Context, cabinetID int64, date t
 	if err != nil {
 		return false, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	ok, err := checkSlotAvailabilityTx(ctx, tx, cabinetID, date, start, end)
 	if err != nil {
@@ -492,7 +492,7 @@ func (db *DB) GetAvailableSlots(ctx context.Context, cabinetID int64, date time.
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	startWin, endWin, slotDuration, err := resolveScheduleWindowTx(ctx, tx, cabinetID, date)
 	if err != nil {
@@ -534,7 +534,7 @@ func (db *DB) CreateHourlyBookingWithChecks(ctx context.Context, booking *models
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	if err := validateSlotAlignmentTx(ctx, tx, booking.CabinetID, booking.StartTime, booking.EndTime); err != nil {
 		return err
@@ -589,7 +589,7 @@ func checkSlotAvailabilityTx(ctx context.Context, tx *sql.Tx, cabinetID int64, d
 
 	var count int
 	if err := tx.QueryRowContext(ctx, `SELECT COUNT(1) FROM hourly_bookings
-        WHERE cabinet_id = ? AND start_time < ? AND end_time > ? AND status NOT IN ('cancelled','rejected')`, cabinetID, end, start).Scan(&count); err != nil {
+        WHERE cabinet_id = ? AND start_time < ? AND end_time > ? AND status NOT IN ('canceled','rejected')`, cabinetID, end, start).Scan(&count); err != nil {
 		return false, err
 	}
 	return count == 0, nil
@@ -646,7 +646,7 @@ func (db *DB) GetScheduleWindow(ctx context.Context, cabinetID int64, date time.
 	if err != nil {
 		return time.Time{}, time.Time{}, 0, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	startWin, endWin, slotDuration, err := resolveScheduleWindowTx(ctx, tx, cabinetID, date)
 	if err != nil {

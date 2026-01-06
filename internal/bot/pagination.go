@@ -141,7 +141,7 @@ func (b *Bot) renderPaginatedBookings(params PaginationParams, bookings []models
 			switch booking.Status {
 			case models.StatusConfirmed:
 				statusEmoji = "✅"
-			case models.StatusCancelled:
+			case models.StatusCanceled:
 				statusEmoji = "❌"
 			case models.StatusChanged:
 				statusEmoji = "🔄"

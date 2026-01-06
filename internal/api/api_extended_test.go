@@ -25,7 +25,7 @@ func TestGRPCServer_New(t *testing.T) {
 		},
 	}
 
-	s, err := NewGRPCServer(cfg, db, &logger)
+	s, err := NewGRPCServer(&cfg, db, &logger)
 	assert.NoError(t, err)
 	assert.NotNil(t, s)
 	assert.NotEmpty(t, s.Addr())
@@ -57,7 +57,7 @@ func TestBuildTLSConfig(t *testing.T) {
 	})
 }
 
-func TestHTTPServer_Shutdown(t *testing.T) {
+func TestHTTPServer_Shutdown(_ *testing.T) {
 	logger := zerolog.New(os.Stdout)
 	db, _ := database.NewDB(":memory:", &logger)
 	cfg := config.APIConfig{
@@ -66,14 +66,14 @@ func TestHTTPServer_Shutdown(t *testing.T) {
 			Port:    0,
 		},
 	}
-	s := NewHTTPServer(cfg, db, nil, nil, &logger)
+	s := NewHTTPServer(&cfg, db, nil, nil, &logger)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 	s.Shutdown(ctx)
 }
 
-func TestHTTPServer_Start(t *testing.T) {
+func TestHTTPServer_Start(_ *testing.T) {
 	logger := zerolog.New(os.Stdout)
 	db, _ := database.NewDB(":memory:", &logger)
 	cfg := config.APIConfig{
@@ -82,7 +82,7 @@ func TestHTTPServer_Start(t *testing.T) {
 			Port:    0,
 		},
 	}
-	s := NewHTTPServer(cfg, db, nil, nil, &logger)
+	s := NewHTTPServer(&cfg, db, nil, nil, &logger)
 
 	go func() {
 		_ = s.Start()
@@ -102,9 +102,9 @@ func TestHTTPServer_Readyz_Full(t *testing.T) {
 	}
 
 	// Test with nil extra services (already covered mostly, but let's be explicit)
-	s := NewHTTPServer(cfg, db, nil, nil, &logger)
+	s := NewHTTPServer(&cfg, db, nil, nil, &logger)
 
-	req := httptest.NewRequest("GET", "/readyz", nil)
+	req := httptest.NewRequest("GET", "/readyz", http.NoBody)
 	w := httptest.NewRecorder()
 	s.handleReadyz(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -122,7 +122,7 @@ func TestGRPCServer_Serve(t *testing.T) {
 	cfg := config.APIConfig{
 		GRPC: config.APIGRPCConfig{Port: 0},
 	}
-	s, _ := NewGRPCServer(cfg, db, &logger)
+	s, _ := NewGRPCServer(&cfg, db, &logger)
 
 	go func() {
 		_ = s.Serve()

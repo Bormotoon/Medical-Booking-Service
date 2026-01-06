@@ -58,8 +58,10 @@ func TestItemReordering(t *testing.T) {
 
 	ctx := context.Background()
 
-	db.CreateItem(ctx, &models.Item{Name: "A", SortOrder: 1, IsActive: true, TotalQuantity: 1})
-	db.CreateItem(ctx, &models.Item{Name: "B", SortOrder: 2, IsActive: true, TotalQuantity: 1})
+	err1 := db.CreateItem(ctx, &models.Item{Name: "A", SortOrder: 1, IsActive: true, TotalQuantity: 1})
+	require.NoError(t, err1)
+	err2 := db.CreateItem(ctx, &models.Item{Name: "B", SortOrder: 2, IsActive: true, TotalQuantity: 1})
+	require.NoError(t, err2)
 
 	items, _ := db.GetActiveItems(ctx)
 	require.Len(t, items, 2)
@@ -107,7 +109,8 @@ func TestItemCache(t *testing.T) {
 	ctx := context.Background()
 
 	item := &models.Item{Name: "Cached Item", TotalQuantity: 1, IsActive: true}
-	db.CreateItem(ctx, item)
+	err := db.CreateItem(ctx, item)
+	require.NoError(t, err)
 
 	// Get by ID (should populate cache)
 	found, err := db.GetItemByID(ctx, item.ID)
@@ -138,7 +141,8 @@ func TestItemAvailabilityInfo(t *testing.T) {
 	ctx := context.Background()
 
 	item := &models.Item{Name: "Camera", TotalQuantity: 2, IsActive: true}
-	db.CreateItem(ctx, item)
+	err := db.CreateItem(ctx, item)
+	require.NoError(t, err)
 
 	date := time.Now()
 
@@ -149,14 +153,16 @@ func TestItemAvailabilityInfo(t *testing.T) {
 	assert.Equal(t, int64(0), info.BookedCount)
 
 	// Book one
-	db.CreateBooking(ctx, &models.Booking{ItemID: item.ID, ItemName: item.Name, Date: date, Status: models.StatusConfirmed})
+	err = db.CreateBooking(ctx, &models.Booking{ItemID: item.ID, ItemName: item.Name, Date: date, Status: models.StatusConfirmed})
+	require.NoError(t, err)
 
 	info, _ = db.GetItemAvailabilityByName(ctx, "Camera", date)
 	assert.True(t, info.Available)
 	assert.Equal(t, int64(1), info.BookedCount)
 
 	// Book another
-	db.CreateBooking(ctx, &models.Booking{ItemID: item.ID, ItemName: item.Name, Date: date, Status: models.StatusConfirmed})
+	err = db.CreateBooking(ctx, &models.Booking{ItemID: item.ID, ItemName: item.Name, Date: date, Status: models.StatusConfirmed})
+	require.NoError(t, err)
 
 	info, _ = db.GetItemAvailabilityByName(ctx, "Camera", date)
 	assert.False(t, info.Available)
@@ -167,8 +173,10 @@ func TestGetItems(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
 
-	db.CreateItem(context.Background(), &models.Item{Name: "I1", TotalQuantity: 1})
-	db.CreateItem(context.Background(), &models.Item{Name: "I2", TotalQuantity: 2})
+	err1 := db.CreateItem(context.Background(), &models.Item{Name: "I1", TotalQuantity: 1})
+	require.NoError(t, err1)
+	err2 := db.CreateItem(context.Background(), &models.Item{Name: "I2", TotalQuantity: 2})
+	require.NoError(t, err2)
 
 	items := db.GetItems()
 	assert.Len(t, items, 2)

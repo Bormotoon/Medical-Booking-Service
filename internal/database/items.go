@@ -34,13 +34,14 @@ func (db *DB) LoadItems(ctx context.Context) error {
 }
 
 func (db *DB) SyncItems(ctx context.Context, configItems []models.Item) error {
-	for _, cfgItem := range configItems {
+	for i := range configItems {
+		cfgItem := &configItems[i]
 		// Check if item exists by name
 		var existingID int64
 		err := db.QueryRowContext(ctx, "SELECT id FROM items WHERE name = ?", cfgItem.Name).Scan(&existingID)
 		if err == sql.ErrNoRows {
 			// Create new item
-			item := cfgItem
+			item := *cfgItem
 			if err := db.CreateItem(ctx, &item); err != nil {
 				return fmt.Errorf("failed to sync item %s: %w", cfgItem.Name, err)
 			}
@@ -58,7 +59,8 @@ func (db *DB) SetItems(items []models.Item) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 	db.itemsCache = make(map[int64]models.Item)
-	for _, item := range items {
+	for i := range items {
+		item := items[i]
 		db.itemsCache[item.ID] = item
 	}
 	db.cacheTime = time.Now()

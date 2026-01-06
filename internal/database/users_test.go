@@ -67,7 +67,8 @@ func TestUserManagerStatus(t *testing.T) {
 		IsManager:    true,
 		LastActivity: time.Now(),
 	}
-	db.CreateOrUpdateUser(ctx, user)
+	err := db.CreateOrUpdateUser(ctx, user)
+	require.NoError(t, err)
 
 	user2 := &models.User{
 		TelegramID:   222,
@@ -75,7 +76,8 @@ func TestUserManagerStatus(t *testing.T) {
 		IsManager:    false,
 		LastActivity: time.Now(),
 	}
-	db.CreateOrUpdateUser(ctx, user2)
+	err = db.CreateOrUpdateUser(ctx, user2)
+	require.NoError(t, err)
 
 	managers, err := db.GetUsersByManagerStatus(ctx, true)
 	require.NoError(t, err)
@@ -100,7 +102,8 @@ func TestUserBlacklist(t *testing.T) {
 		IsBlacklisted: true,
 		LastActivity:  time.Now(),
 	}
-	db.CreateOrUpdateUser(ctx, user)
+	err := db.CreateOrUpdateUser(ctx, user)
+	require.NoError(t, err)
 
 	found, err := db.GetUserByTelegramID(ctx, 333)
 	require.NoError(t, err)
@@ -117,7 +120,8 @@ func TestGetUserByID(t *testing.T) {
 		FirstName:    "ID User",
 		LastActivity: time.Now(),
 	}
-	db.CreateOrUpdateUser(ctx, user)
+	err := db.CreateOrUpdateUser(ctx, user)
+	require.NoError(t, err)
 
 	// Get the auto-incremented ID
 	foundByTG, _ := db.GetUserByTelegramID(ctx, 444)
@@ -135,18 +139,20 @@ func TestGetActiveUsers(t *testing.T) {
 	ctx := context.Background()
 
 	// Active user
-	db.CreateOrUpdateUser(ctx, &models.User{
+	err1 := db.CreateOrUpdateUser(ctx, &models.User{
 		TelegramID:   555,
 		FirstName:    "Active",
 		LastActivity: time.Now(),
 	})
+	require.NoError(t, err1)
 
 	// Inactive user
-	db.CreateOrUpdateUser(ctx, &models.User{
+	err2 := db.CreateOrUpdateUser(ctx, &models.User{
 		TelegramID:   666,
 		FirstName:    "Inactive",
 		LastActivity: time.Now().AddDate(0, 0, -40),
 	})
+	require.NoError(t, err2)
 
 	active, err := db.GetActiveUsers(ctx, 30)
 	require.NoError(t, err)

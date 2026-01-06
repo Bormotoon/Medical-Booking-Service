@@ -43,7 +43,8 @@ func TestSyncQueueCRUD(t *testing.T) {
 
 	// Failed tasks
 	errMsg := "some error"
-	db.CreateSyncTask(ctx, &models.SyncTask{TaskType: "test", BookingID: 101, Status: "failed", LastError: &errMsg})
+	err1 := db.CreateSyncTask(ctx, &models.SyncTask{TaskType: "test", BookingID: 101, Status: "failed", LastError: &errMsg})
+	require.NoError(t, err1)
 	failed, err := db.GetFailedSyncTasks(ctx)
 	require.NoError(t, err)
 	assert.Len(t, failed, 1)
@@ -51,7 +52,8 @@ func TestSyncQueueCRUD(t *testing.T) {
 
 	// Retry logic
 	task2 := &models.SyncTask{TaskType: "retry_test", BookingID: 102, Status: "pending"}
-	db.CreateSyncTask(ctx, task2)
+	err2 := db.CreateSyncTask(ctx, task2)
+	require.NoError(t, err2)
 
 	nextRetry := time.Now().Add(time.Hour)
 	err = db.UpdateSyncTaskStatus(ctx, task2.ID, "retry", "temporary error", &nextRetry)
@@ -67,7 +69,8 @@ func TestSyncQueueCRUD(t *testing.T) {
 
 	// Update to past retry
 	pastRetry := time.Now().Add(-time.Hour)
-	db.UpdateSyncTaskStatus(ctx, task2.ID, "retry", "temporary error", &pastRetry)
+	err = db.UpdateSyncTaskStatus(ctx, task2.ID, "retry", "temporary error", &pastRetry)
+	require.NoError(t, err)
 	tasks, _ = db.GetPendingSyncTasks(ctx, 10)
 	found := false
 	for _, task := range tasks {

@@ -18,6 +18,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
 type botMocks struct {
@@ -55,7 +56,7 @@ func setupTestBot() (*Bot, *botMocks) {
 	b, _ := NewBot(tg, cfg, state, sheetsSvc, worker, events, bookingSvc, userSvc, itemSvc, nil, &logger)
 
 	// Add manager to user service
-	userSvc.SaveUser(context.Background(), &models.User{TelegramID: 123, IsManager: true})
+	_ = userSvc.SaveUser(context.Background(), &models.User{TelegramID: 123, IsManager: true})
 
 	return b, &botMocks{
 		tg:      tg,
@@ -626,7 +627,7 @@ func (m *mockBookingService) RejectBooking(ctx context.Context, bookingID int64,
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if b, ok := m.bookings[bookingID]; ok {
-		b.Status = models.StatusCancelled
+		b.Status = models.StatusCanceled
 	}
 	return nil
 }
@@ -851,7 +852,7 @@ func TestHandleCallbackQuery_BackToMain(t *testing.T) {
 
 	b, _ := NewBot(tg, cfg, state, sheetsSvc, worker, events, bookingSvc, userSvc, itemSvc, nil, &logger)
 
-	state.SetUserState(context.Background(), 123, "some_step", nil)
+	_ = state.SetUserState(context.Background(), 123, "some_step", nil)
 
 	update := tgbotapi.Update{
 		CallbackQuery: &tgbotapi.CallbackQuery{
@@ -915,7 +916,7 @@ func TestHandleCallbackQuery_ScheduleSelectItem(t *testing.T) {
 func TestHandleDateInput(t *testing.T) {
 	b, mocks := setupTestBot()
 
-	mocks.state.SetUserState(context.Background(), 123, models.StateWaitingDate, map[string]interface{}{"item_id": int64(1)})
+	_ = mocks.state.SetUserState(context.Background(), 123, models.StateWaitingDate, map[string]interface{}{"item_id": int64(1)})
 
 	futureDate := time.Now().AddDate(0, 0, 5).Format("02.01.2006")
 	update := tgbotapi.Update{
@@ -1006,7 +1007,7 @@ func TestHandlePhoneReceived(t *testing.T) {
 
 	b, _ := NewBot(tg, cfg, state, sheetsSvc, worker, events, bookingSvc, userSvc, itemSvc, nil, &logger)
 
-	state.SetUserState(context.Background(), 123, models.StatePhoneNumber, map[string]interface{}{
+	_ = state.SetUserState(context.Background(), 123, models.StatePhoneNumber, map[string]interface{}{
 		"item_id":   int64(1),
 		"date":      time.Now().AddDate(0, 0, 5),
 		"user_name": "Test User",
@@ -1128,7 +1129,7 @@ func TestHandleBlacklistedUser(t *testing.T) {
 	b, _ := NewBot(tg, cfg, state, sheetsSvc, worker, events, bookingSvc, userSvc, itemSvc, nil, &logger)
 
 	// Mock blacklist
-	userSvc.SaveUser(context.Background(), &models.User{TelegramID: 123, IsBlacklisted: true})
+	_ = userSvc.SaveUser(context.Background(), &models.User{TelegramID: 123, IsBlacklisted: true})
 
 	update := tgbotapi.Update{
 		Message: &tgbotapi.Message{
@@ -1264,7 +1265,8 @@ func TestHandleManagerCommand_AllBookings(t *testing.T) {
 	b, _ := NewBot(tg, cfg, state, sheetsSvc, worker, events, bookingSvc, userSvc, itemSvc, nil, &logger)
 
 	// Set user as manager
-	userSvc.SaveUser(context.Background(), &models.User{TelegramID: 123, IsManager: true})
+	err := userSvc.SaveUser(context.Background(), &models.User{TelegramID: 123, IsManager: true})
+	require.NoError(t, err)
 
 	update := tgbotapi.Update{
 		Message: &tgbotapi.Message{
@@ -1303,7 +1305,8 @@ func TestHandleManagerCallback_Confirm(t *testing.T) {
 	b, _ := NewBot(tg, cfg, state, sheetsSvc, worker, events, bookingSvc, userSvc, itemSvc, nil, &logger)
 
 	// Set user as manager
-	userSvc.SaveUser(context.Background(), &models.User{TelegramID: 123, IsManager: true})
+	err := userSvc.SaveUser(context.Background(), &models.User{TelegramID: 123, IsManager: true})
+	require.NoError(t, err)
 
 	update := tgbotapi.Update{
 		CallbackQuery: &tgbotapi.CallbackQuery{
@@ -1342,7 +1345,7 @@ func TestHandleCancel(t *testing.T) {
 
 	b, _ := NewBot(tg, cfg, state, sheetsSvc, worker, events, bookingSvc, userSvc, itemSvc, nil, &logger)
 
-	state.SetUserState(context.Background(), 123, models.StateWaitingDate, nil)
+	_ = state.SetUserState(context.Background(), 123, models.StateWaitingDate, nil)
 
 	update := tgbotapi.Update{
 		Message: &tgbotapi.Message{
@@ -1382,7 +1385,8 @@ func TestHandleBack_ToDate(t *testing.T) {
 	b, _ := NewBot(tg, cfg, state, sheetsSvc, worker, events, bookingSvc, userSvc, itemSvc, nil, &logger)
 
 	// From StateEnterName back to StateWaitingDate
-	state.SetUserState(context.Background(), 123, models.StateEnterName, map[string]interface{}{"item_id": int64(1)})
+	err := state.SetUserState(context.Background(), 123, models.StateEnterName, map[string]interface{}{"item_id": int64(1)})
+	require.NoError(t, err)
 
 	update := tgbotapi.Update{
 		Message: &tgbotapi.Message{
@@ -1420,7 +1424,8 @@ func TestHandleBack_ToName(t *testing.T) {
 	b, _ := NewBot(tg, cfg, state, sheetsSvc, worker, events, bookingSvc, userSvc, itemSvc, nil, &logger)
 
 	// From StatePhoneNumber back to StateEnterName
-	state.SetUserState(context.Background(), 123, models.StatePhoneNumber, map[string]interface{}{"item_id": int64(1)})
+	err := state.SetUserState(context.Background(), 123, models.StatePhoneNumber, map[string]interface{}{"item_id": int64(1)})
+	require.NoError(t, err)
 
 	update := tgbotapi.Update{
 		Message: &tgbotapi.Message{
@@ -1729,8 +1734,10 @@ func TestManagerStats(t *testing.T) {
 	b.config.Exports.Path = tmpDir
 
 	// Add some users
-	mocks.user.SaveUser(context.Background(), &models.User{TelegramID: 1, FirstName: "User 1", LastActivity: time.Now()})
-	mocks.user.SaveUser(context.Background(), &models.User{TelegramID: 2, FirstName: "User 2", LastActivity: time.Now().AddDate(0, 0, -40), IsBlacklisted: true})
+	err = mocks.user.SaveUser(context.Background(), &models.User{TelegramID: 1, FirstName: "User 1", LastActivity: time.Now()})
+	require.NoError(t, err)
+	err = mocks.user.SaveUser(context.Background(), &models.User{TelegramID: 2, FirstName: "User 2", LastActivity: time.Now().AddDate(0, 0, -40), IsBlacklisted: true})
+	require.NoError(t, err)
 
 	// Add some bookings
 	mocks.booking.setBookings(map[int64]*models.Booking{
@@ -1788,8 +1795,8 @@ func TestRemindersExtended(t *testing.T) {
 	b.sendTomorrowReminders(ctx)
 
 	// Case 2: Status not for reminder
-	bookingCancelled := models.Booking{ID: 1, UserID: 1, Status: models.StatusCancelled, Date: tomorrow}
-	mocks.booking.On("GetBookingsByDateRange", ctx, tomorrow, tomorrow).Return([]models.Booking{bookingCancelled}, nil).Once()
+	bookingCanceled := models.Booking{ID: 1, UserID: 1, Status: models.StatusCanceled, Date: tomorrow}
+	mocks.booking.On("GetBookingsByDateRange", ctx, tomorrow, tomorrow).Return([]models.Booking{bookingCanceled}, nil).Once()
 	b.sendTomorrowReminders(ctx)
 
 	// Case 3: User service error
@@ -1817,10 +1824,11 @@ func TestReminders(t *testing.T) {
 	tomorrow := time.Now().Add(24 * time.Hour).Truncate(24 * time.Hour)
 
 	// Add a user
-	mocks.user.SaveUser(ctx, &models.User{
+	err := mocks.user.SaveUser(ctx, &models.User{
 		TelegramID: 1,
 		FirstName:  "User 1",
 	})
+	require.NoError(t, err)
 
 	// Add a booking for tomorrow
 	mocks.booking.setBookings(map[int64]*models.Booking{
@@ -1919,7 +1927,7 @@ func TestManagerBookingActions(t *testing.T) {
 
 	// Test rejectBooking
 	b.rejectBooking(ctx, booking, 123)
-	assert.Equal(t, models.StatusCancelled, booking.Status)
+	assert.Equal(t, models.StatusCanceled, booking.Status)
 
 	// Test startChangeItem
 	b.startChangeItem(ctx, booking, 123)

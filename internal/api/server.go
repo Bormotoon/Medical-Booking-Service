@@ -19,14 +19,14 @@ import (
 )
 
 type GRPCServer struct {
-	cfg      config.APIConfig
+	cfg      *config.APIConfig
 	db       *database.DB
 	server   *grpc.Server
 	listener net.Listener
 	log      zerolog.Logger
 }
 
-func NewGRPCServer(cfg config.APIConfig, db *database.DB, logger *zerolog.Logger) (*GRPCServer, error) {
+func NewGRPCServer(cfg *config.APIConfig, db *database.DB, logger *zerolog.Logger) (*GRPCServer, error) {
 	addr := fmt.Sprintf(":%d", cfg.GRPC.Port)
 	lis, err := net.Listen("tcp", addr)
 	if err != nil {

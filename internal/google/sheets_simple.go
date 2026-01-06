@@ -614,7 +614,7 @@ func (s *SheetsService) formatScheduleCell(item models.Item, itemBookings []mode
 		case models.StatusPending, models.StatusChanged:
 			statusIcon = "⏳"
 			hasUnconfirmed = true
-		case models.StatusCancelled:
+		case models.StatusCanceled:
 			statusIcon = "❌"
 		}
 
@@ -818,7 +818,7 @@ func (s *SheetsService) ReplaceBookingsSheet(ctx context.Context, bookings []*mo
 func (s *SheetsService) filterActiveBookings(bookings []models.Booking) []models.Booking {
 	var active []models.Booking
 	for _, booking := range bookings {
-		if booking.Status != models.StatusCancelled {
+		if booking.Status != models.StatusCanceled {
 			active = append(active, booking)
 		}
 	}

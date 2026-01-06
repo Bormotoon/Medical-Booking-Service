@@ -24,6 +24,13 @@ import (
 )
 
 func main() {
+	if err := run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Fatal error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	// Загрузка конфигурации
 	configPath := os.Getenv("CONFIG_PATH")
 	if configPath == "" {
@@ -32,17 +39,17 @@ func main() {
 
 	cfg, err := config.Load(configPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("load config: %w", err)
 	}
 
 	baseLogger, closer, err := logging.New(cfg.Logging, cfg.App)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "init logger: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("init logger: %w", err)
 	}
 	if closer != nil {
-		defer closer.Close()
+		defer (func() {
+			_ = closer.Close()
+		})()
 	}
 	logger := baseLogger.With().Str("component", "api-main").Logger()
 
@@ -53,20 +60,23 @@ func main() {
 	}
 	itemsData, err := os.ReadFile(itemsPath)
 	if err != nil {
-		logger.Fatal().Err(err).Str("items_path", itemsPath).Msg("read items")
+		logger.Error().Err(err).Str("items_path", itemsPath).Msg("read items")
+		return err
 	}
 
 	var itemsConfig struct {
 		Items []models.Item `yaml:"items"`
 	}
-	if err := yaml.Unmarshal(itemsData, &itemsConfig); err != nil {
-		logger.Fatal().Err(err).Str("items_path", itemsPath).Msg("parse items")
+	if errUnmarshal := yaml.Unmarshal(itemsData, &itemsConfig); errUnmarshal != nil {
+		logger.Error().Err(errUnmarshal).Str("items_path", itemsPath).Msg("parse items")
+		return errUnmarshal
 	}
 
 	// Инициализация базы данных
-	db, err := database.NewDB(cfg.Database.Path, &logger)
-	if err != nil {
-		logger.Fatal().Err(err).Str("db_path", cfg.Database.Path).Msg("init database")
+	db, errDB := database.NewDB(cfg.Database.Path, &logger)
+	if errDB != nil {
+		logger.Error().Err(errDB).Str("db_path", cfg.Database.Path).Msg("init database")
+		return errDB
 	}
 	defer db.Close()
 
@@ -86,8 +96,8 @@ func main() {
 			DB:       cfg.Redis.DB,
 			PoolSize: cfg.Redis.PoolSize,
 		})
-		if _, err := redisClient.Ping(context.Background()).Result(); err != nil {
-			logger.Warn().Err(err).Msg("redis connection failed, continuing without redis")
+		if _, errPing := redisClient.Ping(context.Background()).Result(); errPing != nil {
+			logger.Warn().Err(errPing).Msg("redis connection failed, continuing without redis")
 			redisClient = nil
 		} else {
 			defer redisClient.Close()
@@ -97,11 +107,11 @@ func main() {
 
 	// Инициализация Google Sheets (опционально для health checks)
 	var sheetsService *google.SheetsService
-	if cfg.Google.GoogleCredentialsFile != "" && cfg.Google.BookingSpreadSheetId != "" {
+	if cfg.Google.GoogleCredentialsFile != "" && cfg.Google.BookingSpreadSheetID != "" {
 		sheetsService, err = google.NewSimpleSheetsService(
 			cfg.Google.GoogleCredentialsFile,
-			cfg.Google.UsersSpreadSheetId,
-			cfg.Google.BookingSpreadSheetId,
+			cfg.Google.UsersSpreadSheetID,
+			cfg.Google.BookingSpreadSheetID,
 		)
 		if err != nil {
 			logger.Warn().Err(err).Msg("google sheets init failed, continuing without sheets")
@@ -111,12 +121,13 @@ func main() {
 		}
 	}
 
-	grpcServer, err := api.NewGRPCServer(cfg.API, db, &logger)
-	if err != nil {
-		logger.Fatal().Err(err).Msg("create grpc server")
+	grpcServer, errGRPC := api.NewGRPCServer(&cfg.API, db, &logger)
+	if errGRPC != nil {
+		logger.Error().Err(errGRPC).Msg("create grpc server")
+		return errGRPC
 	}
 
-	httpServer := api.NewHTTPServer(cfg.API, db, redisClient, sheetsService, &logger)
+	httpServer := api.NewHTTPServer(&cfg.API, db, redisClient, sheetsService, &logger)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -130,8 +141,8 @@ func main() {
 	}
 
 	go func() {
-		if err := grpcServer.Serve(); err != nil {
-			logger.Error().Err(err).Msg("grpc server stopped")
+		if errServe := grpcServer.Serve(); errServe != nil {
+			logger.Error().Err(errServe).Msg("grpc server stopped")
 		}
 	}()
 
@@ -139,8 +150,8 @@ func main() {
 		if !cfg.API.HTTP.Enabled {
 			return
 		}
-		if err := httpServer.Start(); err != nil {
-			logger.Error().Err(err).Msg("http server stopped")
+		if errStart := httpServer.Start(); errStart != nil {
+			logger.Error().Err(errStart).Msg("http server stopped")
 		}
 	}()
 
@@ -154,6 +165,7 @@ func main() {
 	grpcServer.Shutdown(shutdownCtx)
 	_ = httpServer.Shutdown(shutdownCtx)
 	logger.Info().Msg("API server stopped")
+	return nil
 }
 
 func startMetricsServer(ctx context.Context, port int, logger *zerolog.Logger) {

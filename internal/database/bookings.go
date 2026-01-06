@@ -27,7 +27,7 @@ func (db *DB) CheckAvailability(ctx context.Context, itemID int64, date time.Tim
 func (db *DB) GetBookedCount(ctx context.Context, itemID int64, date time.Time) (int, error) {
 	query := `SELECT COUNT(*) FROM bookings WHERE item_id = ? AND date = ? AND status NOT IN (?, ?)`
 	var count int
-	err := db.QueryRowContext(ctx, query, itemID, date.Format("2006-01-02"), models.StatusCancelled, "rejected").Scan(&count)
+	err := db.QueryRowContext(ctx, query, itemID, date.Format("2006-01-02"), models.StatusCanceled, "rejected").Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get booked count: %w", err)
 	}
@@ -73,12 +73,14 @@ func (db *DB) CreateBookingWithLock(ctx context.Context, booking *models.Booking
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
 	// 1. Check availability inside transaction
 	var bookedCount int
 	queryCount := `SELECT COUNT(*) FROM bookings WHERE item_id = ? AND date = ? AND status NOT IN (?, ?)`
-	err = tx.QueryRowContext(ctx, queryCount, booking.ItemID, booking.Date.Format("2006-01-02"), models.StatusCancelled, "rejected").Scan(&bookedCount)
+	err = tx.QueryRowContext(ctx, queryCount, booking.ItemID, booking.Date.Format("2006-01-02"), models.StatusCanceled, "rejected").Scan(&bookedCount)
 	if err != nil {
 		return fmt.Errorf("failed to check availability in tx: %w", err)
 	}
@@ -161,7 +163,7 @@ func (db *DB) UpdateBookingStatus(ctx context.Context, id int64, status string) 
 	return err
 }
 
-func (db *DB) UpdateBookingStatusWithVersion(ctx context.Context, id int64, fromVersion int64, status string) error {
+func (db *DB) UpdateBookingStatusWithVersion(ctx context.Context, id, fromVersion int64, status string) error {
 	query := `UPDATE bookings SET status = ?, version = version + 1, updated_at = ? WHERE id = ? AND version = ?`
 	result, err := db.ExecContext(ctx, query, status, time.Now(), id, fromVersion)
 	if err != nil {
@@ -210,7 +212,7 @@ func (db *DB) GetAvailabilityForPeriod(ctx context.Context, itemID int64, startD
               WHERE item_id = ? AND date BETWEEN ? AND ? AND status NOT IN (?, ?)
               GROUP BY d`
 
-	rows, err := db.QueryContext(ctx, query, itemID, startDate.Format("2006-01-02"), endDate.Format("2006-01-02"), models.StatusCancelled, "rejected")
+	rows, err := db.QueryContext(ctx, query, itemID, startDate.Format("2006-01-02"), endDate.Format("2006-01-02"), models.StatusCanceled, "rejected")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get availability batch: %w", err)
 	}
@@ -251,13 +253,13 @@ func (db *DB) GetAvailabilityForPeriod(ctx context.Context, itemID int64, startD
 	return availability, nil
 }
 
-func (db *DB) UpdateBookingItem(ctx context.Context, id int64, itemID int64, itemName string) error {
+func (db *DB) UpdateBookingItem(ctx context.Context, id, itemID int64, itemName string) error {
 	query := `UPDATE bookings SET item_id = ?, item_name = ?, updated_at = ? WHERE id = ?`
 	_, err := db.ExecContext(ctx, query, itemID, itemName, time.Now(), id)
 	return err
 }
 
-func (db *DB) UpdateBookingItemWithVersion(ctx context.Context, id int64, fromVersion int64, itemID int64, itemName string) error {
+func (db *DB) UpdateBookingItemWithVersion(ctx context.Context, id, fromVersion, itemID int64, itemName string) error {
 	query := `UPDATE bookings SET item_id = ?, item_name = ?, version = version + 1, updated_at = ? WHERE id = ? AND version = ?`
 	result, err := db.ExecContext(ctx, query, itemID, itemName, time.Now(), id, fromVersion)
 	if err != nil {
@@ -270,7 +272,7 @@ func (db *DB) UpdateBookingItemWithVersion(ctx context.Context, id int64, fromVe
 	return nil
 }
 
-func (db *DB) UpdateBookingItemAndStatusWithVersion(ctx context.Context, id int64, fromVersion int64, itemID int64, itemName, status string) error {
+func (db *DB) UpdateBookingItemAndStatusWithVersion(ctx context.Context, id, fromVersion, itemID int64, itemName, status string) error {
 	query := `UPDATE bookings SET item_id = ?, item_name = ?, status = ?, version = version + 1, updated_at = ? WHERE id = ? AND version = ?`
 	result, err := db.ExecContext(ctx, query, itemID, itemName, status, time.Now(), id, fromVersion)
 	if err != nil {
@@ -315,7 +317,7 @@ func (db *DB) GetUserBookings(ctx context.Context, userID int64) ([]models.Booki
 	return bookings, nil
 }
 
-func (db *DB) GetBookingWithAvailability(ctx context.Context, bookingID int64, newItemID int64) (*models.Booking, bool, error) {
+func (db *DB) GetBookingWithAvailability(ctx context.Context, bookingID, newItemID int64) (*models.Booking, bool, error) {
 	booking, err := db.GetBooking(ctx, bookingID)
 	if err != nil {
 		return nil, false, err

@@ -13,7 +13,7 @@ import (
 
 	"bronivik/internal/models"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "github.com/mattn/go-sqlite3" // sqlite3 driver
 	"github.com/rs/zerolog"
 )
 
@@ -38,14 +38,14 @@ func NewDB(path string, logger *zerolog.Logger) (*DB, error) {
 	// Создаем директорию для БД, если её нет
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create database directory: %v", err)
+		return nil, fmt.Errorf("failed to create database directory: %w", err)
 	}
 
 	// Добавляем параметры для SQLite: WAL mode, busy timeout
 	dsn := path + "?_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000"
 	db, err := sql.Open("sqlite3", dsn)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open database: %v", err)
+		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
 	// Настройка пула соединений
@@ -55,7 +55,7 @@ func NewDB(path string, logger *zerolog.Logger) (*DB, error) {
 
 	// Проверяем соединение
 	if err := db.Ping(); err != nil {
-		return nil, fmt.Errorf("failed to connect to database: %v", err)
+		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
 	instance := &DB{

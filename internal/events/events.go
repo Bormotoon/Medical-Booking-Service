@@ -9,7 +9,7 @@ import (
 const (
 	EventBookingCreated    = "booking_created"
 	EventBookingConfirmed  = "booking_confirmed"
-	EventBookingCancelled  = "booking_cancelled"
+	EventBookingCanceled  = "booking_canceled"
 	EventBookingCompleted  = "booking_completed"
 	EventBookingItemChange = "booking_item_changed"
 )
@@ -38,7 +38,7 @@ type Event struct {
 }
 
 // EventHandler reacts to an event.
-type EventHandler func(event Event) error
+type EventHandler func(event *Event) error
 
 // EventBus provides in-process pub/sub for events.
 type EventBus struct {
@@ -59,7 +59,7 @@ func (b *EventBus) Subscribe(eventType string, handler EventHandler) {
 }
 
 // Publish notifies subscribers of the event type.
-func (b *EventBus) Publish(event Event) {
+func (b *EventBus) Publish(event *Event) {
 	b.mu.RLock()
 	handlers := append([]EventHandler(nil), b.subscribers[event.Type]...)
 	b.mu.RUnlock()
@@ -85,7 +85,7 @@ func (b *EventBus) PublishJSON(eventType string, payload interface{}) error {
 		return err
 	}
 
-	b.Publish(Event{Type: eventType, Payload: raw, CreatedAt: time.Now()})
+	b.Publish(&Event{Type: eventType, Payload: raw, CreatedAt: time.Now()})
 	return nil
 }
 

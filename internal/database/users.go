@@ -43,29 +43,25 @@ func (db *DB) CreateOrUpdateUser(ctx context.Context, user *models.User) error {
 }
 
 func (db *DB) GetUserByTelegramID(ctx context.Context, telegramID int64) (*models.User, error) {
-	var user models.User
 	query := `SELECT id, telegram_id, username, first_name, last_name, phone, is_manager, is_blacklisted, language_code, last_activity, created_at, updated_at 
               FROM users WHERE telegram_id = ?`
-	err := db.QueryRowContext(ctx, query, telegramID).Scan(
-		&user.ID, &user.TelegramID, &user.Username, &user.FirstName, &user.LastName, &user.Phone,
-		&user.IsManager, &user.IsBlacklisted, &user.LanguageCode, &user.LastActivity, &user.CreatedAt, &user.UpdatedAt,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get user by telegram id: %w", err)
-	}
-	return &user, nil
+	return db.queryUser(ctx, query, telegramID)
 }
 
 func (db *DB) GetUserByID(ctx context.Context, id int64) (*models.User, error) {
-	var user models.User
 	query := `SELECT id, telegram_id, username, first_name, last_name, phone, is_manager, is_blacklisted, language_code, last_activity, created_at, updated_at 
               FROM users WHERE id = ?`
-	err := db.QueryRowContext(ctx, query, id).Scan(
+	return db.queryUser(ctx, query, id)
+}
+
+func (db *DB) queryUser(ctx context.Context, query string, args ...interface{}) (*models.User, error) {
+	var user models.User
+	err := db.QueryRowContext(ctx, query, args...).Scan(
 		&user.ID, &user.TelegramID, &user.Username, &user.FirstName, &user.LastName, &user.Phone,
 		&user.IsManager, &user.IsBlacklisted, &user.LanguageCode, &user.LastActivity, &user.CreatedAt, &user.UpdatedAt,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get user by id: %w", err)
+		return nil, err
 	}
 	return &user, nil
 }

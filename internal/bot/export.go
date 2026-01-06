@@ -15,7 +15,7 @@ import (
 // exportToExcel создает Excel файл с данными о бронированиях
 func (b *Bot) exportToExcel(ctx context.Context, startDate, endDate time.Time) (string, error) {
 	// Создаем папку для экспорта, если не существует
-	if err := os.MkdirAll(b.config.Exports.Path, 0755); err != nil {
+	if err := os.MkdirAll(b.config.Exports.Path, 0o755); err != nil {
 		return "", fmt.Errorf("error creating export directory: %v", err)
 	}
 
@@ -41,7 +41,7 @@ func (b *Bot) exportToExcel(ctx context.Context, startDate, endDate time.Time) (
 	f.SetActiveSheet(index)
 
 	// Устанавливаем заголовок периода
-	f.SetCellValue("Бронирования", "A1", fmt.Sprintf("Период: %s - %s",
+	_ = f.SetCellValue("Бронирования", "A1", fmt.Sprintf("Период: %s - %s",
 		startDate.Format("02.01.2006"), endDate.Format("02.01.2006")))
 
 	// Заголовки - даты (начинаем с строки 2)
@@ -52,7 +52,7 @@ func (b *Bot) exportToExcel(ctx context.Context, startDate, endDate time.Time) (
 	for !currentDate.After(endDate) {
 		cell, _ := excelize.CoordinatesToCellName(col, 2)
 		dateStr := currentDate.Format("02.01")
-		f.SetCellValue("Бронирования", cell, dateStr)
+		_ = f.SetCellValue("Бронирования", cell, dateStr)
 		dateHeaders[currentDate.Format("2006-01-02")] = col
 
 		// Форматируем заголовки дат
@@ -61,7 +61,7 @@ func (b *Bot) exportToExcel(ctx context.Context, startDate, endDate time.Time) (
 			Font:      &excelize.Font{Bold: true},
 			Alignment: &excelize.Alignment{Horizontal: "center"},
 		})
-		f.SetCellStyle("Бронирования", cell, cell, style)
+		_ = f.SetCellStyle("Бронирования", cell, cell, style)
 
 		col++
 		currentDate = currentDate.AddDate(0, 0, 1)
@@ -71,13 +71,13 @@ func (b *Bot) exportToExcel(ctx context.Context, startDate, endDate time.Time) (
 	row := 3
 	for _, item := range items {
 		cell, _ := excelize.CoordinatesToCellName(1, row)
-		f.SetCellValue("Бронирования", cell, fmt.Sprintf("%s (%d)", item.Name, item.TotalQuantity))
+		_ = f.SetCellValue("Бронирования", cell, fmt.Sprintf("%s (%d)", item.Name, item.TotalQuantity))
 
 		style, _ := f.NewStyle(&excelize.Style{
 			Fill: excelize.Fill{Type: "pattern", Color: []string{"#E2EFDA"}, Pattern: 1},
 			Font: &excelize.Font{Bold: true},
 		})
-		f.SetCellStyle("Бронирования", cell, cell, style)
+		_ = f.SetCellStyle("Бронирования", cell, cell, style)
 
 		row++
 	}
@@ -117,7 +117,7 @@ func (b *Bot) exportToExcel(ctx context.Context, startDate, endDate time.Time) (
 						status = "✅"
 					case models.StatusPending, models.StatusChanged:
 						status = "⏳"
-					case models.StatusCancelled:
+					case models.StatusCanceled:
 						status = "❌"
 					}
 					cellValue += fmt.Sprintf("%s %s (%s)\n", status, booking.UserName, booking.Phone)
@@ -126,16 +126,16 @@ func (b *Bot) exportToExcel(ctx context.Context, startDate, endDate time.Time) (
 					}
 				}
 				cellValue += fmt.Sprintf("\nЗанято: %d/%d", bookedCount, item.TotalQuantity)
-				f.SetCellValue("Бронирования", cell, cellValue)
+				_ = f.SetCellValue("Бронирования", cell, cellValue)
 			} else {
 				cellValue := fmt.Sprintf("Свободно\n\nДоступно: %d/%d", item.TotalQuantity, item.TotalQuantity)
-				f.SetCellValue("Бронирования", cell, cellValue)
+				_ = f.SetCellValue("Бронирования", cell, cellValue)
 			}
 
 			// Определяем цвет заливки
 			styleID, err := b.getCellStyle(f, itemBookings, bookedCount, int(item.TotalQuantity))
 			if err == nil {
-				f.SetCellStyle("Бронирования", cell, cell, styleID)
+				_ = f.SetCellStyle("Бронирования", cell, cell, styleID)
 			}
 
 			row++
@@ -143,24 +143,24 @@ func (b *Bot) exportToExcel(ctx context.Context, startDate, endDate time.Time) (
 	}
 
 	// Настраиваем ширину колонок
-	f.SetColWidth("Бронирования", "A", "A", 25)
-	for i := 'B'; i < 'Z'; i++ {
-		f.SetColWidth("Бронирования", string(i), string(i), 20)
+	_ = f.SetColWidth("Бронирования", "A", "A", 25)
+	for i := 'B'; i <= 'Z'; i++ {
+		_ = f.SetColWidth("Бронирования", string(i), string(i), 20)
 	}
 
 	// Объединяем ячейку для заголовка периода
 	lastCol := getLastColumn(len(dateHeaders) + 1)
-	f.MergeCell("Бронирования", "A1", lastCol+"1")
+	_ = f.MergeCell("Бронирования", "A1", lastCol+"1")
 
 	// Стиль для заголовка периода
 	style, _ := f.NewStyle(&excelize.Style{
 		Font:      &excelize.Font{Bold: true, Size: 14},
 		Alignment: &excelize.Alignment{Horizontal: "center"},
 	})
-	f.SetCellStyle("Бронирования", "A1", "A1", style)
+	_ = f.SetCellStyle("Бронирования", "A1", "A1", style)
 
 	// Удаляем стандартный лист
-	f.DeleteSheet("Sheet1")
+	_ = f.DeleteSheet("Sheet1")
 
 	// Сохраняем файл
 	fileName := fmt.Sprintf("export_%s_to_%s.xlsx",
@@ -254,7 +254,7 @@ func (b *Bot) getCellStyle(f *excelize.File, itemBookings []models.Booking, book
 func (b *Bot) filterActiveBookings(bookings []models.Booking) []models.Booking {
 	var active []models.Booking
 	for _, booking := range bookings {
-		if booking.Status != models.StatusCancelled {
+		if booking.Status != models.StatusCanceled {
 			active = append(active, booking)
 		}
 	}
@@ -277,7 +277,7 @@ func getLastColumn(colCount int) string {
 // exportUsersToExcel создает Excel файл с данными пользователей
 func (b *Bot) exportUsersToExcel(ctx context.Context, users []*models.User) (string, error) {
 	// Создаем папку для экспорта, если не существует
-	if err := os.MkdirAll(b.config.Exports.Path, 0755); err != nil {
+	if err := os.MkdirAll(b.config.Exports.Path, 0o755); err != nil {
 		return "", fmt.Errorf("error creating export directory: %v", err)
 	}
 
@@ -295,41 +295,41 @@ func (b *Bot) exportUsersToExcel(ctx context.Context, users []*models.User) (str
 	headers := []string{"ID", "Telegram ID", "Username", "Имя", "Фамилия", "Телефон", "Менеджер", "Черный список", "Язык", "Последняя активность", "Дата регистрации"}
 	for i, header := range headers {
 		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
-		f.SetCellValue("Пользователи", cell, header)
+		_ = f.SetCellValue("Пользователи", cell, header)
 		// f.SetCellStyle("Пользователи", cell, cell, f.SetCellStyle("Пользователи", cell, "bold")
 	}
 
 	// Данные пользователей
 	for i, user := range users {
 		row := i + 2
-		f.SetCellValue("Пользователи", fmt.Sprintf("A%d", row), user.ID)
-		f.SetCellValue("Пользователи", fmt.Sprintf("B%d", row), user.TelegramID)
-		f.SetCellValue("Пользователи", fmt.Sprintf("C%d", row), user.Username)
-		f.SetCellValue("Пользователи", fmt.Sprintf("D%d", row), user.FirstName)
-		f.SetCellValue("Пользователи", fmt.Sprintf("E%d", row), user.LastName)
-		f.SetCellValue("Пользователи", fmt.Sprintf("F%d", row), user.Phone)
-		f.SetCellValue("Пользователи", fmt.Sprintf("G%d", row), boolToYesNo(user.IsManager))
-		f.SetCellValue("Пользователи", fmt.Sprintf("H%d", row), boolToYesNo(user.IsBlacklisted))
-		f.SetCellValue("Пользователи", fmt.Sprintf("I%d", row), user.LanguageCode)
-		f.SetCellValue("Пользователи", fmt.Sprintf("J%d", row), user.LastActivity.Format("02.01.2006 15:04"))
-		f.SetCellValue("Пользователи", fmt.Sprintf("K%d", row), user.CreatedAt.Format("02.01.2006 15:04"))
+		_ = f.SetCellValue("Пользователи", fmt.Sprintf("A%d", row), user.ID)
+		_ = f.SetCellValue("Пользователи", fmt.Sprintf("B%d", row), user.TelegramID)
+		_ = f.SetCellValue("Пользователи", fmt.Sprintf("C%d", row), user.Username)
+		_ = f.SetCellValue("Пользователи", fmt.Sprintf("D%d", row), user.FirstName)
+		_ = f.SetCellValue("Пользователи", fmt.Sprintf("E%d", row), user.LastName)
+		_ = f.SetCellValue("Пользователи", fmt.Sprintf("F%d", row), user.Phone)
+		_ = f.SetCellValue("Пользователи", fmt.Sprintf("G%d", row), boolToYesNo(user.IsManager))
+		_ = f.SetCellValue("Пользователи", fmt.Sprintf("H%d", row), boolToYesNo(user.IsBlacklisted))
+		_ = f.SetCellValue("Пользователи", fmt.Sprintf("I%d", row), user.LanguageCode)
+		_ = f.SetCellValue("Пользователи", fmt.Sprintf("J%d", row), user.LastActivity.Format("02.01.2006 15:04"))
+		_ = f.SetCellValue("Пользователи", fmt.Sprintf("K%d", row), user.CreatedAt.Format("02.01.2006 15:04"))
 	}
 
 	// Настраиваем ширину колонок
-	f.SetColWidth("Пользователи", "A", "A", 10)
-	f.SetColWidth("Пользователи", "B", "B", 15)
-	f.SetColWidth("Пользователи", "C", "C", 20)
-	f.SetColWidth("Пользователи", "D", "D", 15)
-	f.SetColWidth("Пользователи", "E", "E", 15)
-	f.SetColWidth("Пользователи", "F", "F", 15)
-	f.SetColWidth("Пользователи", "G", "G", 10)
-	f.SetColWidth("Пользователи", "H", "H", 12)
-	f.SetColWidth("Пользователи", "I", "I", 10)
-	f.SetColWidth("Пользователи", "J", "J", 20)
-	f.SetColWidth("Пользователи", "K", "K", 20)
+	_ = f.SetColWidth("Пользователи", "A", "A", 10)
+	_ = f.SetColWidth("Пользователи", "B", "B", 15)
+	_ = f.SetColWidth("Пользователи", "C", "C", 20)
+	_ = f.SetColWidth("Пользователи", "D", "D", 15)
+	_ = f.SetColWidth("Пользователи", "E", "E", 15)
+	_ = f.SetColWidth("Пользователи", "F", "F", 15)
+	_ = f.SetColWidth("Пользователи", "G", "G", 10)
+	_ = f.SetColWidth("Пользователи", "H", "H", 12)
+	_ = f.SetColWidth("Пользователи", "I", "I", 10)
+	_ = f.SetColWidth("Пользователи", "J", "J", 20)
+	_ = f.SetColWidth("Пользователи", "K", "K", 20)
 
 	// Удаляем стандартный лист
-	f.DeleteSheet("Sheet1")
+	_ = f.DeleteSheet("Sheet1")
 
 	// Сохраняем файл
 	fileName := fmt.Sprintf("users_export_%s.xlsx", time.Now().Format("2006-01-02_15-04-05"))

@@ -53,9 +53,10 @@ func TestRedisStateRepository(t *testing.T) {
 
 	t.Run("ClearState", func(t *testing.T) {
 		state := &models.UserState{UserID: 456, CurrentStep: "test"}
-		repo.SetState(ctx, state)
+		err := repo.SetState(ctx, state)
+		require.NoError(t, err)
 
-		err := repo.ClearState(ctx, 456)
+		err = repo.ClearState(ctx, 456)
 		require.NoError(t, err)
 
 		got, _ := repo.GetState(ctx, 456)
@@ -105,8 +106,9 @@ func TestRedisStateRepository(t *testing.T) {
 
 	t.Run("UnmarshalError", func(t *testing.T) {
 		key := "user_state:999"
-		s.Set(key, "invalid json")
-		_, err := repo.GetState(ctx, 999)
+		err := s.Set(key, "invalid json")
+		require.NoError(t, err)
+		_, err = repo.GetState(ctx, 999)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to unmarshal state")
 	})

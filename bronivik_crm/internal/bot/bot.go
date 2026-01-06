@@ -429,7 +429,7 @@ func (b *Bot) handleCancelBooking(ctx context.Context, msg *tgbotapi.Message) {
 	switch err := b.db.CancelUserBooking(ctx, id, u.ID); {
 	case err == nil:
 		b.reply(msg.Chat.ID, fmt.Sprintf("Бронирование #%d отменено", id))
-		metrics.IncBookingCancelled()
+		metrics.IncBookingCanceled()
 	case errors.Is(err, database.ErrBookingNotFound):
 		b.reply(msg.Chat.ID, "Бронирование не найдено")
 	case errors.Is(err, database.ErrBookingForbidden):

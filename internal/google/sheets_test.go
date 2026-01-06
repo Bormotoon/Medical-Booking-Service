@@ -14,7 +14,7 @@ func TestFilterActiveBookings(t *testing.T) {
 	bookings := []models.Booking{
 		{ID: 1, Status: "pending"},
 		{ID: 2, Status: "confirmed"},
-		{ID: 3, Status: "cancelled"},
+		{ID: 3, Status: "canceled"},
 		{ID: 4, Status: "completed"},
 	}
 
@@ -25,8 +25,8 @@ func TestFilterActiveBookings(t *testing.T) {
 	}
 
 	for _, b := range active {
-		if b.Status == "cancelled" {
-			t.Errorf("Cancelled booking found in active list")
+		if b.Status == "canceled" {
+			t.Errorf("Canceled booking found in active list")
 		}
 	}
 }

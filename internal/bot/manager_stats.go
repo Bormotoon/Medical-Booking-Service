@@ -122,7 +122,7 @@ func (b *Bot) bookingSummary(ctx context.Context, startDate, endDate time.Time) 
 		itemCount[bk.ItemName]++
 	}
 
-	statusOrder := []string{models.StatusPending, models.StatusConfirmed, models.StatusChanged, models.StatusCompleted, models.StatusCancelled}
+	statusOrder := []string{models.StatusPending, models.StatusConfirmed, models.StatusChanged, models.StatusCompleted, models.StatusCanceled}
 	var statusParts []string
 	for _, st := range statusOrder {
 		if c := statusCount[st]; c > 0 {

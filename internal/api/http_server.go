@@ -25,7 +25,7 @@ import (
 
 // HTTPServer exposes a lightweight HTTP API alongside the gRPC service.
 type HTTPServer struct {
-	cfg           config.APIConfig
+	cfg           *config.APIConfig
 	db            *database.DB
 	redisClient   *redis.Client
 	sheetsService *google.SheetsService
@@ -34,7 +34,7 @@ type HTTPServer struct {
 	log           zerolog.Logger
 }
 
-func NewHTTPServer(cfg config.APIConfig, db *database.DB, redisClient *redis.Client, sheetsService *google.SheetsService, logger *zerolog.Logger) *HTTPServer {
+func NewHTTPServer(cfg *config.APIConfig, db *database.DB, redisClient *redis.Client, sheetsService *google.SheetsService, logger *zerolog.Logger) *HTTPServer {
 	apiMux := http.NewServeMux()
 	srv := &HTTPServer{
 		cfg:           cfg,
@@ -91,22 +91,8 @@ func (s *HTTPServer) handleAvailability(w http.ResponseWriter, r *http.Request) 
 	}
 
 	const prefix = "/api/v1/availability/"
-	if !strings.HasPrefix(r.URL.Path, prefix) {
-		writeError(w, http.StatusNotFound, "not found")
-		return
-	}
-
-	itemName := strings.TrimPrefix(r.URL.Path, prefix)
-	itemName = strings.TrimSpace(itemName)
-	// Простейшая очистка от потенциально опасных символов
-	itemName = strings.Map(func(r rune) rune {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == ' ' || (r >= 'а' && r <= 'я') || (r >= 'А' && r <= 'Я') {
-			return r
-		}
-		return -1
-	}, itemName)
-
-	if itemName == "" || strings.Contains(itemName, "/") {
+	itemName := s.parseItemName(r.URL.Path, prefix)
+	if itemName == "" {
 		writeError(w, http.StatusBadRequest, "item_name is required")
 		return
 	}
@@ -137,6 +123,27 @@ func (s *HTTPServer) handleAvailability(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, resp)
 }
 
+func (s *HTTPServer) parseItemName(path string, prefix string) string {
+	if !strings.HasPrefix(path, prefix) {
+		return ""
+	}
+
+	itemName := strings.TrimPrefix(path, prefix)
+	itemName = strings.TrimSpace(itemName)
+	// Простейшая очистка от потенциально опасных символов
+	itemName = strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == ' ' || (r >= 'а' && r <= 'я') || (r >= 'А' && r <= 'Я') {
+			return r
+		}
+		return -1
+	}, itemName)
+
+	if strings.Contains(itemName, "/") {
+		return ""
+	}
+	return itemName
+}
+
 func (s *HTTPServer) handleAvailabilityBulk(w http.ResponseWriter, r *http.Request) {
 	metrics.IncHTTP("availability_bulk")
 	if r.Method != http.MethodPost && r.Method != http.MethodGet {
@@ -162,33 +169,38 @@ func (s *HTTPServer) handleAvailabilityBulk(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
-	if len(body.Items) == 0 {
-		writeError(w, http.StatusBadRequest, "items is required")
-		return
-	}
-	if len(body.Dates) == 0 {
-		writeError(w, http.StatusBadRequest, "dates is required")
+	if len(body.Items) == 0 || len(body.Dates) == 0 {
+		writeError(w, http.StatusBadRequest, "items and dates are required")
 		return
 	}
 
-	results := make([]map[string]any, 0, len(body.Items)*len(body.Dates))
-	for _, rawItem := range body.Items {
+	results, err := s.processBulkAvailability(r.Context(), body.Items, body.Dates)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"results": results})
+}
+
+func (s *HTTPServer) processBulkAvailability(ctx context.Context, items []string, dates []string) ([]map[string]any, error) {
+	results := make([]map[string]any, 0, len(items)*len(dates))
+	for _, rawItem := range items {
 		itemName := strings.TrimSpace(rawItem)
 		if itemName == "" {
 			continue
 		}
-		for _, rawDate := range body.Dates {
+		for _, rawDate := range dates {
 			dateStr := strings.TrimSpace(rawDate)
 			if dateStr == "" {
 				continue
 			}
 			date, err := time.Parse("2006-01-02", dateStr)
 			if err != nil {
-				writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid date format: %s", dateStr))
-				return
+				return nil, fmt.Errorf("invalid date format: %s", dateStr)
 			}
 
-			info, err := s.db.GetItemAvailabilityByName(r.Context(), itemName, date)
+			info, err := s.db.GetItemAvailabilityByName(ctx, itemName, date)
 			if err != nil {
 				// Skip unknown items to align with gRPC bulk behavior.
 				continue
@@ -203,11 +215,10 @@ func (s *HTTPServer) handleAvailabilityBulk(w http.ResponseWriter, r *http.Reque
 			})
 		}
 	}
-
-	writeJSON(w, http.StatusOK, map[string]any{"results": results})
+	return results, nil
 }
 
-func (s *HTTPServer) handleHealthz(w http.ResponseWriter, r *http.Request) {
+func (s *HTTPServer) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("ok"))
 }
@@ -281,12 +292,12 @@ func corsMiddleware(next http.Handler) http.Handler {
 
 // HTTPAuth provides API-key auth and per-key rate limiting for HTTP endpoints.
 type HTTPAuth struct {
-	cfg      config.APIConfig
+	cfg      *config.APIConfig
 	clients  map[string]config.APIClientKey
 	limiters sync.Map // map[string]*rate.Limiter
 }
 
-func NewHTTPAuth(cfg config.APIConfig) *HTTPAuth {
+func NewHTTPAuth(cfg *config.APIConfig) *HTTPAuth {
 	m := make(map[string]config.APIClientKey, len(cfg.Auth.APIKeys))
 	for _, k := range cfg.Auth.APIKeys {
 		m[k.Key] = k
@@ -413,7 +424,9 @@ func (a *HTTPAuth) clientKey(r *http.Request) string {
 
 func (a *HTTPAuth) getLimiter(key string) *rate.Limiter {
 	if v, ok := a.limiters.Load(key); ok {
-		return v.(*rate.Limiter)
+		if lim, ok := v.(*rate.Limiter); ok {
+			return lim
+		}
 	}
 
 	burst := a.cfg.RateLimit.Burst
@@ -424,7 +437,9 @@ func (a *HTTPAuth) getLimiter(key string) *rate.Limiter {
 	lim := rate.NewLimiter(rate.Limit(a.cfg.RateLimit.RPS), burst)
 	actual, loaded := a.limiters.LoadOrStore(key, lim)
 	if loaded {
-		return actual.(*rate.Limiter)
+		if lim, ok := actual.(*rate.Limiter); ok {
+			return lim
+		}
 	}
 	return lim
 }

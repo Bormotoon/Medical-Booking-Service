@@ -30,10 +30,10 @@ func TestAuthInterceptor(t *testing.T) {
 		},
 	}
 
-	auth := NewAuthInterceptor(cfg)
+	auth := NewAuthInterceptor(&cfg)
 	interceptor := auth.Unary()
 
-	handler := func(ctx context.Context, req any) (any, error) {
+	handler := func(_ context.Context, req any) (any, error) {
 		return "ok", nil
 	}
 
@@ -96,10 +96,10 @@ func TestAuthInterceptor_RateLimit(t *testing.T) {
 		},
 	}
 
-	auth := NewAuthInterceptor(cfg)
+	auth := NewAuthInterceptor(&cfg)
 	interceptor := auth.Unary()
 	info := &grpc.UnaryServerInfo{FullMethod: "test"}
-	handler := func(ctx context.Context, req any) (any, error) { return "ok", nil }
+	handler := func(_ context.Context, req any) (any, error) { return "ok", nil }
 
 	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("x-api-key", "key1"))
 

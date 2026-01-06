@@ -11,7 +11,7 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
-func (b *Bot) handleCallbackQuery(ctx context.Context, update tgbotapi.Update) {
+func (b *Bot) handleCallbackQuery(ctx context.Context, update *tgbotapi.Update) {
 	callback := update.CallbackQuery
 	data := callback.Data
 	userID := callback.From.ID
@@ -22,7 +22,7 @@ func (b *Bot) handleCallbackQuery(ctx context.Context, update tgbotapi.Update) {
 
 	// Отвечаем на callback сразу, чтобы убрать "часики"
 	callbackConfig := tgbotapi.NewCallback(callback.ID, "")
-	b.tgService.Request(callbackConfig)
+	_, _ = b.tgService.Request(callbackConfig)
 
 	if b.isBlacklisted(userID) {
 		return
@@ -100,7 +100,7 @@ func (b *Bot) handleDateSelection(ctx context.Context, update tgbotapi.Update, i
 		"item_id": itemID,
 	})
 
-	b.tgService.Send(msg)
+	_, _ = b.tgService.Send(msg)
 }
 
 func (b *Bot) handleScheduleItemSelected(ctx context.Context, update tgbotapi.Update, itemID int64) {
@@ -129,5 +129,5 @@ func (b *Bot) handleScheduleItemSelected(ctx context.Context, update tgbotapi.Up
 	)
 	msg.ReplyMarkup = keyboard
 
-	b.tgService.Send(msg)
+	_, _ = b.tgService.Send(msg)
 }

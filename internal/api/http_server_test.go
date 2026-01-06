@@ -19,6 +19,7 @@ import (
 	"bronivik/internal/models"
 
 	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc"
 )
 
@@ -250,8 +251,10 @@ func TestAvailabilityBulk(t *testing.T) {
 	})
 
 	t.Run("MethodNotAllowed", func(t *testing.T) {
-		req, _ := http.NewRequest("PUT", ts.URL+"/api/v1/availability/bulk", nil)
-		resp, _ := http.DefaultClient.Do(req)
+		req, _ := http.NewRequest("PUT", ts.URL+"/api/v1/availability/bulk", http.NoBody)
+		resp, err := http.DefaultClient.Do(req)
+		assert.NoError(t, err)
+		defer resp.Body.Close()
 		if resp.StatusCode != http.StatusMethodNotAllowed {
 			t.Fatalf("expected 405, got %d", resp.StatusCode)
 		}
@@ -275,12 +278,14 @@ func TestAuth(t *testing.T) {
 		},
 	}
 	logger := zerolog.New(io.Discard)
-	server := NewHTTPServer(cfg, db, nil, nil, &logger)
+	server := NewHTTPServer(&cfg, db, nil, nil, &logger)
 	ts := httptest.NewServer(server.server.Handler)
 	t.Cleanup(ts.Close)
 
 	t.Run("MissingHeaders", func(t *testing.T) {
-		resp, _ := http.Get(ts.URL + "/api/v1/items")
+		resp, err := http.Get(ts.URL + "/api/v1/items")
+		assert.NoError(t, err)
+		defer resp.Body.Close()
 		if resp.StatusCode != http.StatusUnauthorized {
 			t.Errorf("expected 401, got %d", resp.StatusCode)
 		}
@@ -290,7 +295,9 @@ func TestAuth(t *testing.T) {
 		req, _ := http.NewRequest("GET", ts.URL+"/api/v1/items", nil)
 		req.Header.Set("x-api-key", "wrong")
 		req.Header.Set("x-api-extra", "valid-extra")
-		resp, _ := http.DefaultClient.Do(req)
+		resp, err := http.DefaultClient.Do(req)
+		assert.NoError(t, err)
+		defer resp.Body.Close()
 		if resp.StatusCode != http.StatusUnauthorized {
 			t.Errorf("expected 401, got %d", resp.StatusCode)
 		}
@@ -300,7 +307,9 @@ func TestAuth(t *testing.T) {
 		req, _ := http.NewRequest("GET", ts.URL+"/api/v1/items", nil)
 		req.Header.Set("x-api-key", "valid-key")
 		req.Header.Set("x-api-extra", "valid-extra")
-		resp, _ := http.DefaultClient.Do(req)
+		resp, err := http.DefaultClient.Do(req)
+		assert.NoError(t, err)
+		defer resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
 			t.Errorf("expected 200, got %d", resp.StatusCode)
 		}
@@ -310,7 +319,9 @@ func TestAuth(t *testing.T) {
 		req, _ := http.NewRequest("GET", ts.URL+"/api/v1/availability/camera?date=2025-01-01", nil)
 		req.Header.Set("x-api-key", "valid-key")
 		req.Header.Set("x-api-extra", "valid-extra")
-		resp, _ := http.DefaultClient.Do(req)
+		resp, err := http.DefaultClient.Do(req)
+		assert.NoError(t, err)
+		defer resp.Body.Close()
 		if resp.StatusCode != http.StatusForbidden {
 			t.Errorf("expected 403, got %d", resp.StatusCode)
 		}
@@ -324,28 +335,40 @@ func TestAvailabilityErrors(t *testing.T) {
 	t.Cleanup(ts.Close)
 
 	t.Run("MethodNotAllowed", func(t *testing.T) {
-		resp, _ := http.Post(ts.URL+"/api/v1/availability/camera", "application/json", nil)
+		resp, err := http.Post(ts.URL+"/api/v1/availability/camera", "application/json", nil)
+		assert.NoError(t, err)
+		defer resp.Body.Close()
 		if resp.StatusCode != http.StatusMethodNotAllowed {
 			t.Errorf("expected 405, got %d", resp.StatusCode)
 		}
 	})
 
 	t.Run("MissingDate", func(t *testing.T) {
-		resp, _ := http.Get(ts.URL + "/api/v1/availability/camera")
+		resp, err := http.Get(ts.URL + "/api/v1/availability/camera")
+		assert.NoError(t, err)
+		defer resp.Body.Close()
 		if resp.StatusCode != http.StatusBadRequest {
 			t.Errorf("expected 400, got %d", resp.StatusCode)
 		}
 	})
 
 	t.Run("InvalidDate", func(t *testing.T) {
-		resp, _ := http.Get(ts.URL + "/api/v1/availability/camera?date=invalid")
+		resp, err := http.Get(ts.URL + "/api/v1/availability/camera?date=invalid")
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer resp.Body.Close()
 		if resp.StatusCode != http.StatusBadRequest {
 			t.Errorf("expected 400, got %d", resp.StatusCode)
 		}
 	})
 
 	t.Run("EmptyItemName", func(t *testing.T) {
-		resp, _ := http.Get(ts.URL + "/api/v1/availability/??date=2025-01-01")
+		resp, err := http.Get(ts.URL + "/api/v1/availability/??date=2025-01-01")
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer resp.Body.Close()
 		// itemName map logic will trim ?? to empty
 		if resp.StatusCode != http.StatusBadRequest {
 			t.Errorf("expected 400, got %d", resp.StatusCode)
@@ -360,7 +383,11 @@ func TestReadyz_DBFail(t *testing.T) {
 	ts := httptest.NewServer(server.server.Handler)
 	t.Cleanup(ts.Close)
 
-	resp, _ := http.Get(ts.URL + "/readyz")
+	resp, err := http.Get(ts.URL + "/readyz")
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusServiceUnavailable {
 		t.Errorf("expected 503, got %d", resp.StatusCode)
 	}
@@ -377,20 +404,28 @@ func TestRateLimit(t *testing.T) {
 		},
 	}
 	logger := zerolog.New(io.Discard)
-	server := NewHTTPServer(cfg, db, nil, nil, &logger)
+	server := NewHTTPServer(&cfg, db, nil, nil, &logger)
 	ts := httptest.NewServer(server.server.Handler)
 	t.Cleanup(ts.Close)
 
 	// First request - ok
-	resp, _ := http.Get(ts.URL + "/api/v1/items")
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("expected 200, got %d", resp.StatusCode)
+	resp1, err1 := http.Get(ts.URL + "/api/v1/items")
+	if err1 != nil {
+		t.Fatalf("request 1 failed: %v", err1)
+	}
+	defer resp1.Body.Close()
+	if resp1.StatusCode != http.StatusOK {
+		t.Errorf("expected 200, got %d", resp1.StatusCode)
 	}
 
 	// Second request immediately - should fail
-	resp, _ = http.Get(ts.URL + "/api/v1/items")
-	if resp.StatusCode != http.StatusTooManyRequests {
-		t.Errorf("expected 429, got %d", resp.StatusCode)
+	resp2, err2 := http.Get(ts.URL + "/api/v1/items")
+	if err2 != nil {
+		t.Fatalf("request 2 failed: %v", err2)
+	}
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusTooManyRequests {
+		t.Errorf("expected 429, got %d", resp2.StatusCode)
 	}
 }
 
@@ -401,7 +436,11 @@ func TestCORS(t *testing.T) {
 	t.Cleanup(ts.Close)
 
 	req, _ := http.NewRequest("OPTIONS", ts.URL+"/api/v1/items", nil)
-	resp, _ := http.DefaultClient.Do(req)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusNoContent {
 		t.Errorf("expected 204, got %d", resp.StatusCode)
@@ -417,7 +456,7 @@ func TestHTTPServer_StartStop(t *testing.T) {
 		HTTP: config.APIHTTPConfig{Enabled: true, Port: 0},
 	}
 	logger := zerolog.New(io.Discard)
-	server := NewHTTPServer(cfg, db, nil, nil, &logger)
+	server := NewHTTPServer(&cfg, db, nil, nil, &logger)
 
 	// Port 0 will bind to random port, but we need to know it to stop it if we use Start in background.
 	// Actually, Start() blocks. So let's test Shutdown on unstarted server or just mock it.
@@ -439,7 +478,7 @@ func newTestHTTPServer(db *database.DB) *HTTPServer {
 		Auth:    config.APIAuthConfig{Enabled: false},
 	}
 	logger := zerolog.New(io.Discard)
-	return NewHTTPServer(cfg, db, nil, nil, &logger)
+	return NewHTTPServer(&cfg, db, nil, nil, &logger)
 }
 
 func newTestDB(t *testing.T) *database.DB {
@@ -463,7 +502,7 @@ func createTestItem(t *testing.T, db *database.DB, name string, total int64) mod
 	return item
 }
 
-func insertTestBooking(t *testing.T, db *database.DB, item models.Item, date time.Time, status string) {
+func insertTestBooking(t *testing.T, db *database.DB, item *models.Item, date time.Time, status string) {
 	t.Helper()
 	_, err := db.ExecContext(context.Background(), `
 		INSERT INTO bookings (user_id, user_name, user_nickname, phone, item_id, item_name, date, status, comment, created_at, updated_at, version)

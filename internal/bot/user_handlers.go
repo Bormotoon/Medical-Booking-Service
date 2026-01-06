@@ -70,7 +70,6 @@ func (b *Bot) handleMessage(ctx context.Context, update tgbotapi.Update) {
 
 	case text == "📅 30 дней":
 		// Проверяем, есть ли выбранный аппарат для расписания
-		state := b.getUserState(ctx, update.Message.From.ID)
 		if state != nil && state.TempData["item_id"] != nil {
 			b.showMonthScheduleForItem(ctx, update)
 		} else {
@@ -81,7 +80,6 @@ func (b *Bot) handleMessage(ctx context.Context, update tgbotapi.Update) {
 
 	case text == "🗓 Выбрать дату":
 		// Проверяем, есть ли выбранный аппарат для расписания
-		state := b.getUserState(ctx, update.Message.From.ID)
 		if state != nil && state.TempData["item_id"] != nil {
 			b.requestSpecificDate(ctx, update)
 		} else {
@@ -93,7 +91,6 @@ func (b *Bot) handleMessage(ctx context.Context, update tgbotapi.Update) {
 		b.handleViewSchedule(ctx, update)
 
 	case text == "📋 СОЗДАТЬ ЗАЯВКУ НА ЭТОТ АППАРАТ":
-		state := b.getUserState(ctx, update.Message.From.ID)
 		if state != nil && state.TempData["item_id"] != nil {
 			itemID := state.GetInt64("item_id")
 			b.handleDateSelection(ctx, update, itemID)

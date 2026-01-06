@@ -18,11 +18,11 @@ var (
         []string{"status"},
     )
 
-    bookingCancelled = prometheus.NewCounter(
+    bookingCanceled = prometheus.NewCounter(
         prometheus.CounterOpts{
             Namespace: "bronivik_crm",
-            Name:      "booking_cancelled_total",
-            Help:      "Count of bookings cancelled by users.",
+            Name:      "booking_canceled_total",
+            Help:      "Count of bookings canceled by users.",
         },
     )
 
@@ -39,7 +39,7 @@ var (
 // Register registers metrics (idempotent).
 func Register() {
     once.Do(func() {
-        prometheus.MustRegister(bookingCreated, bookingCancelled, managerDecision)
+        prometheus.MustRegister(bookingCreated, bookingCanceled, managerDecision)
     })
 }
 
@@ -47,8 +47,8 @@ func IncBookingCreated(status string) {
     bookingCreated.WithLabelValues(status).Inc()
 }
 
-func IncBookingCancelled() {
-    bookingCancelled.Inc()
+func IncBookingCanceled() {
+    bookingCanceled.Inc()
 }
 
 func IncManagerDecision(decision string) {

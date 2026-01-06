@@ -94,7 +94,7 @@ func (b *Bot) Start(ctx context.Context) {
 }
 
 // processUpdate handles a single Telegram update.
-func (b *Bot) processUpdate(ctx context.Context, update tgbotapi.Update) {
+func (b *Bot) processUpdate(ctx context.Context, update *tgbotapi.Update) {
 	start := time.Now()
 	defer func() {
 		if b.metrics != nil {
@@ -126,7 +126,8 @@ func (b *Bot) processUpdate(ctx context.Context, update tgbotapi.Update) {
 		b.trackActivity(userID)
 
 		if !b.isManager(userID) {
-			allowed, err := b.stateService.CheckRateLimit(updateCtx, userID, b.config.Bot.RateLimitMessages, time.Duration(b.config.Bot.RateLimitWindow)*time.Second)
+			window := time.Duration(b.config.Bot.RateLimitWindow) * time.Second
+			allowed, err := b.stateService.CheckRateLimit(updateCtx, userID, b.config.Bot.RateLimitMessages, window)
 			if err != nil {
 				b.logger.Error().Err(err).Int64("user_id", userID).Msg("Rate limit check failed")
 			} else if !allowed {
@@ -136,7 +137,7 @@ func (b *Bot) processUpdate(ctx context.Context, update tgbotapi.Update) {
 				} else if update.CallbackQuery != nil {
 					callbackConfig := tgbotapi.NewCallback(update.CallbackQuery.ID, "⚠️ Слишком много запросов. Подождите немного.")
 					callbackConfig.ShowAlert = true
-					b.tgService.Request(callbackConfig)
+					_, _ = b.tgService.Request(callbackConfig)
 				}
 				return
 			}

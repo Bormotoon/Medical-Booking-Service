@@ -25,9 +25,10 @@ assert.Equal(t, state, got)
 })
 
 t.Run("ClearState", func(t *testing.T) {
-repo.ClearState(ctx, 123)
-got, _ := repo.GetState(ctx, 123)
-assert.Nil(t, got)
+	err := repo.ClearState(ctx, 123)
+	require.NoError(t, err)
+	got, _ := repo.GetState(ctx, 123)
+	assert.Nil(t, got)
 })
 
 t.Run("RateLimit", func(t *testing.T) {

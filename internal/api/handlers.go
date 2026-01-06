@@ -31,7 +31,8 @@ func NewAvailabilityService(db *database.DB) *AvailabilityService {
 	}
 }
 
-func (s *AvailabilityService) GetAvailability(ctx context.Context, req *availabilityv1.GetAvailabilityRequest) (*availabilityv1.GetAvailabilityResponse, error) {
+func (s *AvailabilityService) GetAvailability(ctx context.Context, req *availabilityv1.GetAvailabilityRequest) (
+	*availabilityv1.GetAvailabilityResponse, error) {
 	itemName := strings.TrimSpace(req.GetItemName())
 	if itemName == "" {
 		return nil, status.Error(codes.InvalidArgument, "item_name is required")
@@ -69,7 +70,8 @@ func (s *AvailabilityService) GetAvailability(ctx context.Context, req *availabi
 	}, nil
 }
 
-func (s *AvailabilityService) GetAvailabilityBulk(ctx context.Context, req *availabilityv1.GetAvailabilityBulkRequest) (*availabilityv1.GetAvailabilityBulkResponse, error) {
+func (s *AvailabilityService) GetAvailabilityBulk(ctx context.Context, req *availabilityv1.GetAvailabilityBulkRequest) (
+	*availabilityv1.GetAvailabilityBulkResponse, error) {
 	items := req.GetItems()
 	dates := req.GetDates()
 	if len(items) == 0 {

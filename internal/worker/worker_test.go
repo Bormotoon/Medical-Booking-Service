@@ -15,6 +15,7 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/require"
 )
 
 func TestProcessTaskSuccess(t *testing.T) {
@@ -99,7 +100,8 @@ func TestProcessTaskFail(t *testing.T) {
 	booking := &models.Booking{ID: 3, UserID: 1, UserName: "tester", Phone: "+100", ItemID: 10, ItemName: "camera", Date: time.Now(), Status: "pending", CreatedAt: time.Now(), UpdatedAt: time.Now()}
 
 	ctx := context.Background()
-	worker.EnqueueTask(ctx, TaskUpsert, booking.ID, booking, "")
+	err := worker.EnqueueTask(ctx, TaskUpsert, booking.ID, booking, "")
+	require.NoError(t, err)
 	task, _ := worker.tryLocalQueue()
 	worker.processTask(ctx, &task)
 
@@ -398,7 +400,8 @@ func TestSheetsWorker_StartStop(t *testing.T) {
 
 	// Add a task to the queue before starting
 	booking := &models.Booking{ID: 1, ItemName: "Test"}
-	worker.EnqueueTask(ctx, TaskUpsert, 1, booking, "")
+	err := worker.EnqueueTask(ctx, TaskUpsert, 1, booking, "")
+	require.NoError(t, err)
 
 	// This should process the task and stop when ctx is done
 	worker.Start(ctx)
@@ -457,7 +460,8 @@ func TestSheetsWorker_FailTaskPath(t *testing.T) {
 		Payload:  "invalid",
 		Status:   "pending",
 	}
-	db.CreateSyncTask(ctx, task)
+	err := db.CreateSyncTask(ctx, task)
+	require.NoError(t, err)
 
 	worker.processTask(ctx, task)
 

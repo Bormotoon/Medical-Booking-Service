@@ -146,8 +146,8 @@ type LoggingConfig struct {
 
 type GoogleConfig struct {
 	GoogleCredentialsFile string `yaml:"credentials_file"`
-	UsersSpreadSheetId    string `yaml:"users_spreadsheet_id"`
-	BookingSpreadSheetId  string `yaml:"bookings_spreadsheet_id"`
+	UsersSpreadSheetID    string `yaml:"users_spreadsheet_id"`
+	BookingSpreadSheetID  string `yaml:"bookings_spreadsheet_id"`
 }
 
 func Load(configPath string) (*Config, error) {

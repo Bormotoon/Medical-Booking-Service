@@ -60,7 +60,9 @@ func (b *Bot) getItemByID(id int64) (models.Item, bool) {
 
 func (b *Bot) sendMessage(chatID int64, text string) {
 	msg := tgbotapi.NewMessage(chatID, text)
-	b.tgService.Send(msg)
+	if _, err := b.tgService.Send(msg); err != nil {
+		b.logger.Error().Err(err).Int64("chat_id", chatID).Msg("Failed to send message")
+	}
 }
 
 // handleMainMenu - главное меню с контактами
@@ -120,7 +122,9 @@ func (b *Bot) handleMainMenu(ctx context.Context, update tgbotapi.Update) {
 	msg.ReplyMarkup = tgbotapi.NewReplyKeyboard(rows...)
 
 	b.setUserState(ctx, userID, models.StateMainMenu, nil)
-	b.tgService.Send(msg)
+	if _, err := b.tgService.Send(msg); err != nil {
+		b.logger.Error().Err(err).Int64("user_id", userID).Msg("Failed to send main menu")
+	}
 }
 
 // showManagerContacts показывает контакты менеджеров
@@ -134,7 +138,9 @@ func (b *Bot) showManagerContacts(ctx context.Context, update tgbotapi.Update) {
 	message.WriteString("\nПо любым интересующим Вас вопросам, дадим ответ.")
 
 	msg := tgbotapi.NewMessage(update.Message.Chat.ID, message.String())
-	b.tgService.Send(msg)
+	if _, err := b.tgService.Send(msg); err != nil {
+		b.logger.Error().Err(err).Int64("chat_id", update.Message.Chat.ID).Msg("Failed to send manager contacts")
+	}
 }
 
 // showUserBookings показывает заявки пользователя
@@ -154,7 +160,7 @@ func (b *Bot) showUserBookings(ctx context.Context, update tgbotapi.Update) {
 		switch booking.Status {
 		case "confirmed":
 			statusEmoji = "✅"
-		case "cancelled":
+		case "canceled":
 			statusEmoji = "❌"
 		case "changed":
 			statusEmoji = "🔄"
@@ -198,7 +204,9 @@ func (b *Bot) handleNameRequest(ctx context.Context, update tgbotapi.Update) {
 	b.setUserState(ctx, update.Message.From.ID, models.StateEnterName, state.TempData)
 
 	b.debugState(ctx, update.Message.From.ID, "handleNameRequest END")
-	b.tgService.Send(msg)
+	if _, err := b.tgService.Send(msg); err != nil {
+		b.logger.Error().Err(err).Int64("user_id", update.Message.From.ID).Msg("Failed to send name request")
+	}
 }
 
 // Обновляем handlePhoneRequest - добавляем контакты
@@ -225,7 +233,9 @@ func (b *Bot) handlePhoneRequest(ctx context.Context, update tgbotapi.Update) {
 	state := b.getUserState(ctx, update.Message.From.ID)
 
 	b.setUserState(ctx, update.Message.From.ID, models.StatePhoneNumber, state.TempData)
-	b.tgService.Send(msg)
+	if _, err := b.tgService.Send(msg); err != nil {
+		b.logger.Error().Err(err).Int64("user_id", update.Message.From.ID).Msg("Failed to send phone request")
+	}
 }
 
 // finalizeBooking обновляем для использования имени
@@ -296,7 +306,9 @@ func (b *Bot) finalizeBooking(ctx context.Context, update tgbotapi.Update) {
 	// Очищаем состояние
 	b.clearUserState(ctx, update.Message.From.ID)
 	b.handleMainMenu(ctx, update)
-	b.tgService.Send(msg)
+	if _, err := b.tgService.Send(msg); err != nil {
+		b.logger.Error().Err(err).Msg("Failed to send final booking msg")
+	}
 }
 
 // handleContactReceived обработка полученного контакта
@@ -358,7 +370,9 @@ func (b *Bot) handleSelectItem(ctx context.Context, update tgbotapi.Update) {
 
 		// Отвечаем на callback (убираем "часики")
 		callbackConfig := tgbotapi.NewCallback(update.CallbackQuery.ID, "")
-		b.tgService.Request(callbackConfig)
+		if _, err := b.tgService.Request(callbackConfig); err != nil {
+			b.logger.Error().Err(err).Msg("Failed to answer callback query")
+		}
 	} else {
 		b.logger.Error().Msg("Error: cannot determine chatID and userID in handleSelectItem")
 		return
@@ -419,7 +433,9 @@ func (b *Bot) showAvailableItems(ctx context.Context, update tgbotapi.Update) {
 	msg := tgbotapi.NewMessage(update.Message.Chat.ID, message.String())
 	msg.ReplyMarkup = &markup
 
-	b.tgService.Send(msg)
+	if _, err := b.tgService.Send(msg); err != nil {
+		b.logger.Error().Err(err).Int64("chat_id", update.Message.Chat.ID).Msg("Failed to send available items")
+	}
 }
 
 // showMonthScheduleForItem показывает расписание на 30 дней для выбранного аппарата
@@ -475,7 +491,9 @@ func (b *Bot) showMonthScheduleForItem(ctx context.Context, update tgbotapi.Upda
 	msg := tgbotapi.NewMessage(update.Message.Chat.ID, message.String())
 	msg.ReplyMarkup = &markup
 	msg.ParseMode = models.ParseModeMarkdown
-	b.tgService.Send(msg)
+	if _, err := b.tgService.Send(msg); err != nil {
+		b.logger.Error().Err(err).Int64("chat_id", update.Message.Chat.ID).Msg("Failed to send month schedule")
+	}
 }
 
 // handleSpecificDateInput обновляем для работы с выбранным аппаратом
@@ -523,7 +541,9 @@ func (b *Bot) handleSpecificDateInput(ctx context.Context, update tgbotapi.Updat
 
 	msg := tgbotapi.NewMessage(update.Message.Chat.ID, message)
 	msg.ParseMode = models.ParseModeMarkdown
-	b.tgService.Send(msg)
+	if _, err := b.tgService.Send(msg); err != nil {
+		b.logger.Error().Err(err).Msg("Failed to send specific date info in handleSpecificDateInput")
+	}
 }
 
 // requestSpecificDate запрашивает у пользователя конкретную дату
@@ -532,7 +552,9 @@ func (b *Bot) requestSpecificDate(ctx context.Context, update tgbotapi.Update) {
 		"Введите дату в формате ДД.ММ.ГГГГ (например, 25.12.2025):")
 
 	b.setUserState(ctx, update.Message.From.ID, models.StateWaitingSpecificDate, nil)
-	b.tgService.Send(msg)
+	if _, err := b.tgService.Send(msg); err != nil {
+		b.logger.Error().Err(err).Msg("Failed to send requestSpecificDate message")
+	}
 }
 
 // handleCustomInput ...
@@ -607,8 +629,8 @@ func (b *Bot) handleDateInput(ctx context.Context, update tgbotapi.Update, dateS
 	}
 
 	// Валидация даты через сервис
-	if err := b.bookingService.ValidateBookingDate(date); err != nil {
-		b.sendMessage(update.Message.Chat.ID, b.getErrorMessage(err))
+if errVal := b.bookingService.ValidateBookingDate(date); errVal != nil {
+			b.sendMessage(update.Message.Chat.ID, b.getErrorMessage(errVal))
 		return
 	}
 
@@ -627,14 +649,18 @@ func (b *Bot) handleDateInput(ctx context.Context, update tgbotapi.Update, dateS
 		b.logger.Error().Err(err).Int64("item_id", item.ID).Time("date", date).Msg("Error checking availability")
 		msg := tgbotapi.NewMessage(update.Message.Chat.ID,
 			"Произошла ошибка при проверке доступности. Попробуйте позже.")
-		b.tgService.Send(msg)
+		if _, errSend := b.tgService.Send(msg); errSend != nil {
+			b.logger.Error().Err(errSend).Msg("Failed to send error msg in handleDateInput")
+		}
 		return
 	}
 
 	if !available {
 		msg := tgbotapi.NewMessage(update.Message.Chat.ID,
 			"К сожалению, на выбранную дату позиция недоступна. Выберите другую дату.")
-		b.tgService.Send(msg)
+		if _, errSend := b.tgService.Send(msg); errSend != nil {
+			b.logger.Error().Err(errSend).Msg("Failed to send not available msg in handleDateInput")
+		}
 		return
 	}
 
@@ -729,7 +755,9 @@ func (b *Bot) handlePhoneReceived(ctx context.Context, update tgbotapi.Update, p
 	if err != nil || !available {
 		msg := tgbotapi.NewMessage(update.Message.Chat.ID,
 			"К сожалению, выбранная позиция больше не доступна на эту дату. Пожалуйста, начните заново.")
-		b.tgService.Send(msg)
+		if _, errSend := b.tgService.Send(msg); errSend != nil {
+			b.logger.Error().Err(errSend).Msg("Failed to send not available msg in handlePhoneReceived")
+		}
 		b.handleMainMenu(ctx, update)
 		return
 	}
@@ -761,7 +789,9 @@ func (b *Bot) handlePhoneReceived(ctx context.Context, update tgbotapi.Update, p
 	// )
 	// msg.ReplyMarkup = keyboard
 
-	b.tgService.Send(msg)
+	if _, err := b.tgService.Send(msg); err != nil {
+		b.logger.Error().Err(err).Msg("Failed to send confirmation msg in handlePhoneReceived")
+	}
 	b.finalizeBooking(ctx, update)
 }
 

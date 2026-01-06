@@ -11,7 +11,7 @@ import (
 
 	"bronivik/internal/config"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "github.com/mattn/go-sqlite3" // sqlite3 driver
 	"github.com/rs/zerolog"
 )
 
@@ -69,7 +69,7 @@ func (s *BackupService) Start(ctx context.Context) {
 
 func (s *BackupService) PerformBackup() error {
 	if _, err := os.Stat(s.config.StoragePath); os.IsNotExist(err) {
-		if err := os.MkdirAll(s.config.StoragePath, 0755); err != nil {
+		if err := os.MkdirAll(s.config.StoragePath, 0o755); err != nil {
 			return fmt.Errorf("failed to create backup directory: %w", err)
 		}
 	}
