@@ -16,7 +16,7 @@ type TimeSlot struct {
 
 // GenerateCalendarKeyboard builds an inline keyboard for a given month.
 // availableDates keys are YYYY-MM-DD strings.
-func GenerateCalendarKeyboard(year, month int, availableDates map[string]bool) tgbotapi.InlineKeyboardMarkup {
+func GenerateCalendarKeyboard(year, month int, availableDates map[string]bool) tgbotcrmapi.InlineKeyboardMarkup {
 	firstDay := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
 	weekdayOffset := int(firstDay.Weekday())
 	if weekdayOffset == 0 {
@@ -24,28 +24,28 @@ func GenerateCalendarKeyboard(year, month int, availableDates map[string]bool) t
 	}
 	daysInMonth := daysIn(time.Month(month), year)
 
-	rows := make([][]tgbotapi.InlineKeyboardButton, 0)
+	rows := make([][]tgbotcrmapi.InlineKeyboardButton, 0)
 	// Weekday header
-	rows = append(rows, []tgbotapi.InlineKeyboardButton{
-		tgbotapi.NewInlineKeyboardButtonData("Пн", "noop"),
-		tgbotapi.NewInlineKeyboardButtonData("Вт", "noop"),
-		tgbotapi.NewInlineKeyboardButtonData("Ср", "noop"),
-		tgbotapi.NewInlineKeyboardButtonData("Чт", "noop"),
-		tgbotapi.NewInlineKeyboardButtonData("Пт", "noop"),
-		tgbotapi.NewInlineKeyboardButtonData("Сб", "noop"),
-		tgbotapi.NewInlineKeyboardButtonData("Вс", "noop"),
+	rows = append(rows, []tgbotcrmapi.InlineKeyboardButton{
+		tgbotcrmapi.NewInlineKeyboardButtonData("Пн", "noop"),
+		tgbotcrmapi.NewInlineKeyboardButtonData("Вт", "noop"),
+		tgbotcrmapi.NewInlineKeyboardButtonData("Ср", "noop"),
+		tgbotcrmapi.NewInlineKeyboardButtonData("Чт", "noop"),
+		tgbotcrmapi.NewInlineKeyboardButtonData("Пт", "noop"),
+		tgbotcrmapi.NewInlineKeyboardButtonData("Сб", "noop"),
+		tgbotcrmapi.NewInlineKeyboardButtonData("Вс", "noop"),
 	})
 
 	day := 1
 	for day <= daysInMonth {
-		row := make([]tgbotapi.InlineKeyboardButton, 0, 7)
+		row := make([]tgbotcrmapi.InlineKeyboardButton, 0, 7)
 		for col := 1; col <= 7; col++ {
 			if len(rows) == 1 && col < weekdayOffset {
-				row = append(row, tgbotapi.NewInlineKeyboardButtonData(" ", "noop"))
+				row = append(row, tgbotcrmapi.NewInlineKeyboardButtonData(" ", "noop"))
 				continue
 			}
 			if day > daysInMonth {
-				row = append(row, tgbotapi.NewInlineKeyboardButtonData(" ", "noop"))
+				row = append(row, tgbotcrmapi.NewInlineKeyboardButtonData(" ", "noop"))
 				continue
 			}
 			dateStr := fmt.Sprintf("%04d-%02d-%02d", year, month, day)
@@ -54,18 +54,18 @@ func GenerateCalendarKeyboard(year, month int, availableDates map[string]bool) t
 			if !available {
 				label = "·"
 			}
-			row = append(row, tgbotapi.NewInlineKeyboardButtonData(label, fmt.Sprintf("date:%s", dateStr)))
+			row = append(row, tgbotcrmapi.NewInlineKeyboardButtonData(label, fmt.Sprintf("date:%s", dateStr)))
 			day++
 		}
 		rows = append(rows, row)
 	}
 
-	return tgbotapi.InlineKeyboardMarkup{InlineKeyboard: rows}
+	return tgbotcrmapi.InlineKeyboardMarkup{InlineKeyboard: rows}
 }
 
 // GenerateTimeSlotsKeyboard builds an inline keyboard for time slots of a day.
-func GenerateTimeSlotsKeyboard(slots []TimeSlot, selectedDate string) tgbotapi.InlineKeyboardMarkup {
-	rows := make([][]tgbotapi.InlineKeyboardButton, 0)
+func GenerateTimeSlotsKeyboard(slots []TimeSlot, selectedDate string) tgbotcrmapi.InlineKeyboardMarkup {
+	rows := make([][]tgbotcrmapi.InlineKeyboardButton, 0)
 	for _, slot := range slots {
 		text := slot.Label
 		if !slot.Available {
@@ -75,15 +75,15 @@ func GenerateTimeSlotsKeyboard(slots []TimeSlot, selectedDate string) tgbotapi.I
 		if data == "" {
 			data = fmt.Sprintf("slot:%s", slot.Label)
 		}
-		rows = append(rows, []tgbotapi.InlineKeyboardButton{
-			tgbotapi.NewInlineKeyboardButtonData(text, data),
+		rows = append(rows, []tgbotcrmapi.InlineKeyboardButton{
+			tgbotcrmapi.NewInlineKeyboardButtonData(text, data),
 		})
 	}
 	// Add back button
-	rows = append(rows, []tgbotapi.InlineKeyboardButton{
-		tgbotapi.NewInlineKeyboardButtonData("⬅️ Назад", fmt.Sprintf("back:%s", selectedDate)),
+	rows = append(rows, []tgbotcrmapi.InlineKeyboardButton{
+		tgbotcrmapi.NewInlineKeyboardButtonData("⬅️ Назад", fmt.Sprintf("back:%s", selectedDate)),
 	})
-	return tgbotapi.InlineKeyboardMarkup{InlineKeyboard: rows}
+	return tgbotcrmapi.InlineKeyboardMarkup{InlineKeyboard: rows}
 }
 
 func daysIn(m time.Month, year int) int {

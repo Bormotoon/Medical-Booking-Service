@@ -1,4 +1,4 @@
-package database
+package db
 
 import (
 	"context"
@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"bronivik/bronivik_crm/internal/api"
-	"bronivik/bronivik_crm/internal/models"
+	"bronivik/bronivik_crm/internal/crmapi"
+	"bronivik/bronivik_crm/internal/model"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -38,7 +38,7 @@ func (db *DB) GetOrCreateUserByTelegramID(
 	ctx context.Context,
 	telegramID int64,
 	username, firstName, lastName, phone string,
-) (*models.User, error) {
+) (*model.User, error) {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -64,7 +64,7 @@ func (db *DB) GetOrCreateUserByTelegramID(
 		if err != nil {
 			return nil, err
 		}
-		u = &models.User{
+		u = &model.User{
 			ID: id, TelegramID: telegramID, Username: username,
 			FirstName: firstName, LastName: lastName, CreatedAt: now, UpdatedAt: now,
 		}
@@ -92,7 +92,7 @@ func (db *DB) GetOrCreateUserByTelegramID(
 	return u, nil
 }
 
-func getUserByTelegramIDTx(ctx context.Context, tx *sql.Tx, telegramID int64) (*models.User, error) {
+func getUserByTelegramIDTx(ctx context.Context, tx *sql.Tx, telegramID int64) (*model.User, error) {
 	row := tx.QueryRowContext(ctx, `
 		SELECT id, telegram_id, username, first_name, last_name, 
 		       phone, is_manager, is_blacklisted, created_at, updated_at
@@ -263,7 +263,7 @@ func tableColumns(db *sql.DB, table string) (map[string]bool, error) {
 // --- Cabinets CRUD ---
 
 // CreateCabinet inserts a new cabinet.
-func (db *DB) CreateCabinet(ctx context.Context, c *models.Cabinet) error {
+func (db *DB) CreateCabinet(ctx context.Context, c *model.Cabinet) error {
 	if c == nil {
 		return fmt.Errorf("cabinet is nil")
 	}
@@ -285,7 +285,7 @@ func (db *DB) CreateCabinet(ctx context.Context, c *models.Cabinet) error {
 }
 
 // ListActiveCabinets returns active cabinets sorted by id.
-func (db *DB) ListActiveCabinets(ctx context.Context) ([]models.Cabinet, error) {
+func (db *DB) ListActiveCabinets(ctx context.Context) ([]model.Cabinet, error) {
 	rows, err := db.QueryContext(ctx, `
 		SELECT id, name, description, is_active, created_at, updated_at 
 		FROM cabinets WHERE is_active = 1 ORDER BY id ASC`)
@@ -294,7 +294,7 @@ func (db *DB) ListActiveCabinets(ctx context.Context) ([]models.Cabinet, error) 
 	}
 	defer rows.Close()
 
-	var res []models.Cabinet
+	var res []model.Cabinet
 	for rows.Next() {
 		cab, err := scanCabinet(rows)
 		if err != nil {
@@ -306,13 +306,13 @@ func (db *DB) ListActiveCabinets(ctx context.Context) ([]models.Cabinet, error) 
 }
 
 // GetCabinet fetches a cabinet by id.
-func (db *DB) GetCabinet(ctx context.Context, id int64) (*models.Cabinet, error) {
+func (db *DB) GetCabinet(ctx context.Context, id int64) (*model.Cabinet, error) {
 	row := db.QueryRowContext(ctx, `SELECT id, name, description, is_active, created_at, updated_at FROM cabinets WHERE id = ?`, id)
 	return scanCabinet(row)
 }
 
 // UpdateCabinet updates name/description/active flag.
-func (db *DB) UpdateCabinet(ctx context.Context, c *models.Cabinet) error {
+func (db *DB) UpdateCabinet(ctx context.Context, c *model.Cabinet) error {
 	if c == nil {
 		return fmt.Errorf("cabinet is nil")
 	}
@@ -330,7 +330,7 @@ func (db *DB) DeactivateCabinet(ctx context.Context, id int64) error {
 // --- Cabinet schedules CRUD ---
 
 // CreateSchedule inserts a new weekly schedule entry.
-func (db *DB) CreateSchedule(ctx context.Context, s *models.CabinetSchedule) error {
+func (db *DB) CreateSchedule(ctx context.Context, s *model.CabinetSchedule) error {
 	if s == nil {
 		return fmt.Errorf("schedule is nil")
 	}
@@ -357,7 +357,7 @@ func (db *DB) CreateSchedule(ctx context.Context, s *models.CabinetSchedule) err
 // --- Hourly bookings CRUD ---
 
 // CreateHourlyBooking inserts a new hourly booking.
-func (db *DB) CreateHourlyBooking(ctx context.Context, b *models.HourlyBooking) error {
+func (db *DB) CreateHourlyBooking(ctx context.Context, b *model.HourlyBooking) error {
 	if b == nil {
 		return fmt.Errorf("booking is nil")
 	}
@@ -383,7 +383,7 @@ func (db *DB) CreateHourlyBooking(ctx context.Context, b *models.HourlyBooking) 
 }
 
 // GetHourlyBooking returns booking by id.
-func (db *DB) GetHourlyBooking(ctx context.Context, id int64) (*models.HourlyBooking, error) {
+func (db *DB) GetHourlyBooking(ctx context.Context, id int64) (*model.HourlyBooking, error) {
 	row := db.QueryRowContext(ctx, `
 		SELECT id, user_id, cabinet_id, item_name, client_name, client_phone, 
 		       start_time, end_time, status, comment, created_at, updated_at 
@@ -392,7 +392,7 @@ func (db *DB) GetHourlyBooking(ctx context.Context, id int64) (*models.HourlyBoo
 }
 
 // ListHourlyBookingsByCabinet returns bookings for a cabinet within range.
-func (db *DB) ListHourlyBookingsByCabinet(ctx context.Context, cabinetID int64, from, to time.Time) ([]models.HourlyBooking, error) {
+func (db *DB) ListHourlyBookingsByCabinet(ctx context.Context, cabinetID int64, from, to time.Time) ([]model.HourlyBooking, error) {
 	rows, err := db.QueryContext(ctx, `
 		SELECT id, user_id, cabinet_id, item_name, client_name, client_phone, 
 		       start_time, end_time, status, comment, created_at, updated_at
@@ -404,7 +404,7 @@ func (db *DB) ListHourlyBookingsByCabinet(ctx context.Context, cabinetID int64, 
 	}
 	defer rows.Close()
 
-	var res []models.HourlyBooking
+	var res []model.HourlyBooking
 	for rows.Next() {
 		bk, err := scanHourly(rows)
 		if err != nil {
@@ -416,7 +416,7 @@ func (db *DB) ListHourlyBookingsByCabinet(ctx context.Context, cabinetID int64, 
 }
 
 // ListUserBookings returns up to limit bookings for a user; includePast controls whether past bookings are returned.
-func (db *DB) ListUserBookings(ctx context.Context, userID int64, limit int, includePast bool) ([]models.HourlyBooking, error) {
+func (db *DB) ListUserBookings(ctx context.Context, userID int64, limit int, includePast bool) ([]model.HourlyBooking, error) {
 	if limit <= 0 {
 		limit = 10
 	}
@@ -438,7 +438,7 @@ func (db *DB) ListUserBookings(ctx context.Context, userID int64, limit int, inc
 	}
 	defer rows.Close()
 
-	var res []models.HourlyBooking
+	var res []model.HourlyBooking
 	for rows.Next() {
 		bk, err := scanHourly(rows)
 		if err != nil {
@@ -569,7 +569,7 @@ func (db *DB) GetAvailableSlots(ctx context.Context, cabinetID int64, date time.
 }
 
 // CreateHourlyBookingWithChecks checks slot and optional item availability before inserting.
-func (db *DB) CreateHourlyBookingWithChecks(ctx context.Context, booking *models.HourlyBooking, client *api.BronivikClient) error {
+func (db *DB) CreateHourlyBookingWithChecks(ctx context.Context, booking *model.HourlyBooking, client *crmapi.BronivikClient) error {
 	if booking == nil {
 		return fmt.Errorf("booking is nil")
 	}
@@ -658,7 +658,7 @@ func resolveScheduleWindowTx(
 		day = 7 // make Monday=1..Sunday=7 consistent with UI
 	}
 
-	var sched models.CabinetSchedule
+	var sched model.CabinetSchedule
 	row := tx.QueryRowContext(ctx, `SELECT id, cabinet_id, day_of_week, start_time, end_time, slot_duration, is_active, created_at, updated_at
         FROM cabinet_schedules WHERE cabinet_id = ? AND day_of_week = ? AND is_active = 1 LIMIT 1`, cabinetID, day)
 	if err = row.Scan(
@@ -769,8 +769,8 @@ func combineDateTime(date time.Time, hm string) (time.Time, error) {
 	return time.Date(date.Year(), date.Month(), date.Day(), hour, minute, 0, 0, date.Location()), nil
 }
 
-func scanHourly(r rowScanner) (*models.HourlyBooking, error) {
-	var b models.HourlyBooking
+func scanHourly(r rowScanner) (*model.HourlyBooking, error) {
+	var b model.HourlyBooking
 	err := r.Scan(
 		&b.ID, &b.UserID, &b.CabinetID, &b.ItemName, &b.ClientName,
 		&b.ClientPhone, &b.StartTime, &b.EndTime, &b.Status, &b.Comment,
@@ -783,7 +783,7 @@ func scanHourly(r rowScanner) (*models.HourlyBooking, error) {
 }
 
 // ListSchedulesByCabinet returns active schedules for a cabinet.
-func (db *DB) ListSchedulesByCabinet(ctx context.Context, cabinetID int64) ([]models.CabinetSchedule, error) {
+func (db *DB) ListSchedulesByCabinet(ctx context.Context, cabinetID int64) ([]model.CabinetSchedule, error) {
 	query := `SELECT id, cabinet_id, day_of_week, start_time, end_time, 
 		slot_duration, is_active, created_at, updated_at
 		FROM cabinet_schedules WHERE cabinet_id = ? AND is_active = 1 
@@ -794,7 +794,7 @@ func (db *DB) ListSchedulesByCabinet(ctx context.Context, cabinetID int64) ([]mo
 	}
 	defer rows.Close()
 
-	var res []models.CabinetSchedule
+	var res []model.CabinetSchedule
 	for rows.Next() {
 		sched, err := scanSchedule(rows)
 		if err != nil {
@@ -806,7 +806,7 @@ func (db *DB) ListSchedulesByCabinet(ctx context.Context, cabinetID int64) ([]mo
 }
 
 // UpdateSchedule updates schedule fields.
-func (db *DB) UpdateSchedule(ctx context.Context, s *models.CabinetSchedule) error {
+func (db *DB) UpdateSchedule(ctx context.Context, s *model.CabinetSchedule) error {
 	if s == nil {
 		return fmt.Errorf("schedule is nil")
 	}
@@ -838,16 +838,16 @@ type TimeSlot struct {
 	Available bool
 }
 
-func scanCabinet(r rowScanner) (*models.Cabinet, error) {
-	var c models.Cabinet
+func scanCabinet(r rowScanner) (*model.Cabinet, error) {
+	var c model.Cabinet
 	if err := r.Scan(&c.ID, &c.Name, &c.Description, &c.IsActive, &c.CreatedAt, &c.UpdatedAt); err != nil {
 		return nil, err
 	}
 	return &c, nil
 }
 
-func scanUser(r rowScanner) (*models.User, error) {
-	var u models.User
+func scanUser(r rowScanner) (*model.User, error) {
+	var u model.User
 	if err := r.Scan(
 		&u.ID, &u.TelegramID, &u.Username, &u.FirstName, &u.LastName,
 		&u.Phone, &u.IsManager, &u.IsBlacklisted, &u.CreatedAt, &u.UpdatedAt,
@@ -857,8 +857,8 @@ func scanUser(r rowScanner) (*models.User, error) {
 	return &u, nil
 }
 
-func scanSchedule(r rowScanner) (*models.CabinetSchedule, error) {
-	var s models.CabinetSchedule
+func scanSchedule(r rowScanner) (*model.CabinetSchedule, error) {
+	var s model.CabinetSchedule
 	if err := r.Scan(
 		&s.ID, &s.CabinetID, &s.DayOfWeek, &s.StartTime, &s.EndTime,
 		&s.SlotDuration, &s.IsActive, &s.CreatedAt, &s.UpdatedAt,

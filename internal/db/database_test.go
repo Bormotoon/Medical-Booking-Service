@@ -1,4 +1,4 @@
-package database
+package db
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"bronivik/bronivik_crm/internal/models"
+	"bronivik/bronivik_crm/internal/model"
 )
 
 func TestGetAvailableSlots_RespectsBookings(t *testing.T) {
@@ -23,7 +23,7 @@ func TestGetAvailableSlots_RespectsBookings(t *testing.T) {
 		t.Fatalf("GetOrCreateUserByTelegramID: %v", err)
 	}
 
-	cab := &models.Cabinet{Name: "Cab1", Description: ""}
+	cab := &model.Cabinet{Name: "Cab1", Description: ""}
 	if err = db.CreateCabinet(ctx, cab); err != nil {
 		t.Fatalf("CreateCabinet: %v", err)
 	}
@@ -33,14 +33,14 @@ func TestGetAvailableSlots_RespectsBookings(t *testing.T) {
 	if dow == 0 {
 		dow = 7
 	}
-	if err = db.CreateSchedule(ctx, &models.CabinetSchedule{
+	if err = db.CreateSchedule(ctx, &model.CabinetSchedule{
 		CabinetID: cab.ID, DayOfWeek: dow, StartTime: "09:00",
 		EndTime: "12:00", SlotDuration: 60,
 	}); err != nil {
 		t.Fatalf("CreateSchedule: %v", err)
 	}
 
-	bk := &models.HourlyBooking{
+	bk := &model.HourlyBooking{
 		UserID:    user.ID,
 		CabinetID: cab.ID,
 		StartTime: time.Date(2026, 1, 5, 10, 0, 0, 0, time.Local),
@@ -78,7 +78,7 @@ func TestCreateHourlyBookingWithChecks_BusySlot(t *testing.T) {
 		t.Fatalf("GetOrCreateUserByTelegramID: %v", err)
 	}
 
-	cab := &models.Cabinet{Name: "Cab1", Description: ""}
+	cab := &model.Cabinet{Name: "Cab1", Description: ""}
 	if err = db.CreateCabinet(ctx, cab); err != nil {
 		t.Fatalf("CreateCabinet: %v", err)
 	}
@@ -88,7 +88,7 @@ func TestCreateHourlyBookingWithChecks_BusySlot(t *testing.T) {
 	if dow == 0 {
 		dow = 7
 	}
-	err = db.CreateSchedule(ctx, &models.CabinetSchedule{
+	err = db.CreateSchedule(ctx, &model.CabinetSchedule{
 		CabinetID: cab.ID, DayOfWeek: dow, StartTime: "09:00",
 		EndTime: "12:00", SlotDuration: 60,
 	})
@@ -96,7 +96,7 @@ func TestCreateHourlyBookingWithChecks_BusySlot(t *testing.T) {
 		t.Fatalf("CreateSchedule: %v", err)
 	}
 
-	busy := &models.HourlyBooking{
+	busy := &model.HourlyBooking{
 		UserID:    user.ID,
 		CabinetID: cab.ID,
 		StartTime: time.Date(2026, 1, 5, 10, 0, 0, 0, time.Local),
@@ -107,7 +107,7 @@ func TestCreateHourlyBookingWithChecks_BusySlot(t *testing.T) {
 		t.Fatalf("CreateHourlyBooking: %v", err)
 	}
 
-	attempt := &models.HourlyBooking{
+	attempt := &model.HourlyBooking{
 		UserID:    user.ID,
 		CabinetID: cab.ID,
 		StartTime: time.Date(2026, 1, 5, 10, 0, 0, 0, time.Local),
