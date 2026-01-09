@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -880,4 +882,47 @@ func trimSQL(s string) string {
 func TouchUpdated(db *sql.DB, table string, id int64) error {
 	_, err := db.Exec(fmt.Sprintf("UPDATE %s SET updated_at = ? WHERE id = ?", table), time.Now(), id)
 	return err
+}
+
+// Backup creates a hot backup of the database using VACUUM INTO.
+// The destination file must not exist.
+func (db *DB) Backup(dest string) error {
+	_, err := db.Exec("VACUUM INTO ?", dest)
+	return err
+}
+
+// CleanupBackups removes files in dir older than retention.
+func (db *DB) CleanupBackups(dir string, retention time.Duration) (int, error) {
+	if dir == "" {
+		return 0, nil
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, err
+	}
+
+	now := time.Now()
+	deleted := 0
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+
+		if now.Sub(info.ModTime()) > retention {
+			err = os.Remove(filepath.Join(dir, entry.Name()))
+			if err == nil {
+				deleted++
+			}
+		}
+	}
+	return deleted, nil
 }

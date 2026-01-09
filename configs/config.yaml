@@ -11,6 +11,12 @@ telegram:
 database:
   path: "data/bronivik_crm.db"
 
+backup:
+  enabled: true
+  interval_hours: 24
+  path: "backups"
+  retention_days: 14
+
 redis:
   address: "redis:6379"
   password: ""

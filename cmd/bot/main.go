@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -73,8 +74,71 @@ func main() {
 		go startMetricsServer(ctx, cfg.Monitoring.PrometheusPort, &logger)
 	}
 
+	if cfg.Backup.Enabled {
+		go startBackupLoop(ctx, database, cfg, &logger)
+	}
+
 	logger.Info().Msg("CRM bot started")
 	b.Start(ctx)
+}
+
+func startBackupLoop(ctx context.Context, database *db.DB, cfg *config.Config, logger *zerolog.Logger) {
+	if cfg.Backup.Path == "" {
+		cfg.Backup.Path = "backups"
+	}
+	if cfg.Backup.IntervalHours <= 0 {
+		cfg.Backup.IntervalHours = 24
+	}
+	if cfg.Backup.RetentionDays <= 0 {
+		cfg.Backup.RetentionDays = 14
+	}
+
+	if err := os.MkdirAll(cfg.Backup.Path, 0o755); err != nil {
+		logger.Error().Err(err).Msg("failed to create backup directory")
+		return
+	}
+
+	interval := time.Duration(cfg.Backup.IntervalHours) * time.Hour
+	retention := time.Duration(cfg.Backup.RetentionDays) * 24 * time.Hour
+
+	// Run first backup after a short delay
+	select {
+	case <-time.After(1 * time.Minute):
+		runBackupTask(database, cfg, retention, logger)
+	case <-ctx.Done():
+		return
+	}
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			runBackupTask(database, cfg, retention, logger)
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func runBackupTask(database *db.DB, cfg *config.Config, retention time.Duration, logger *zerolog.Logger) {
+	timestamp := time.Now().Format("20060102_150405")
+	dest := filepath.Join(cfg.Backup.Path, fmt.Sprintf("bronivik_crm_%s.db", timestamp))
+
+	logger.Info().Str("path", dest).Msg("starting database backup")
+	if err := database.Backup(dest); err != nil {
+		logger.Error().Err(err).Msg("backup failed")
+	} else {
+		logger.Info().Msg("backup completed successfully")
+	}
+
+	deleted, err := database.CleanupBackups(cfg.Backup.Path, retention)
+	if err != nil {
+		logger.Error().Err(err).Msg("backup cleanup failed")
+	} else if deleted > 0 {
+		logger.Info().Int("deleted", deleted).Msg("cleaned up old backups")
+	}
 }
 
 func startHealthServer(ctx context.Context, port int, database *db.DB, rdb *redis.Client, logger *zerolog.Logger) {

@@ -18,6 +18,13 @@ type Config struct {
 		Path string `yaml:"path"`
 	} `yaml:"database"`
 
+	Backup struct {
+		Enabled       bool   `yaml:"enabled"`
+		IntervalHours int    `yaml:"interval_hours"`
+		Path          string `yaml:"path"`
+		RetentionDays int    `yaml:"retention_days"`
+	} `yaml:"backup"`
+
 	Redis struct {
 		Address  string `yaml:"address"`
 		Password string `yaml:"password"`
