@@ -52,7 +52,7 @@ func main() {
 		MaxAdvance:       cfg.BookingMaxAdvance(),
 		MaxActivePerUser: cfg.Booking.MaxActivePerUser,
 	}
-	b, err := bot.New(cfg.Telegram.BotToken, client, database, cfg.Managers, rules, &logger)
+	b, err := bot.New(cfg.Telegram.BotToken, client, cfg.API.Enabled, database, cfg.Managers, rules, &logger)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("create bot error")
 	}

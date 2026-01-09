@@ -25,6 +25,7 @@ type Config struct {
 	} `yaml:"redis"`
 
 	API struct {
+		Enabled         bool   `yaml:"enabled"`
 		BaseURL         string `yaml:"base_url"`
 		APIKey          string `yaml:"api_key"`
 		APIExtra        string `yaml:"api_extra"`

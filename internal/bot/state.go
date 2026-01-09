@@ -26,8 +26,9 @@ type BookingDraft struct {
 }
 
 type userState struct {
-	Step  bookingStep
-	Draft BookingDraft
+	Step           bookingStep
+	Draft          BookingDraft
+	APIUnreachable bool
 }
 
 type stateStore struct {

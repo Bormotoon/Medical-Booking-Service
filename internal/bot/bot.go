@@ -22,13 +22,14 @@ const itemNone = "Без аппарата"
 
 // Bot is a thin Telegram bot wrapper for CRM flow.
 type Bot struct {
-	api      *crmapi.BronivikClient
-	db       *db.DB
-	managers map[int64]struct{}
-	bot      *tgbotapi.BotAPI
-	state    *stateStore
-	rules    BookingRules
-	logger   *zerolog.Logger
+	api        *crmapi.BronivikClient
+	apiEnabled bool
+	db         *db.DB
+	managers   map[int64]struct{}
+	bot        *tgbotapi.BotAPI
+	state      *stateStore
+	rules      BookingRules
+	logger     *zerolog.Logger
 }
 
 var errActiveLimit = errors.New("active bookings limit reached")
@@ -42,6 +43,7 @@ type BookingRules struct {
 func New(
 	token string,
 	apiClient *crmapi.BronivikClient,
+	apiEnabled bool,
 	db *db.DB,
 	managers []int64,
 	rules BookingRules,
@@ -64,7 +66,7 @@ func New(
 	if rules.MaxActivePerUser < 0 {
 		rules.MaxActivePerUser = 0
 	}
-	return &Bot{api: apiClient, db: db, managers: mgrs, bot: b, state: newStateStore(), rules: rules, logger: logger}, nil
+	return &Bot{api: apiClient, apiEnabled: apiEnabled, db: db, managers: mgrs, bot: b, state: newStateStore(), rules: rules, logger: logger}, nil
 }
 
 // Start begins polling updates and handles commands.
@@ -257,13 +259,18 @@ func (b *Bot) handleSlotCallback(ctx context.Context, chatID, userID int64, st *
 		b.sendTimeSlots(ctx, chatID, userID)
 		return
 	}
-	if b.api != nil && st.Draft.ItemName != "" {
+	if b.apiEnabled && b.api != nil && st.Draft.ItemName != "" {
 		avail, err := b.api.GetAvailability(ctx, st.Draft.ItemName, st.Draft.Date)
-		if err != nil || avail == nil || !avail.Available {
+		if err != nil {
+			b.logger.Warn().Err(err).Msg("API sync unreachable")
+			st.APIUnreachable = true
+		} else if avail == nil || !avail.Available {
 			b.reply(chatID, "Аппарат недоступен на эту дату. Выберите другой аппарат или 'Без аппарата'.")
 			st.Step = stepItem
 			b.sendItems(chatID)
 			return
+		} else {
+			st.APIUnreachable = false
 		}
 	}
 	st.Draft.TimeLabel = label
@@ -510,7 +517,7 @@ func (b *Bot) sendItems(chatID int64) {
 	rows := [][]tgbotapi.InlineKeyboardButton{
 		{tgbotapi.NewInlineKeyboardButtonData(itemNone, "item:none")},
 	}
-	if b.api != nil {
+	if b.apiEnabled && b.api != nil {
 		items, err := b.api.ListItems(context.Background())
 		if err == nil {
 			for _, it := range items {
@@ -518,9 +525,14 @@ func (b *Bot) sendItems(chatID int64) {
 					tgbotapi.NewInlineKeyboardButtonData(it.Name, fmt.Sprintf("item:%s", it.Name)),
 				})
 			}
+		} else {
+			b.logger.Warn().Err(err).Msg("failed to list items from API")
 		}
 	}
 	out := tgbotapi.NewMessage(chatID, "Выберите аппарат (или без аппарата):")
+	if b.apiEnabled && b.api != nil && len(rows) <= 1 {
+		out.Text = "⚠️ Внешняя система недоступна, список аппаратов может быть неполным.\n\n" + out.Text
+	}
 	out.ReplyMarkup = tgbotapi.InlineKeyboardMarkup{InlineKeyboard: rows}
 	_, _ = b.bot.Send(out)
 }
@@ -569,6 +581,10 @@ func (b *Bot) sendConfirm(chatID, userID int64) {
 	text := fmt.Sprintf("Проверьте данные:\n\nКабинет: %s\nАппарат: %s\nДата: %s\nВремя: %s\nКлиент: %s\nТелефон: %s\n\nПодтвердить?",
 		st.Draft.CabinetName, item, st.Draft.Date, st.Draft.TimeLabel, st.Draft.ClientName, st.Draft.ClientPhone)
 
+	if st.APIUnreachable {
+		text = "⚠️ ВНИМАНИЕ: Внешняя система синхронизации не отвечает. Расписание может быть изменено или быть неактуальным.\n\n" + text
+	}
+
 	rows := [][]tgbotapi.InlineKeyboardButton{
 		{
 			tgbotapi.NewInlineKeyboardButtonData("✅ Подтвердить", "confirm"),
@@ -611,6 +627,12 @@ func (b *Bot) finalizeBooking(ctx context.Context, cq *tgbotapi.CallbackQuery, s
 		}
 	}
 
+	// If API was unreachable, we skip strict API check in DB to allow booking with a warning
+	apiClient := b.api
+	if !b.apiEnabled || st.APIUnreachable {
+		apiClient = nil
+	}
+
 	bk := &model.HourlyBooking{
 		UserID:      u.ID,
 		CabinetID:   st.Draft.CabinetID,
@@ -623,7 +645,7 @@ func (b *Bot) finalizeBooking(ctx context.Context, cq *tgbotapi.CallbackQuery, s
 		Comment:     "",
 	}
 
-	if err := b.db.CreateHourlyBookingWithChecks(ctx, bk, b.api); err != nil {
+	if err := b.db.CreateHourlyBookingWithChecks(ctx, bk, apiClient); err != nil {
 		return err
 	}
 	metrics.IncBookingCreated(bk.Status)

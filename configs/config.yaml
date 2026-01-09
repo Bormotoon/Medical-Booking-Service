@@ -18,6 +18,7 @@ redis:
   pool_size: 10
 
 api:
+  enabled: true
   base_url: "http://grpc-api:8080"  # bronivik_jr HTTP API base inside docker-compose network
   api_key: ${CRM_API_KEY}
   api_extra: ${CRM_API_EXTRA}
