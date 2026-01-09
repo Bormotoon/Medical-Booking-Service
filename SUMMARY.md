@@ -38,7 +38,7 @@
 
 ## Следующие шаги для запуска
 
-1. Убедитесь, что установлен Go 1.24+
+1. Убедитесь, что установлен Go 1.22+
 2. Запустите: `go mod tidy`
 3. Скопируйте `.env.example` в `.env` и заполните токены
 4. Запустите тесты: `make test`
@@ -50,10 +50,12 @@
 ### Исправлены:
 - internal/bot/bot.go
 - internal/bot/calendar.go
+- cmd/bot/main.go
 - go.mod
 - Dockerfile
 - .gitignore
 - README.md
+
 
 ### Созданы:
 - Makefile
