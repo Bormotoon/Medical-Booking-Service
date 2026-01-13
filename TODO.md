@@ -183,221 +183,58 @@
 > Эпик на основе features2.md — улучшение системы напоминаний с учётом масштабирования
 
 #### 1.2.1 Доработка модели напоминаний
-- [ ] **Расширить таблицу напоминаний**
+- [x] **Расширить таблицу напоминаний** ✅ (13.01.2026)
   - Описание: Добавить поля для гибкого управления и отслеживания статуса.
-  - Новые/обновлённые поля:
-    ```sql
-    ALTER TABLE reminders ADD COLUMN IF NOT EXISTS enabled BOOLEAN DEFAULT true;
-    ALTER TABLE reminders ADD COLUMN IF NOT EXISTS sent_at TIMESTAMP NULL;
-    ALTER TABLE reminders ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'pending';
-    ALTER TABLE reminders ADD COLUMN IF NOT EXISTS scheduled_at TIMESTAMP NOT NULL;
-    ALTER TABLE reminders ADD COLUMN IF NOT EXISTS reminder_type VARCHAR(50) NOT NULL;
-    ALTER TABLE reminders ADD COLUMN IF NOT EXISTS retry_count INTEGER DEFAULT 0;
-    ALTER TABLE reminders ADD COLUMN IF NOT EXISTS last_error TEXT NULL;
-    ```
-  - Статусы: `pending`, `scheduled`, `sent`, `failed`, `cancelled`
-  - Типы напоминаний: `24h_before`, `day_of_booking`, `custom`
-  - Рекомендации:
-    - Добавить уникальный индекс: `UNIQUE(user_id, booking_id, reminder_type)`
-    - Добавить индекс для выборки: `CREATE INDEX idx_reminders_scheduled ON reminders(scheduled_at, status, enabled)`
-  - Файлы для изменения:
-    - `bronivik_jr/internal/models/` — добавить reminder model
-    - `bronivik_crm/internal/model/` — добавить reminder model
-    - `shared/reminders/interfaces.go` — обновить интерфейсы
+  - Реализовано в `shared/reminders/interfaces.go`:
+    - Модель `Reminder` с полями: ID, UserID, BookingID, ReminderType, ScheduledAt, SentAt, Status, Enabled, RetryCount, LastError
+    - Типы напоминаний: `24h_before`, `day_of_booking`, `custom`
+    - Статусы: `pending`, `scheduled`, `processing`, `sent`, `failed`, `cancelled`
+    - Интерфейс `ReminderRepository` с методами CRUD и фильтрации
 
 #### 1.2.2 Cron-задача ежедневной отправки в 12:00
-- [ ] **Реализовать планировщик "ежедневный проход в 12:00"**
-  - Описание: Выбирать и отправлять напоминания в заданное время.
-  - Логика выборки:
-    ```go
-    func (s *ReminderService) GetPendingReminders(ctx context.Context) ([]Reminder, error) {
-        return s.repo.FindReminders(ctx, ReminderFilter{
-            Enabled:          true,
-            Status:           []string{"pending", "scheduled"},
-            ScheduledAtBefore: time.Now(),
-        })
-    }
-    ```
-  - Варианты реализации планировщика:
-    - **A) Встроенный scheduler (Go):**
-      ```go
-      // В cmd/bot/main.go или отдельном worker
-      ticker := time.NewTicker(1 * time.Minute)
-      for range ticker.C {
-          now := time.Now().In(moscowTZ)
-          if now.Hour() == 12 && now.Minute() == 0 {
-              reminderService.ProcessDailyReminders(ctx)
-          }
-      }
-      ```
-    - **B) Отдельный контейнер worker:**
-      ```yaml
-      # docker-compose.yml
-      reminder-worker:
-        image: bronivik-jr:latest
-        command: ["./app", "worker", "--job=reminders"]
-        environment:
-          - CRON_SCHEDULE=0 12 * * *
-      ```
-    - **C) Системный cron на хосте:**
-      ```cron
-      0 12 * * * docker exec bronivik-jr-bot /app/app send-reminders
-      ```
-  - Рекомендации:
-    - Для production рекомендуется вариант B (отдельный worker)
-    - Логировать время старта и завершения задачи
-    - Добавить healthcheck endpoint для воркера
-  - Файлы для создания/изменения:
-    - `shared/reminders/scheduler.go` — основная логика
-    - `bronivik_jr/cmd/worker/main.go` — точка входа worker
-    - `bronivik_crm/cmd/worker/main.go` — точка входа worker
+- [x] **Реализовать планировщик "ежедневный проход в 12:00"** ✅ (13.01.2026)
+  - Реализовано в `shared/reminders/scheduler.go`:
+    - `Scheduler` с настраиваемым временем запуска (по умолчанию 12:00 МСК)
+    - Поддержка таймзон через `time.Location`
+    - Метод `RunNow()` для ручного запуска
+    - Автоматическая очистка старых напоминаний после обработки
 
 #### 1.2.3 Rate Limiter для отправки
-- [ ] **Реализовать ограничение скорости отправки**
-  - Описание: Предотвратить бан бота за флуд при массовой рассылке.
-  - Реализация простого rate limiter:
-    ```go
-    type RateLimiter struct {
-        rate     float64       // сообщений в секунду
-        burst    int           // максимальный burst
-        tokens   float64
-        lastTime time.Time
-        mu       sync.Mutex
-    }
-    
-    func NewRateLimiter(rate float64, burst int) *RateLimiter {
-        return &RateLimiter{
-            rate:     rate,
-            burst:    burst,
-            tokens:   float64(burst),
-            lastTime: time.Now(),
-        }
-    }
-    
-    func (r *RateLimiter) Wait(ctx context.Context) error {
-        r.mu.Lock()
-        defer r.mu.Unlock()
-        
-        now := time.Now()
-        elapsed := now.Sub(r.lastTime).Seconds()
-        r.tokens = math.Min(float64(r.burst), r.tokens+elapsed*r.rate)
-        r.lastTime = now
-        
-        if r.tokens < 1 {
-            waitTime := time.Duration((1-r.tokens)/r.rate) * time.Second
-            r.mu.Unlock()
-            select {
-            case <-time.After(waitTime):
-            case <-ctx.Done():
-                return ctx.Err()
-            }
-            r.mu.Lock()
-            r.tokens = 0
-        } else {
-            r.tokens--
-        }
-        return nil
-    }
-    ```
-  - Параметры по умолчанию:
-    - `RATE_LIMIT_PER_SECOND=20`
-    - `RATE_LIMIT_BURST=30`
-    - `JITTER_MS=50-150` (случайная задержка)
-  - Продвинутый вариант (с очередью):
-    - Использовать Redis как очередь задач
-    - Worker читает из очереди с rate limiting
-  - Файлы для создания:
-    - `shared/reminders/ratelimit.go` — rate limiter
-    - `shared/reminders/sender.go` — отправщик с лимитами
+- [x] **Реализовать ограничение скорости отправки** ✅ (13.01.2026)
+  - Реализовано в `shared/reminders/ratelimit.go`:
+    - Token bucket алгоритм с jitter
+    - Параметры: 20 msg/sec, burst 30, jitter 50-150ms
+    - Методы: `Wait()`, `TryAcquire()`, `Available()`
 
 #### 1.2.4 Retry и обработка ошибок
-- [ ] **Реализовать механизм повторных попыток**
-  - Описание: Обрабатывать ошибки Telegram API с exponential backoff.
-  - Логика retry:
-    ```go
-    func (s *ReminderSender) SendWithRetry(ctx context.Context, r Reminder) error {
-        delays := []time.Duration{1*time.Second, 5*time.Second, 30*time.Second}
-        maxRetries := len(delays)
-        
-        for attempt := 0; attempt <= maxRetries; attempt++ {
-            err := s.send(ctx, r)
-            if err == nil {
-                return s.markAsSent(ctx, r.ID)
-            }
-            
-            // Проверяем тип ошибки
-            if tgErr, ok := err.(*telegram.Error); ok {
-                if tgErr.Code == 429 { // Too Many Requests
-                    retryAfter := tgErr.RetryAfter
-                    if retryAfter == 0 {
-                        retryAfter = int(delays[attempt].Seconds())
-                    }
-                    time.Sleep(time.Duration(retryAfter) * time.Second)
-                    continue
-                }
-                if tgErr.Code == 403 { // Bot blocked by user
-                    return s.markAsFailed(ctx, r.ID, "user_blocked")
-                }
-            }
-            
-            if attempt < maxRetries {
-                time.Sleep(delays[attempt])
-            }
-        }
-        
-        return s.markAsFailed(ctx, r.ID, "max_retries_exceeded")
-    }
-    ```
-  - Константы:
-    - `MAX_RETRIES=3`
-    - `RETRY_DELAYS=[1s, 5s, 30s]`
-  - Обработка специфичных ошибок:
-    - 403 Forbidden → пользователь заблокировал бота → не повторять
-    - 400 Bad Request → невалидные данные → не повторять
-    - 429 Too Many Requests → ждать Retry-After
-    - 5xx → повторить с backoff
+- [x] **Реализовать механизм повторных попыток** ✅ (13.01.2026)
+  - Реализовано в `shared/reminders/sender.go`:
+    - `ReminderSender` с exponential backoff (1s, 5s, 30s)
+    - Обработка Telegram ошибок: 429 (rate limit), 403 (blocked), 400 (bad request)
+    - Автоматическая пометка как `failed` после исчерпания попыток
 
 #### 1.2.5 Идемпотентность и дедупликация
-- [ ] **Гарантировать отсутствие дублей**
-  - Описание: Повторный запуск cron не должен отправлять напоминания повторно.
-  - Механизм:
-    1. Уникальный ключ: `(user_id, booking_id, reminder_type)`
-    2. Статус `sent` блокирует повторную отправку
-    3. Транзакционное обновление статуса перед отправкой
-  - Реализация:
-    ```go
-    func (s *ReminderService) ProcessReminder(ctx context.Context, r Reminder) error {
-        // Атомарно забираем напоминание на обработку
-        acquired, err := s.repo.TryAcquireReminder(ctx, r.ID)
-        if err != nil || !acquired {
-            return err // Уже обрабатывается другим воркером
-        }
-        defer s.repo.ReleaseReminder(ctx, r.ID)
-        
-        return s.sender.SendWithRetry(ctx, r)
-    }
-    ```
-  - SQL для atomic acquire:
-    ```sql
-    UPDATE reminders 
-    SET status = 'processing', updated_at = NOW()
-    WHERE id = $1 AND status IN ('pending', 'scheduled')
-    RETURNING id;
-    ```
+- [x] **Гарантировать отсутствие дублей** ✅ (13.01.2026)
+  - Реализовано:
+    - Уникальный ключ `(user_id, booking_id, reminder_type)` в интерфейсе `ReminderRepository`
+    - Метод `TryAcquireReminder()` для атомарного захвата
+    - Статус `processing` блокирует параллельную обработку
 
 #### 1.2.6 Очистка таблицы напоминаний
-- [ ] **Реализовать ежедневную очистку старых записей**
-  - Описание: Удалять обработанные напоминания старше 1 дня.
-  - Правила:
-    - Удалять записи со статусом `sent` старше 24 часов
-    - Удалять записи со статусом `failed` после 3 дней (для аудита)
-    - Не удалять записи со статусом `pending`/`scheduled`
-  - Реализация:
-    ```go
-    func (s *ReminderService) CleanupOldReminders(ctx context.Context) (int64, error) {
-        return s.repo.DeleteReminders(ctx, ReminderFilter{
-            Status:          []string{"sent"},
-            SentBefore:      time.Now().Add(-24 * time.Hour),
+- [x] **Реализовать ежедневную очистку старых записей** ✅ (13.01.2026)
+  - Реализовано в `shared/reminders/scheduler.go`:
+    - `cleanupOldReminders()` вызывается после основной рассылки
+    - Удаление `sent` старше 1 дня, `failed` старше 3 дней
+    - Конфигурируемый retention период
+
+#### 1.2.7 Метрики и логирование
+- [x] **Добавить observability для напоминаний** ✅ (13.01.2026)
+  - Реализовано в `shared/reminders/metrics.go`:
+    - `reminders_sent_total` — счётчик отправленных (по статусу и типу)
+    - `reminders_queue_size` — текущий размер очереди
+    - `reminder_send_duration_seconds` — гистограмма времени отправки
+    - `reminders_cleaned_up_total` — счётчик очищенных
+    - `reminder_retries_total` — счётчик повторных попыток
         })
     }
     ```
