@@ -12,31 +12,31 @@ import (
 type State string
 
 const (
-	StateIdle           State = "idle"
-	StateAskName        State = "ask_name"
-	StateAskDate        State = "ask_date"
-	StateAskStartTime   State = "ask_start_time"
-	StateAskDuration    State = "ask_duration"
-	StateAskDevice      State = "ask_device"
-	StateConfirm        State = "confirm"
-	StateComplete       State = "complete"
-	StateCanceled       State = "canceled"
+	StateIdle         State = "idle"
+	StateAskName      State = "ask_name"
+	StateAskDate      State = "ask_date"
+	StateAskStartTime State = "ask_start_time"
+	StateAskDuration  State = "ask_duration"
+	StateAskDevice    State = "ask_device"
+	StateConfirm      State = "confirm"
+	StateComplete     State = "complete"
+	StateCanceled     State = "canceled"
 )
 
 // BookingData holds the data collected during booking dialog.
 type BookingData struct {
-	UserID       int64
-	CabinetID    int64
-	ClientName   string
-	ClientPhone  string
-	Date         time.Time
-	StartTime    time.Time
-	EndTime      time.Time
-	Duration     int // minutes
-	DeviceID     int64
-	DeviceName   string
-	Comment      string
-	CreatedAt    time.Time
+	UserID      int64
+	CabinetID   int64
+	ClientName  string
+	ClientPhone string
+	Date        time.Time
+	StartTime   time.Time
+	EndTime     time.Time
+	Duration    int // minutes
+	DeviceID    int64
+	DeviceName  string
+	Comment     string
+	CreatedAt   time.Time
 }
 
 // Session represents a booking dialog session.
@@ -200,20 +200,20 @@ func (f *FSM) CanTransition(from, to State) bool {
 
 // TransitionResult contains the result of processing input.
 type TransitionResult struct {
-	NewState    State
-	Message     string
-	Keyboard    interface{} // Telegram keyboard markup
-	Error       error
+	NewState State
+	Message  string
+	Keyboard interface{} // Telegram keyboard markup
+	Error    error
 }
 
 // Handler processes user input and manages transitions.
 type Handler interface {
 	// HandleInput processes user input and returns transition result.
 	HandleInput(ctx context.Context, session *Session, input string) TransitionResult
-	
+
 	// GetPrompt returns the prompt for current state.
 	GetPrompt(state State, data *BookingData) string
-	
+
 	// GetKeyboard returns keyboard for current state.
 	GetKeyboard(ctx context.Context, state State, data *BookingData) interface{}
 }

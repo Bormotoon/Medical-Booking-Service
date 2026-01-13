@@ -47,21 +47,21 @@ type UserRepository interface {
 
 // BookingFilter for filtering bookings.
 type BookingFilter struct {
-	Status     string
-	DateFrom   time.Time
-	DateTo     time.Time
-	UserID     int64
-	CabinetID  int64
-	Limit      int
-	Offset     int
+	Status    string
+	DateFrom  time.Time
+	DateTo    time.Time
+	UserID    int64
+	CabinetID int64
+	Limit     int
+	Offset    int
 }
 
 // Service provides manager operations.
 type Service struct {
-	bookings     BookingRepository
-	devices      DeviceClient
+	bookings      BookingRepository
+	devices       DeviceClient
 	notifications NotificationSender
-	users        UserRepository
+	users         UserRepository
 }
 
 // NewService creates a new manager service.
@@ -72,10 +72,10 @@ func NewService(
 	users UserRepository,
 ) *Service {
 	return &Service{
-		bookings:     bookings,
-		devices:      devices,
+		bookings:      bookings,
+		devices:       devices,
 		notifications: notifications,
-		users:        users,
+		users:         users,
 	}
 }
 
