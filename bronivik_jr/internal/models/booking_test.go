@@ -13,8 +13,8 @@ func day(year int, month time.Month, d int) time.Time {
 }
 
 // Helper function to create a pointer to time
-func dayPtr(year int, month time.Month, d int) *time.Time {
-	t := day(year, month, d)
+func dayPtr(month time.Month, d int) *time.Time {
+	t := day(2026, month, d)
 	return &t
 }
 
@@ -36,7 +36,7 @@ func TestBooking_GetEffectiveEndTime(t *testing.T) {
 			name: "non-nil end_time returns end_time",
 			booking: Booking{
 				Date:    day(2026, 1, 15),
-				EndTime: dayPtr(2026, 1, 20),
+				EndTime: dayPtr(1, 20),
 			},
 			expected: day(2026, 1, 20),
 		},
@@ -68,7 +68,7 @@ func TestBooking_IsRangeBooking(t *testing.T) {
 			name: "end_time equals date is not range",
 			booking: Booking{
 				Date:    day(2026, 1, 15),
-				EndTime: dayPtr(2026, 1, 15),
+				EndTime: dayPtr(1, 15),
 			},
 			expected: false,
 		},
@@ -76,7 +76,7 @@ func TestBooking_IsRangeBooking(t *testing.T) {
 			name: "end_time after date is range",
 			booking: Booking{
 				Date:    day(2026, 1, 15),
-				EndTime: dayPtr(2026, 1, 20),
+				EndTime: dayPtr(1, 20),
 			},
 			expected: true,
 		},
@@ -101,11 +101,11 @@ func TestBooking_OverlapsWith(t *testing.T) {
 			name: "no overlap - request before existing",
 			existing: Booking{
 				Date:    day(2026, 1, 15),
-				EndTime: dayPtr(2026, 1, 20),
+				EndTime: dayPtr(1, 20),
 			},
 			request: Booking{
 				Date:    day(2026, 1, 10),
-				EndTime: dayPtr(2026, 1, 14),
+				EndTime: dayPtr(1, 14),
 			},
 			overlap: false,
 		},
@@ -113,11 +113,11 @@ func TestBooking_OverlapsWith(t *testing.T) {
 			name: "no overlap - request after existing",
 			existing: Booking{
 				Date:    day(2026, 1, 15),
-				EndTime: dayPtr(2026, 1, 20),
+				EndTime: dayPtr(1, 20),
 			},
 			request: Booking{
 				Date:    day(2026, 1, 21),
-				EndTime: dayPtr(2026, 1, 25),
+				EndTime: dayPtr(1, 25),
 			},
 			overlap: false,
 		},
@@ -125,11 +125,11 @@ func TestBooking_OverlapsWith(t *testing.T) {
 			name: "overlap - request starts before, ends during",
 			existing: Booking{
 				Date:    day(2026, 1, 15),
-				EndTime: dayPtr(2026, 1, 20),
+				EndTime: dayPtr(1, 20),
 			},
 			request: Booking{
 				Date:    day(2026, 1, 13),
-				EndTime: dayPtr(2026, 1, 16),
+				EndTime: dayPtr(1, 16),
 			},
 			overlap: true,
 		},
@@ -137,11 +137,11 @@ func TestBooking_OverlapsWith(t *testing.T) {
 			name: "overlap - request starts during, ends after",
 			existing: Booking{
 				Date:    day(2026, 1, 15),
-				EndTime: dayPtr(2026, 1, 20),
+				EndTime: dayPtr(1, 20),
 			},
 			request: Booking{
 				Date:    day(2026, 1, 19),
-				EndTime: dayPtr(2026, 1, 25),
+				EndTime: dayPtr(1, 25),
 			},
 			overlap: true,
 		},
@@ -149,11 +149,11 @@ func TestBooking_OverlapsWith(t *testing.T) {
 			name: "overlap - request contained within existing",
 			existing: Booking{
 				Date:    day(2026, 1, 15),
-				EndTime: dayPtr(2026, 1, 20),
+				EndTime: dayPtr(1, 20),
 			},
 			request: Booking{
 				Date:    day(2026, 1, 16),
-				EndTime: dayPtr(2026, 1, 18),
+				EndTime: dayPtr(1, 18),
 			},
 			overlap: true,
 		},
@@ -161,11 +161,11 @@ func TestBooking_OverlapsWith(t *testing.T) {
 			name: "overlap - request contains existing",
 			existing: Booking{
 				Date:    day(2026, 1, 15),
-				EndTime: dayPtr(2026, 1, 20),
+				EndTime: dayPtr(1, 20),
 			},
 			request: Booking{
 				Date:    day(2026, 1, 10),
-				EndTime: dayPtr(2026, 1, 25),
+				EndTime: dayPtr(1, 25),
 			},
 			overlap: true,
 		},
@@ -173,11 +173,11 @@ func TestBooking_OverlapsWith(t *testing.T) {
 			name: "edge case - adjacent dates (no overlap with inclusive boundaries)",
 			existing: Booking{
 				Date:    day(2026, 1, 15),
-				EndTime: dayPtr(2026, 1, 20),
+				EndTime: dayPtr(1, 20),
 			},
 			request: Booking{
 				Date:    day(2026, 1, 20),
-				EndTime: dayPtr(2026, 1, 25),
+				EndTime: dayPtr(1, 25),
 			},
 			overlap: true, // 20th is included in both - overlap
 		},
@@ -185,11 +185,11 @@ func TestBooking_OverlapsWith(t *testing.T) {
 			name: "edge case - day after existing ends",
 			existing: Booking{
 				Date:    day(2026, 1, 15),
-				EndTime: dayPtr(2026, 1, 20),
+				EndTime: dayPtr(1, 20),
 			},
 			request: Booking{
 				Date:    day(2026, 1, 21),
-				EndTime: dayPtr(2026, 1, 25),
+				EndTime: dayPtr(1, 25),
 			},
 			overlap: false,
 		},
@@ -201,7 +201,7 @@ func TestBooking_OverlapsWith(t *testing.T) {
 			},
 			request: Booking{
 				Date:    day(2026, 1, 15),
-				EndTime: dayPtr(2026, 1, 15),
+				EndTime: dayPtr(1, 15),
 			},
 			overlap: true,
 		},
@@ -213,7 +213,7 @@ func TestBooking_OverlapsWith(t *testing.T) {
 			},
 			request: Booking{
 				Date:    day(2026, 1, 16),
-				EndTime: dayPtr(2026, 1, 20),
+				EndTime: dayPtr(1, 20),
 			},
 			overlap: false,
 		},
@@ -245,11 +245,11 @@ func TestBooking_OverlapsWith(t *testing.T) {
 			name: "exact same range",
 			existing: Booking{
 				Date:    day(2026, 1, 15),
-				EndTime: dayPtr(2026, 1, 20),
+				EndTime: dayPtr(1, 20),
 			},
 			request: Booking{
 				Date:    day(2026, 1, 15),
-				EndTime: dayPtr(2026, 1, 20),
+				EndTime: dayPtr(1, 20),
 			},
 			overlap: true,
 		},
@@ -296,7 +296,7 @@ func TestBooking_ContainsDate(t *testing.T) {
 			name: "range booking - date at start",
 			booking: Booking{
 				Date:    day(2026, 1, 15),
-				EndTime: dayPtr(2026, 1, 20),
+				EndTime: dayPtr(1, 20),
 			},
 			date:     day(2026, 1, 15),
 			contains: true,
@@ -305,7 +305,7 @@ func TestBooking_ContainsDate(t *testing.T) {
 			name: "range booking - date at end",
 			booking: Booking{
 				Date:    day(2026, 1, 15),
-				EndTime: dayPtr(2026, 1, 20),
+				EndTime: dayPtr(1, 20),
 			},
 			date:     day(2026, 1, 20),
 			contains: true,
@@ -314,7 +314,7 @@ func TestBooking_ContainsDate(t *testing.T) {
 			name: "range booking - date in middle",
 			booking: Booking{
 				Date:    day(2026, 1, 15),
-				EndTime: dayPtr(2026, 1, 20),
+				EndTime: dayPtr(1, 20),
 			},
 			date:     day(2026, 1, 17),
 			contains: true,
@@ -323,7 +323,7 @@ func TestBooking_ContainsDate(t *testing.T) {
 			name: "range booking - date before",
 			booking: Booking{
 				Date:    day(2026, 1, 15),
-				EndTime: dayPtr(2026, 1, 20),
+				EndTime: dayPtr(1, 20),
 			},
 			date:     day(2026, 1, 14),
 			contains: false,
@@ -332,7 +332,7 @@ func TestBooking_ContainsDate(t *testing.T) {
 			name: "range booking - date after",
 			booking: Booking{
 				Date:    day(2026, 1, 15),
-				EndTime: dayPtr(2026, 1, 20),
+				EndTime: dayPtr(1, 20),
 			},
 			date:     day(2026, 1, 21),
 			contains: false,

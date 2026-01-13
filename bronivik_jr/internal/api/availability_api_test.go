@@ -132,7 +132,7 @@ func TestHandleItemsAvailability_MethodNotAllowed(t *testing.T) {
 	srv := setupTestServer(t)
 	defer srv.Close()
 
-	req := httptest.NewRequest(http.MethodGet, "/api/items/availability", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/items/availability", http.NoBody)
 	req.Header.Set("X-Api-Key", testAPIKey)
 
 	w := httptest.NewRecorder()
