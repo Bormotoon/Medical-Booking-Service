@@ -621,7 +621,8 @@ func (db *DB) CountActiveUserBookings(ctx context.Context, userID int64) (count 
 
 // CheckSlotAvailability verifies if a time slot is free for a cabinet on a date.
 func (db *DB) CheckSlotAvailability(ctx context.Context, cabinetID int64, date, start, end time.Time) (available bool, err error) {
-	tx, err := db.BeginTx(ctx, nil)
+	var tx *sql.Tx
+	tx, err = db.BeginTx(ctx, nil)
 	if err != nil {
 		return false, err
 	}
@@ -659,7 +660,8 @@ func (db *DB) GetAvailableSlots(ctx context.Context, cabinetID int64, date time.
 		cursor.Add(time.Duration(slotDuration)*time.Minute).Equal(endWin); cursor = cursor.Add(time.Duration(slotDuration) * time.Minute) {
 		s := cursor
 		e := cursor.Add(time.Duration(slotDuration) * time.Minute)
-		ok, err := checkSlotAvailabilityTx(ctx, tx, cabinetID, date, s, e)
+		var ok bool
+		ok, err = checkSlotAvailabilityTx(ctx, tx, cabinetID, date, s, e)
 		if err != nil {
 			return nil, err
 		}

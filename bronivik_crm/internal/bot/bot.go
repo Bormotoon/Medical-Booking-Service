@@ -803,15 +803,16 @@ func (b *Bot) finalizeBooking(ctx context.Context, cq *tgbotapi.CallbackQuery, s
 	if err != nil {
 		return err
 	}
-	start, end, err := parseTimeLabel(date, st.Draft.TimeLabel)
-	if err != nil {
+	var start, end time.Time
+	if start, end, err = parseTimeLabel(date, st.Draft.TimeLabel); err != nil {
 		return err
 	}
-	if err := b.validateBookingTime(start); err != nil {
+	if err = b.validateBookingTime(start); err != nil {
 		return err
 	}
 	if b.rules.MaxActivePerUser > 0 {
-		count, err := b.db.CountActiveUserBookings(ctx, u.ID)
+		var count int
+		count, err = b.db.CountActiveUserBookings(ctx, u.ID)
 		if err != nil {
 			return err
 		}

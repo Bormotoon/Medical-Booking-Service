@@ -36,7 +36,8 @@ func (db *DB) GetTableData(ctx context.Context, tableName string) (data []map[st
 	}
 
 	// Get column names
-	rows, err := db.QueryContext(ctx, fmt.Sprintf("PRAGMA table_info(%s)", tableName))
+	var rows *sql.Rows
+	rows, err = db.QueryContext(ctx, fmt.Sprintf("PRAGMA table_info(%s)", tableName))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -46,7 +47,7 @@ func (db *DB) GetTableData(ctx context.Context, tableName string) (data []map[st
 		var name, typeName string
 		var notNull, pk int
 		var dfltValue sql.NullString
-		if err := rows.Scan(&cid, &name, &typeName, &notNull, &dfltValue, &pk); err != nil {
+		if err = rows.Scan(&cid, &name, &typeName, &notNull, &dfltValue, &pk); err != nil {
 			rows.Close()
 			return nil, nil, err
 		}
@@ -59,7 +60,8 @@ func (db *DB) GetTableData(ctx context.Context, tableName string) (data []map[st
 	}
 
 	// Get data
-	dataRows, err := db.QueryContext(ctx, fmt.Sprintf("SELECT * FROM %s", tableName))
+	var dataRows *sql.Rows
+	dataRows, err = db.QueryContext(ctx, fmt.Sprintf("SELECT * FROM %s", tableName))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -72,7 +74,8 @@ func (db *DB) GetTableData(ctx context.Context, tableName string) (data []map[st
 			valuePtrs[i] = &values[i]
 		}
 
-		if err := dataRows.Scan(valuePtrs...); err != nil {
+		err = dataRows.Scan(valuePtrs...)
+		if err != nil {
 			return nil, nil, err
 		}
 
