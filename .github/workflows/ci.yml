@@ -189,6 +189,10 @@ jobs:
     name: Security Scan
     runs-on: ubuntu-latest
     needs: lint
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -211,11 +215,17 @@ jobs:
           output: 'trivy-crm-results.sarif'
           severity: 'CRITICAL,HIGH'
 
-      - name: Upload Trivy scan results
+      - name: Upload Trivy scan results (bronivik_jr)
         uses: github/codeql-action/upload-sarif@v3
         if: always()
         with:
           sarif_file: 'trivy-jr-results.sarif'
+
+      - name: Upload Trivy scan results (bronivik_crm)
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-crm-results.sarif'
 
   # ===========================================================================
   # Deploy - Deploy to production (manual trigger)
