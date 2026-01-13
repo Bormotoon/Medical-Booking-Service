@@ -1,0 +1,37 @@
+services:
+  crm-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bronivik-crm-bot
+    restart: "on-failure"
+    env_file:
+      - .env
+    environment:
+      - TZ=Europe/Moscow
+      - CRM_CONFIG_PATH=/app/configs/config.yaml
+    volumes:
+      - ./configs:/app/configs
+      - ./data:/app/data
+      - ./logs:/app/logs
+    ports:
+      - "8090:8090"  # Health check port
+      - "9090:9090"  # Prometheus metrics (if enabled)
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  redis:
+    image: redis:7-alpine
+    container_name: bronivik-crm-redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --save 60 1 --loglevel warning
+
+volumes:
+  redis_data:

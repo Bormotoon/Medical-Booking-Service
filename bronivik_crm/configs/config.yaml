@@ -1,0 +1,51 @@
+app:
+  name: "bronivik-crm"
+  environment: "staging"
+  version: "1.0.0"
+
+telegram:
+  bot_token: "YOUR_BOT_TOKEN_HERE"
+  webhook_url: ""
+  debug: false
+
+database:
+  path: "data/bronivik_crm.db"
+
+backup:
+  enabled: true
+  interval_hours: 24
+  path: "backups"
+  retention_days: 14
+
+redis:
+  address: "redis:6379"
+  password: ""
+  db: 0
+  pool_size: 10
+
+api:
+  enabled: true
+  base_url: "http://grpc-api:8080"  # bronivik_jr HTTP API base inside docker-compose network
+  api_key: ${CRM_API_KEY}
+  api_extra: ${CRM_API_EXTRA}
+  cache_ttl_seconds: 300
+
+booking:
+  min_advance_minutes: 60
+  max_advance_days: 30
+  max_active_per_user: 0   # 0 = без лимита
+
+managers:
+  - 123456789
+
+logging:
+  level: "info"
+  format: "text"
+  output: "stdout"
+  file_path: ""
+
+monitoring:
+  prometheus_enabled: false
+  prometheus_port: 9090
+  health_check_port: 8090
+  log_level: "info"
