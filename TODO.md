@@ -683,106 +683,28 @@
   - Хранилище сессий, переходы состояний
 
 #### 5.1.2 Тесты пересечения диапазонов
-- [ ] **Тесты для диапазонных бронирований**
-  - Описание: Проверка корректности определения пересечений.
-  - Тест-кейсы:
-    ```go
-    func TestBookingOverlap(t *testing.T) {
-        tests := []struct {
-            name     string
-            existing Booking  // существующее бронирование
-            request  Booking  // новый запрос
-            overlap  bool     // ожидаемый результат
-        }{
-            {
-                name:     "no overlap - before",
-                existing: Booking{StartTime: day(15), EndTime: day(20)},
-                request:  Booking{StartTime: day(10), EndTime: day(14)},
-                overlap:  false,
-            },
-            {
-                name:     "no overlap - after",
-                existing: Booking{StartTime: day(15), EndTime: day(20)},
-                request:  Booking{StartTime: day(21), EndTime: day(25)},
-                overlap:  false,
-            },
-            {
-                name:     "overlap - partial start",
-                existing: Booking{StartTime: day(15), EndTime: day(20)},
-                request:  Booking{StartTime: day(13), EndTime: day(16)},
-                overlap:  true,
-            },
-            {
-                name:     "overlap - partial end",
-                existing: Booking{StartTime: day(15), EndTime: day(20)},
-                request:  Booking{StartTime: day(19), EndTime: day(25)},
-                overlap:  true,
-            },
-            {
-                name:     "overlap - contained",
-                existing: Booking{StartTime: day(15), EndTime: day(20)},
-                request:  Booking{StartTime: day(16), EndTime: day(18)},
-                overlap:  true,
-            },
-            {
-                name:     "overlap - containing",
-                existing: Booking{StartTime: day(15), EndTime: day(20)},
-                request:  Booking{StartTime: day(10), EndTime: day(25)},
-                overlap:  true,
-            },
-            {
-                name:     "edge case - adjacent (no overlap)",
-                existing: Booking{StartTime: day(15), EndTime: day(20)},
-                request:  Booking{StartTime: day(20), EndTime: day(25)},
-                overlap:  false, // если границы исключающие
-            },
-            {
-                name:     "null end_time treated as start_time",
-                existing: Booking{StartTime: day(15), EndTime: nil},
-                request:  Booking{StartTime: day(15), EndTime: day(15)},
-                overlap:  true,
-            },
-        }
-        
-        for _, tt := range tests {
-            t.Run(tt.name, func(t *testing.T) {
-                result := tt.existing.OverlapsWith(&tt.request)
-                assert.Equal(t, tt.overlap, result)
-            })
-        }
-    }
-    ```
-  - Файлы для создания:
-    - `bronivik_jr/internal/models/booking_test.go`
-    - `bronivik_crm/internal/model/booking_test.go`
+- [x] **Тесты для диапазонных бронирований** ✅ (13.01.2026)
+  - Создан `bronivik_jr/internal/models/booking_test.go`:
+    - TestBooking_GetEffectiveEndTime
+    - TestBooking_IsRangeBooking
+    - TestBooking_OverlapsWith (14 тест-кейсов)
+    - TestBooking_ContainsDate
+  - Создан `bronivik_crm/internal/model/hourly_booking_test.go`:
+    - TestHourlyBooking_Duration
+    - TestHourlyBooking_SlotCount
+    - TestHourlyBooking_IsRangeBooking
+    - TestHourlyBooking_OverlapsWith
+    - TestHourlyBooking_ContainsTime
+    - TestHourlyBooking_ContainsDate
 
 #### 5.1.3 Тесты дедупликации напоминаний
-- [ ] **Тесты идемпотентности отправки**
-  - Описание: Проверка, что напоминания не дублируются.
-  - Тест-кейсы:
-    ```go
-    func TestReminderDeduplication(t *testing.T) {
-        store := NewInMemoryReminderStore()
-        sender := NewMockSender()
-        service := NewReminderService(store, sender)
-        
-        reminder := Reminder{
-            UserID:       123,
-            BookingID:    456,
-            ReminderType: "24h_before",
-        }
-        
-        // Первая отправка
-        err := service.ProcessReminder(context.Background(), reminder)
-        assert.NoError(t, err)
-        assert.Equal(t, 1, sender.SendCount())
-        
-        // Повторная отправка — должна быть пропущена
-        err = service.ProcessReminder(context.Background(), reminder)
-        assert.NoError(t, err)
-        assert.Equal(t, 1, sender.SendCount()) // счётчик не изменился
-    }
-    ```
+- [x] **Тесты идемпотентности отправки** ✅ (13.01.2026)
+  - Создан `shared/reminders/reminders_test.go`:
+    - MockReminderRepository — полная реализация интерфейса
+    - TestReminderDeduplication — проверка уникальности (user_id, booking_id, type)
+    - TestTryAcquireReminder — тест атомарного захвата
+    - TestDeleteOldReminders — тест очистки старых записей
+    - TestGetPending — тест выборки ожидающих напоминаний
 
 ### 5.2 Интеграционные тесты
 
