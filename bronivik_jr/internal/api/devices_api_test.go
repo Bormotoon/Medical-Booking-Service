@@ -291,7 +291,6 @@ func TestHealthEndpoints(t *testing.T) {
 
 	for _, endpoint := range endpoints {
 		t.Run(endpoint, func(t *testing.T) {
-			req := httptest.NewRequest("GET", endpoint, nil)
 			w := httptest.NewRecorder()
 
 			// Simulate health check response
