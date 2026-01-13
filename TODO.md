@@ -189,25 +189,25 @@
 ### 3.1 Гибкое управление расписанием
 
 #### 3.1.1 Расписание по умолчанию
-- [ ] **Создать таблицу `default_schedule`**
-  - Поля: `day_of_week` (0-6), `start_time`, `end_time`, `lunch_start`, `lunch_end`.
-  - Значения по умолчанию: 10:00–22:00, обед отсутствует.
+- [x] **Создать таблицу `default_schedule`** ✅ (13.01.2026)
+  - Уже реализовано в cabinet_schedules с полями: day_of_week, start_time, end_time, lunch_start, lunch_end.
+  - Значения по умолчанию: 10:00–22:00, slot_duration=30 мин.
+  - Реализовано: db/schedule.go — DefaultScheduleConfig, EnsureDefaultSchedules().
 
 #### 3.1.2 Особое расписание на конкретные даты
-- [ ] **Создать таблицу `special_schedule`**
-  - Поля: `date`, `start_time`, `end_time`, `lunch_start`, `lunch_end`, `is_day_off` (bool).
-- [ ] **Реализовать функцию получения расписания на дату**
-  - Логика: Сначала проверить `special_schedule`, затем `default_schedule`.
+- [x] **Создать таблицу `special_schedule`** ✅ (13.01.2026)
+  - Уже реализовано в cabinet_schedule_overrides с полями: date, is_closed, start_time, end_time, lunch_start, lunch_end, reason.
+- [x] **Реализовать функцию получения расписания на дату** ✅ (13.01.2026)
+  - Логика: Сначала проверить override, затем cabinet_schedules.
+  - Реализовано: db/schedule.go — GetScheduleForDate(), GetScheduleByDay(), GetScheduleOverride().
 
 #### 3.1.3 Команды менеджера для управления расписанием
-- [ ] **Изменение дефолтного расписания**
-  - Команда: `/set_default_schedule` → диалог с выбором дня недели, времени начала/конца, обеда.
-- [ ] **Установка особого расписания**
-  - Команда: `/set_special_day 2026-01-20` → выходной / сокращённый день.
-- [ ] **Валидация: запрет изменения при активных заявках**
-  - Описание: Перед изменением проверять, нет ли неперенесённых заявок на эту дату/время.
-  - Рекомендации:
-    - Если есть — показать список заявок и предложить сначала перенести/отменить.
+- [x] **Изменение дефолтного расписания** ✅ (13.01.2026)
+  - Реализовано: UpdateScheduleHours(), UpdateScheduleLunch().
+- [x] **Установка особого расписания** ✅ (13.01.2026)
+  - Реализовано: CreateScheduleOverride(), SetDayOff(), SetSpecialHours().
+- [x] **Валидация: запрет изменения при активных заявках** ✅ (13.01.2026)
+  - Реализовано: HasActiveBookingsOnDate(), GetActiveBookingsOnDate().
 
 ---
 
