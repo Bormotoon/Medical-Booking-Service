@@ -25,6 +25,12 @@ func GenerateCalendarKeyboard(year, month int, availableDates map[string]bool) t
 	daysInMonth := daysIn(time.Month(month), year)
 
 	rows := make([][]tgbotapi.InlineKeyboardButton, 0)
+	// Month header
+	monthName := time.Month(month).String() // TODO: Russian month names
+	rows = append(rows, []tgbotapi.InlineKeyboardButton{
+		tgbotapi.NewInlineKeyboardButtonData(fmt.Sprintf("%s %d", monthName, year), "noop"),
+	})
+
 	// Weekday header
 	rows = append(rows, []tgbotapi.InlineKeyboardButton{
 		tgbotapi.NewInlineKeyboardButtonData("Пн", "noop"),
@@ -40,7 +46,7 @@ func GenerateCalendarKeyboard(year, month int, availableDates map[string]bool) t
 	for day <= daysInMonth {
 		row := make([]tgbotapi.InlineKeyboardButton, 0, 7)
 		for col := 1; col <= 7; col++ {
-			if len(rows) == 1 && col < weekdayOffset {
+			if len(rows) == 2 && col < weekdayOffset {
 				row = append(row, tgbotapi.NewInlineKeyboardButtonData(" ", "noop"))
 				continue
 			}
@@ -60,12 +66,19 @@ func GenerateCalendarKeyboard(year, month int, availableDates map[string]bool) t
 		rows = append(rows, row)
 	}
 
+	// Add back button
+	rows = append(rows, []tgbotapi.InlineKeyboardButton{
+		tgbotapi.NewInlineKeyboardButtonData("⬅️ Назад", "back:cab"),
+	})
+
 	return tgbotapi.InlineKeyboardMarkup{InlineKeyboard: rows}
 }
 
 // GenerateTimeSlotsKeyboard builds an inline keyboard for time slots of a day.
 func GenerateTimeSlotsKeyboard(slots []TimeSlot, selectedDate string) tgbotapi.InlineKeyboardMarkup {
 	rows := make([][]tgbotapi.InlineKeyboardButton, 0)
+	// Group slots into rows of 3
+	var currentRow []tgbotapi.InlineKeyboardButton
 	for _, slot := range slots {
 		text := slot.Label
 		if !slot.Available {
@@ -75,13 +88,19 @@ func GenerateTimeSlotsKeyboard(slots []TimeSlot, selectedDate string) tgbotapi.I
 		if data == "" {
 			data = fmt.Sprintf("slot:%s", slot.Label)
 		}
-		rows = append(rows, []tgbotapi.InlineKeyboardButton{
-			tgbotapi.NewInlineKeyboardButtonData(text, data),
-		})
+		currentRow = append(currentRow, tgbotapi.NewInlineKeyboardButtonData(text, data))
+		if len(currentRow) == 3 {
+			rows = append(rows, currentRow)
+			currentRow = nil
+		}
 	}
+	if len(currentRow) > 0 {
+		rows = append(rows, currentRow)
+	}
+
 	// Add back button
 	rows = append(rows, []tgbotapi.InlineKeyboardButton{
-		tgbotapi.NewInlineKeyboardButtonData("⬅️ Назад", fmt.Sprintf("back:%s", selectedDate)),
+		tgbotapi.NewInlineKeyboardButtonData("⬅️ Назад", "back:date"),
 	})
 	return tgbotapi.InlineKeyboardMarkup{InlineKeyboard: rows}
 }

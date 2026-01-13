@@ -6,8 +6,8 @@ type bookingStep string
 
 const (
 	stepNone        bookingStep = "none"
-	stepDate        bookingStep = "date"
 	stepCabinet     bookingStep = "cabinet"
+	stepDate        bookingStep = "date"
 	stepTime        bookingStep = "time"
 	stepDuration    bookingStep = "duration"
 	stepItem        bookingStep = "item"

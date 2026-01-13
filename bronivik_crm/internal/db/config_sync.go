@@ -164,8 +164,8 @@ func (db *DB) upsertScheduleRow(
         _, err = db.ExecContext(ctx, `
             INSERT INTO cabinet_schedules (
                 cabinet_id, day_of_week, start_time, end_time, lunch_start, lunch_end, slot_duration, is_active, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
-            , cabinetID, day, start, end, lunchStart, lunchEnd, slot, now, now,
+            VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+            cabinetID, day, start, end, lunchStart, lunchEnd, slot, now, now,
         )
         if err != nil {
             return err

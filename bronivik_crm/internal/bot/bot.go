@@ -269,8 +269,14 @@ func (b *Bot) handleMessage(ctx context.Context, msg *tgbotapi.Message) {
 	switch st.Step {
 	case stepClientName:
 		st.Draft.ClientName = text
-		st.Step = stepDate
-		b.sendCalendar(msg.Chat.ID)
+		st.Step = stepClientPhone
+		msg := tgbotapi.NewMessage(msg.Chat.ID, "Введите телефон клиента (в любом формате):")
+		msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("⬅️ Назад", "back:name"),
+			),
+		)
+		_, _ = b.tg.Send(msg)
 		return
 	case stepClientPhone:
 		phone, ok := normalizeAndValidatePhone(text)
@@ -307,7 +313,7 @@ func (b *Bot) handleCallback(ctx context.Context, cq *tgbotapi.CallbackQuery) {
 	case strings.HasPrefix(data, "date:"):
 		b.handleDateCallback(ctx, chatID, userID, st, data)
 	case strings.HasPrefix(data, "back:"):
-		b.handleDateSelection(chatID, st)
+		b.handleBack(ctx, chatID, userID, st, data)
 	case strings.HasPrefix(data, "slot:"):
 		b.handleSlotCallback(ctx, chatID, userID, st, data)
 	case strings.HasPrefix(data, "dur:"):
@@ -335,8 +341,8 @@ func (b *Bot) handleCabCallback(ctx context.Context, chatID, userID int64, st *u
 	}
 	st.Draft.CabinetID = cabID
 	st.Draft.CabinetName = cab.Name
-	st.Step = stepTime
-	b.sendTimeSlots(ctx, chatID, userID)
+	st.Step = stepDate
+	b.sendCalendar(chatID)
 }
 
 func (b *Bot) handleItemCallback(ctx context.Context, chatID int64, st *userState, data string) {
@@ -345,20 +351,53 @@ func (b *Bot) handleItemCallback(ctx context.Context, chatID int64, st *userStat
 		name = ""
 	}
 	st.Draft.ItemName = name
-	st.Step = stepClientPhone
-	b.reply(chatID, "Введите телефон клиента:")
+	st.Step = stepClientName
+	msg := tgbotapi.NewMessage(chatID, "Введите ФИО клиента:")
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("⬅️ Назад", "back:item"),
+		),
+	)
+	_, _ = b.tg.Send(msg)
 }
 
-func (b *Bot) handleDateSelection(chatID int64, st *userState) {
-	st.Step = stepDate
-	b.sendCalendar(chatID)
+func (b *Bot) handleBack(ctx context.Context, chatID, userID int64, st *userState, data string) {
+	step := strings.TrimPrefix(data, "back:")
+	switch step {
+	case "cab":
+		st.Step = stepCabinet
+		b.sendCabinets(ctx, chatID)
+	case "date":
+		st.Step = stepDate
+		b.sendCalendar(chatID)
+	case "time":
+		st.Step = stepTime
+		b.sendTimeSlots(ctx, chatID, userID)
+	case "duration":
+		st.Step = stepDuration
+		b.sendDurations(chatID)
+	case "item":
+		st.Step = stepItem
+		b.sendItems(ctx, chatID, st.Draft.Date)
+	case "name":
+		st.Step = stepClientName
+		msg := tgbotapi.NewMessage(chatID, "Введите ФИО клиента:")
+		msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("⬅️ Назад", "back:item"),
+			),
+		)
+		_, _ = b.tg.Send(msg)
+	default:
+		b.startBookingFlow(ctx, &tgbotapi.Message{From: &tgbotapi.User{ID: userID}, Chat: &tgbotapi.Chat{ID: chatID}})
+	}
 }
 
 func (b *Bot) handleDateCallback(ctx context.Context, chatID, userID int64, st *userState, data string) {
 	dateStr := strings.TrimPrefix(data, "date:")
 	st.Draft.Date = dateStr
-	st.Step = stepCabinet
-	b.sendCabinets(ctx, chatID)
+	st.Step = stepTime
+	b.sendTimeSlots(ctx, chatID, userID)
 }
 
 func (b *Bot) handleSlotCallback(ctx context.Context, chatID, userID int64, st *userState, data string) {
@@ -435,6 +474,9 @@ func (b *Bot) sendDurations(chatID int64) {
 			tgbotapi.NewInlineKeyboardButtonData(label, fmt.Sprintf("dur:%d", d)),
 		})
 	}
+	rows = append(rows, []tgbotapi.InlineKeyboardButton{
+		tgbotapi.NewInlineKeyboardButtonData("⬅️ Назад", "back:time"),
+	})
 
 	msg := tgbotapi.NewMessage(chatID, "Выберите длительность приема:")
 	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
@@ -768,8 +810,8 @@ func (b *Bot) startBookingFlow(ctx context.Context, msg *tgbotapi.Message) {
 	}
 	b.state.reset(msg.From.ID)
 	st := b.state.get(msg.From.ID)
-	st.Step = stepClientName
-	b.reply(msg.Chat.ID, "Введите ФИО клиента:")
+	st.Step = stepCabinet
+	b.sendCabinets(ctx, msg.Chat.ID)
 }
 
 func (b *Bot) sendItems(ctx context.Context, chatID int64, dateStr string) {
@@ -781,32 +823,19 @@ func (b *Bot) sendItems(ctx context.Context, chatID int64, dateStr string) {
 		if apiCtx == nil {
 			apiCtx = context.Background()
 		}
-		apiCtx, cancel := context.WithTimeout(apiCtx, 5*time.Second) // Increased timeout for multiple calls
+		apiCtx, cancel := context.WithTimeout(apiCtx, 5*time.Second)
 		defer cancel()
 
 		items, err := b.api.ListItems(apiCtx)
 		if err == nil {
-			date, _ := time.Parse("2006-01-02", dateStr)
-			nextDate := date.AddDate(0, 0, 1)
-			nextDateStr := nextDate.Format("2006-01-02")
-
 			for _, it := range items {
-				avail1, err1 := b.api.GetAvailability(apiCtx, it.Name, dateStr)
-				avail2, err2 := b.api.GetAvailability(apiCtx, it.Name, nextDateStr)
-
+				avail, err := b.api.GetAvailability(apiCtx, it.Name, dateStr)
 				status := ""
-				if err1 == nil && avail1 != nil {
-					if avail1.Available {
-						status += "✅ Сегодня"
+				if err == nil && avail != nil {
+					if avail.Available {
+						status = "✅ Свободен"
 					} else {
-						status += "❌ Сегодня"
-					}
-				}
-				if err2 == nil && avail2 != nil {
-					if avail2.Available {
-						status += " | ✅ Завтра"
-					} else {
-						status += " | ❌ Завтра"
+						status = "❌ Занят"
 					}
 				}
 
@@ -823,8 +852,12 @@ func (b *Bot) sendItems(ctx context.Context, chatID int64, dateStr string) {
 			b.logger.Warn().Err(err).Msg("failed to list items from API")
 		}
 	}
-	out := tgbotapi.NewMessage(chatID, "Выберите аппарат (показана доступность на сегодня и завтра):")
-	if b.apiEnabled && b.api != nil && len(rows) <= 1 {
+	rows = append(rows, []tgbotapi.InlineKeyboardButton{
+		tgbotapi.NewInlineKeyboardButtonData("⬅️ Назад", "back:duration"),
+	})
+
+	out := tgbotapi.NewMessage(chatID, fmt.Sprintf("Выберите аппарат на %s:", dateStr))
+	if b.apiEnabled && b.api != nil && len(rows) <= 2 { // none + back
 		out.Text = "⚠️ Внешняя система недоступна, список аппаратов может быть неполным.\n\n" + out.Text
 	}
 	out.ReplyMarkup = tgbotapi.InlineKeyboardMarkup{InlineKeyboard: rows}
