@@ -1,0 +1,225 @@
+items:
+  - id: 1
+    name: "Infini, УФА"
+    description: ""
+    total_quantity: 1
+  - id: 2
+    name: "УФ бордовый"
+    description: ""
+    total_quantity: 1
+  - id: 3
+    name: "Vivac4"
+    description: ""
+    total_quantity: 1
+  - id: 4
+    name: "УФ"
+    description: ""
+    total_quantity: 1
+  - id: 5
+    name: "УФ ЗОЛОТОЙ"
+    description: ""
+    total_quantity: 1
+  - id: 6
+    name: "УФ КРАСНЫЙ"
+    description: ""
+    total_quantity: 1
+  - id: 7
+    name: "УФ ЖЕЛТЫЙ"
+    description: ""
+    total_quantity: 1
+  - id: 8
+    name: "УФ СЕРЕБРИСТЫЙ"
+    description: ""
+    total_quantity: 1
+  - id: 52
+    name: "УФ СИНИЙ"
+    description: ""
+    total_quantity: 1
+  - id: 9
+    name: "УФ ГОЛУБОЙ"
+    description: ""
+    total_quantity: 1
+  - id: 10
+    name: "УФ РОЗОВЫЙ"
+    description: ""
+    total_quantity: 1
+  - id: 11
+    name: "УФ БЕЛЫЙ"
+    description: ""
+    total_quantity: 1
+  - id: 12
+    name: "УФ САЛАТОВЫЙ"
+    description: ""
+    total_quantity: 1
+  - id: 13
+    name: "УФ КОРИЧНЕВЫЙ"
+    description: ""
+    total_quantity: 1
+  - id: 14
+    name: "УФ ЧЕРНЫЙ"
+    description: ""
+    total_quantity: 1
+  - id: 53
+    name: "УФ ЗЕЛЕНЫЙ"
+    description: ""
+    total_quantity: 1
+  - id: 54
+    name: "MPT"
+    description: ""
+    total_quantity: 1
+  - id: 15
+    name: "Скарлет серый"
+    description: ""
+    total_quantity: 1
+  - id: 16
+    name: "Скарлет белый"
+    description: ""
+    total_quantity: 1
+  - id: 55
+    name: "Скарлет белый мамонтенок"
+    description: ""
+    total_quantity: 1
+  - id: 17
+    name: "Vivace"
+    description: ""
+    total_quantity: 6
+  - id: 18
+    name: "Кушечка"
+    description: ""
+    total_quantity: 1
+  - id: 19
+    name: "Virtue RF"
+    description: ""
+    total_quantity: 1
+  - id: 20
+    name: "Хармони КРАСНЫЙ (Lp 1064, Ssr, Dyel, Shr)"
+    description: ""
+    total_quantity: 1
+  - id: 21
+    name: "Хармони ЗЕЛЕНЫЙ (Dye-scene, Lp 1064)"
+    description: ""
+    total_quantity: 1
+  - id: 22
+    name: "Хармони ЖЕЛТЫЙ (Erbiumne)"
+    description: ""
+    total_quantity: 1
+  - id: 23
+    name: "Хармони СИНИЙ (Dye-VL)"
+    description: ""
+    total_quantity: 1
+  - id: 24
+    name: "Хармони Про (VI-Pl, Dye-VL 940)"
+    description: ""
+    total_quantity: 1
+  - id: 25
+    name: "Инфини"
+    description: ""
+    total_quantity: 4
+  - id: 26
+    name: "Сопрано Платинум Питер"
+    description: ""
+    total_quantity: 1
+  - id: 27
+    name: "Сопрано Platinum 3 волны"
+    description: ""
+    total_quantity: 1
+  - id: 28
+    name: "Сопрано XL КРАСНЫЙ (Большой)"
+    description: ""
+    total_quantity: 1
+  - id: 29
+    name: "Сопрано XL СИНИЙ (Маленький)"
+    description: ""
+    total_quantity: 1
+  - id: 30
+    name: "Сопрано XL ЧЕРНЫЙ (Большой)"
+    description: ""
+    total_quantity: 1
+  - id: 31
+    name: "Сопрано XL Черный (Маленький)"
+    description: ""
+    total_quantity: 1
+  - id: 32
+    name: "Манипула ALEX Soprano (Б)"
+    description: ""
+    total_quantity: 1
+  - id: 33
+    name: "Ревиксан"
+    description: ""
+    total_quantity: 3
+  - id: 34
+    name: "Heleo"
+    description: ""
+    total_quantity: 6
+  - id: 35
+    name: "Zionic"
+    description: ""
+    total_quantity: 5
+  - id: 36
+    name: "BBL"
+    description: ""
+    total_quantity: 2
+  - id: 37
+    name: "Inmode"
+    description: ""
+    total_quantity: 1
+  - id: 38
+    name: "Inmode 2"
+    description: ""
+    total_quantity: 1
+  - id: 39
+    name: "Dialaze"
+    description: ""
+    total_quantity: 1
+  - id: 40
+    name: "Tesla"
+    description: ""
+    total_quantity: 1
+  - id: 41
+    name: "Volnewmer"
+    description: ""
+    total_quantity: 1
+  - id: 42
+    name: "Icoon"
+    description: ""
+    total_quantity: 1
+  - id: 43
+    name: "Quantum 5"
+    description: ""
+    total_quantity: 2
+  - id: 44
+    name: "Fraxel"
+    description: ""
+    total_quantity: 1
+  - id: 45
+    name: "Zimmera"
+    description: ""
+    total_quantity: 1
+  - id: 46
+    name: "Accent"
+    description: ""
+    total_quantity: 3
+  - id: 56
+    name: "Accent Prime (UniBody, UniL)"
+    description: ""
+    total_quantity: 1
+  - id: 47
+    name: "Sharplight"
+    description: ""
+    total_quantity: 1
+  - id: 48
+    name: "Intraculticas"
+    description: ""
+    total_quantity: 1
+  - id: 49
+    name: "Ilipo"
+    description: ""
+    total_quantity: 1
+  - id: 50
+    name: "Venus Freeze"
+    description: ""
+    total_quantity: 1
+  - id: 51
+    name: "Termosalud RF"
+    description: ""
+    total_quantity: 1
