@@ -331,12 +331,27 @@
 
 ## V. Деплой и DevOps
 
-- [ ] **Docker-образы для обоих ботов**
-- [ ] **docker-compose для локальной разработки**
-- [ ] **CI/CD pipeline (GitHub Actions)**
-  - Линтинг, тесты, сборка, деплой.
-- [ ] **Настройка продакшен-окружения**
-  - Переменные окружения, секреты, база данных.
+- [x] **Docker-образы для обоих ботов** ✅ (13.01.2026)
+  - Dockerfile для bronivik_jr (multi-stage build, bot + api)
+  - Dockerfile для bronivik_crm (multi-stage build)
+  - Оптимизация размера образов, non-root user, healthcheck
+- [x] **docker-compose для локальной разработки** ✅ (13.01.2026)
+  - docker-compose.yml в корне проекта
+  - Сервисы: bronivik-jr-bot, bronivik-jr-api, bronivik-crm-bot, redis
+  - Опциональный профиль monitoring (prometheus, grafana)
+  - Volumes для данных, сетей, health checks
+  - .env.example с описанием переменных
+- [x] **CI/CD pipeline (GitHub Actions)** ✅ (13.01.2026)
+  - .github/workflows/ci.yml
+  - Jobs: lint, test, build, docker, security, deploy
+  - Matrix strategy для обоих модулей
+  - Code coverage upload (codecov)
+  - Security scan (Trivy)
+  - Docker image push to ghcr.io
+- [x] **Настройка продакшен-окружения** ✅ (13.01.2026)
+  - Prometheus конфигурация (monitoring/prometheus.yml)
+  - Grafana datasources provisioning
+  - Deploy job с SSH (шаблон)
 
 ---
 

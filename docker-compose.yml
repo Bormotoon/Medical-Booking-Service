@@ -1,0 +1,210 @@
+# Medical Booking Service - Docker Compose
+# Orchestration for all services
+
+version: '3.8'
+
+services:
+  # =============================================================================
+  # Bronivik Jr - Bot (Device Booking)
+  # =============================================================================
+  bronivik-jr-bot:
+    build:
+      context: ./bronivik_jr
+      dockerfile: Dockerfile
+    container_name: bronivik-jr-bot
+    restart: unless-stopped
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+      - DB_PATH=/app/data/bronivik_jr.db
+      - REDIS_URL=redis://redis:6379/0
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - TZ=Europe/Moscow
+      - GOOGLE_CREDENTIALS_FILE=/app/credentials/google-credentials.json
+      - GOOGLE_SPREADSHEET_ID=${GOOGLE_SPREADSHEET_ID:-}
+    volumes:
+      - bronivik_jr_data:/app/data
+      - bronivik_jr_exports:/app/exports
+      - ./credentials:/app/credentials:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - bronivik-network
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8090/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # =============================================================================
+  # Bronivik Jr - API Server
+  # =============================================================================
+  bronivik-jr-api:
+    build:
+      context: ./bronivik_jr
+      dockerfile: Dockerfile
+    container_name: bronivik-jr-api
+    restart: unless-stopped
+    command: ["./api"]
+    environment:
+      - DB_PATH=/app/data/bronivik_jr.db
+      - REDIS_URL=redis://redis:6379/0
+      - API_HTTP_PORT=8080
+      - API_GRPC_PORT=8081
+      - API_AUTH_ENABLED=true
+      - API_AUTH_KEYS=${API_AUTH_KEYS}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - TZ=Europe/Moscow
+    volumes:
+      - bronivik_jr_data:/app/data
+    ports:
+      - "${API_HTTP_PORT:-8080}:8080"
+      - "${API_GRPC_PORT:-8081}:8081"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - bronivik-network
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # =============================================================================
+  # Bronivik CRM - Bot (Cabinet Booking)
+  # =============================================================================
+  bronivik-crm-bot:
+    build:
+      context: ./bronivik_crm
+      dockerfile: Dockerfile
+    container_name: bronivik-crm-bot
+    restart: unless-stopped
+    environment:
+      - CRM_BOT_TOKEN=${CRM_BOT_TOKEN}
+      - DB_PATH=/app/data/bronivik_crm.db
+      - REDIS_URL=redis://redis:6379/1
+      - BOT1_API_URL=http://bronivik-jr-api:8080
+      - BOT1_API_KEY=${CRM_API_KEY}
+      - BOT1_API_EXTRA=${CRM_API_EXTRA:-}
+      - MANAGERS=${MANAGERS}
+      - HEALTH_PORT=8090
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - TZ=Europe/Moscow
+      - GOOGLE_CREDENTIALS_FILE=/app/credentials/google-credentials.json
+      - GOOGLE_SPREADSHEET_ID=${CRM_GOOGLE_SPREADSHEET_ID:-}
+    volumes:
+      - bronivik_crm_data:/app/data
+      - bronivik_crm_exports:/app/exports
+      - ./credentials:/app/credentials:ro
+    ports:
+      - "${CRM_HEALTH_PORT:-8090}:8090"
+    depends_on:
+      bronivik-jr-api:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - bronivik-network
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8090/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # =============================================================================
+  # Redis - Caching & Session Storage
+  # =============================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: bronivik-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    networks:
+      - bronivik-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  # =============================================================================
+  # Prometheus - Metrics Collection (Optional)
+  # =============================================================================
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: bronivik-prometheus
+    restart: unless-stopped
+    profiles:
+      - monitoring
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'
+      - '--web.enable-lifecycle'
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    networks:
+      - bronivik-network
+    depends_on:
+      - bronivik-jr-api
+      - bronivik-crm-bot
+
+  # =============================================================================
+  # Grafana - Visualization (Optional)
+  # =============================================================================
+  grafana:
+    image: grafana/grafana:10.2.0
+    container_name: bronivik-grafana
+    restart: unless-stopped
+    profiles:
+      - monitoring
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    networks:
+      - bronivik-network
+    depends_on:
+      - prometheus
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  bronivik-network:
+    driver: bridge
+    name: bronivik-network
+
+# =============================================================================
+# Volumes
+# =============================================================================
+volumes:
+  bronivik_jr_data:
+    name: bronivik_jr_data
+  bronivik_jr_exports:
+    name: bronivik_jr_exports
+  bronivik_crm_data:
+    name: bronivik_crm_data
+  bronivik_crm_exports:
+    name: bronivik_crm_exports
+  redis_data:
+    name: bronivik_redis_data
+  prometheus_data:
+    name: bronivik_prometheus_data
+  grafana_data:
+    name: bronivik_grafana_data
