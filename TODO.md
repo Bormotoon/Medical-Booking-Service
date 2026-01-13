@@ -1,6 +1,6 @@
 # TODO: Medical Booking Service
 
-> Подробный план разработки на основе [features.md](features.md)
+> Подробный план разработки на основе [features.md](features.md) и [features2.md](features2.md)
 
 ---
 
@@ -9,6 +9,120 @@
 - [ ] Не начато
 - [~] В работе
 - [x] Завершено
+- [!] Требует уточнения
+
+---
+
+## 0. Подготовка и архитектурные решения
+
+### 0.0 Архитектурные решения (БЛОКИРУЮЩИЕ)
+
+> ⚠️ **Важно**: Эти решения должны быть приняты до начала реализации задач эпика II и III.
+
+#### 0.0.1 Политика напоминаний
+- [ ] **Зафиксировать типы напоминаний**
+  - Описание: Определить, какие типы напоминаний поддерживаются системой.
+  - Варианты:
+    - "За N часов до записи" (где N — конфигурируемое значение, например 24, 12, 2 часа)
+    - "В день записи в фиксированное время" (например, 09:00 или 12:00)
+    - "Комбинированный" — оба варианта
+  - Рекомендации:
+    - Начать с простого варианта "За 24 часа до записи"
+    - Предусмотреть расширяемость (добавление типов через конфиг)
+    - Документировать выбранный подход в `docs/ARCHITECTURE.md`
+  - Критерии готовности:
+    - [ ] Задокументирован перечень типов напоминаний
+    - [ ] Определена логика выбора времени отправки
+
+- [ ] **Определить таймзону для напоминаний**
+  - Описание: Уточнить, какое время "12:00" используется в системе.
+  - Варианты:
+    - A) Локальное время сервиса (UTC или TZ контейнера)
+    - B) Московское время (Europe/Moscow)
+    - C) Таймзона пользователя (требует хранения TZ в `user_settings`)
+  - Рекомендации:
+    - Для MVP использовать вариант B (МСК) как наиболее простой
+    - Хранить все времена в UTC в БД, конвертировать при отображении
+    - Добавить переменную окружения `TZ=Europe/Moscow` в docker-compose
+  - Критерии готовности:
+    - [ ] Выбран и задокументирован подход к таймзонам
+    - [ ] Обновлён docker-compose с явной установкой TZ
+
+- [ ] **Определить понятие "отправленное уведомление"**
+  - Описание: Что считать успешной отправкой напоминания?
+  - Варианты:
+    - A) Факт успешного вызова Telegram API (HTTP 200)
+    - B) Постановка в очередь (для гарантированной доставки)
+    - C) Комбинированный: очередь + подтверждение отправки
+  - Рекомендации:
+    - Для MVP: вариант A с retry при ошибках
+    - Для production: вариант C с отдельной очередью (Redis/Rabbit)
+    - Хранить `sent_at` timestamp и `send_status` enum
+  - Критерии готовности:
+    - [ ] Определён статус модели уведомлений
+    - [ ] Описана логика retry
+
+#### 0.0.2 Ограничения Telegram
+- [ ] **Зафиксировать rate limits для бота**
+  - Описание: Определить допустимую частоту отправки сообщений.
+  - Ограничения Telegram API:
+    - ~30 сообщений/секунду для обычного бота
+    - ~1 сообщение/секунду в один чат
+    - Burst до 30 сообщений, затем throttling
+  - Рекомендации:
+    - Установить консервативный лимит: 20 msg/sec
+    - Добавить jitter (случайную задержку 50-150ms) между сообщениями
+    - Реализовать exponential backoff при 429 Too Many Requests
+  - Критерии готовности:
+    - [ ] Определены константы RATE_LIMIT_PER_SECOND, RATE_LIMIT_BURST
+    - [ ] Задокументирована политика retry
+
+- [ ] **Определить политику повторных попыток**
+  - Описание: Как обрабатывать ошибки отправки?
+  - Рекомендации:
+    - Максимум 3 попытки с exponential backoff (1s, 5s, 30s)
+    - При 429 — ждать Retry-After из заголовка
+    - После 3 неудач — пометить как FAILED, алертить
+    - Дедупликация: уникальный ключ (user_id, booking_id, reminder_type)
+  - Критерии готовности:
+    - [ ] Константы MAX_RETRIES, RETRY_DELAYS определены
+    - [ ] Логика дедупликации описана
+
+#### 0.0.3 Решение по базе данных
+- [ ] **Принять решение о миграции на PostgreSQL**
+  - Описание: Оценить необходимость миграции с текущей БД на PostgreSQL.
+  - Текущее состояние:
+    - bronivik_jr: SQLite (предположительно)
+    - bronivik_crm: SQLite (предположительно)
+  - Варианты:
+    - A) Остаться на SQLite, очистку делать приложением
+    - B) Мигрировать на PostgreSQL с TTL через pg_cron / partitioning
+    - C) Отложить миграцию, но подготовить абстракции
+  - Рекомендации:
+    - Для production рекомендуется PostgreSQL
+    - Миграция — отдельный эпик с планом rollback
+    - Минимум: добавить database interface для абстракции
+  - Риски:
+    - Миграция данных может привести к downtime
+    - Несовместимость SQL-диалектов
+  - Критерии готовности:
+    - [ ] Принято и задокументировано решение
+    - [ ] Если миграция — создан план с оценкой сроков
+
+- [ ] **Определить стратегию TTL для данных**
+  - Описание: Как реализовать автоматическую очистку старых данных?
+  - Варианты:
+    - A) Приложение: cron-задача DELETE WHERE created_at < now() - 31 days
+    - B) PostgreSQL partitioning + DROP PARTITION
+    - C) pg_cron extension с scheduled DELETE
+    - D) TimescaleDB retention policies
+  - Рекомендации:
+    - Для SQLite: только вариант A
+    - Для PostgreSQL MVP: вариант A или C
+    - Для большого объёма: вариант B
+  - Критерии готовности:
+    - [ ] Выбран и задокументирован механизм TTL
+    - [ ] Определена частота запуска очистки
 
 ---
 
@@ -62,9 +176,280 @@
 
 ---
 
-### 1.2 Ежемесячный аудит и экспорт данных
+### 1.2 Расширенная система напоминаний (NEW)
 
-#### 1.2.1 Генерация XLS-отчёта
+> Эпик на основе features2.md — улучшение системы напоминаний с учётом масштабирования
+
+#### 1.2.1 Доработка модели напоминаний
+- [ ] **Расширить таблицу напоминаний**
+  - Описание: Добавить поля для гибкого управления и отслеживания статуса.
+  - Новые/обновлённые поля:
+    ```sql
+    ALTER TABLE reminders ADD COLUMN IF NOT EXISTS enabled BOOLEAN DEFAULT true;
+    ALTER TABLE reminders ADD COLUMN IF NOT EXISTS sent_at TIMESTAMP NULL;
+    ALTER TABLE reminders ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'pending';
+    ALTER TABLE reminders ADD COLUMN IF NOT EXISTS scheduled_at TIMESTAMP NOT NULL;
+    ALTER TABLE reminders ADD COLUMN IF NOT EXISTS reminder_type VARCHAR(50) NOT NULL;
+    ALTER TABLE reminders ADD COLUMN IF NOT EXISTS retry_count INTEGER DEFAULT 0;
+    ALTER TABLE reminders ADD COLUMN IF NOT EXISTS last_error TEXT NULL;
+    ```
+  - Статусы: `pending`, `scheduled`, `sent`, `failed`, `cancelled`
+  - Типы напоминаний: `24h_before`, `day_of_booking`, `custom`
+  - Рекомендации:
+    - Добавить уникальный индекс: `UNIQUE(user_id, booking_id, reminder_type)`
+    - Добавить индекс для выборки: `CREATE INDEX idx_reminders_scheduled ON reminders(scheduled_at, status, enabled)`
+  - Файлы для изменения:
+    - `bronivik_jr/internal/models/` — добавить reminder model
+    - `bronivik_crm/internal/model/` — добавить reminder model
+    - `shared/reminders/interfaces.go` — обновить интерфейсы
+
+#### 1.2.2 Cron-задача ежедневной отправки в 12:00
+- [ ] **Реализовать планировщик "ежедневный проход в 12:00"**
+  - Описание: Выбирать и отправлять напоминания в заданное время.
+  - Логика выборки:
+    ```go
+    func (s *ReminderService) GetPendingReminders(ctx context.Context) ([]Reminder, error) {
+        return s.repo.FindReminders(ctx, ReminderFilter{
+            Enabled:          true,
+            Status:           []string{"pending", "scheduled"},
+            ScheduledAtBefore: time.Now(),
+        })
+    }
+    ```
+  - Варианты реализации планировщика:
+    - **A) Встроенный scheduler (Go):**
+      ```go
+      // В cmd/bot/main.go или отдельном worker
+      ticker := time.NewTicker(1 * time.Minute)
+      for range ticker.C {
+          now := time.Now().In(moscowTZ)
+          if now.Hour() == 12 && now.Minute() == 0 {
+              reminderService.ProcessDailyReminders(ctx)
+          }
+      }
+      ```
+    - **B) Отдельный контейнер worker:**
+      ```yaml
+      # docker-compose.yml
+      reminder-worker:
+        image: bronivik-jr:latest
+        command: ["./app", "worker", "--job=reminders"]
+        environment:
+          - CRON_SCHEDULE=0 12 * * *
+      ```
+    - **C) Системный cron на хосте:**
+      ```cron
+      0 12 * * * docker exec bronivik-jr-bot /app/app send-reminders
+      ```
+  - Рекомендации:
+    - Для production рекомендуется вариант B (отдельный worker)
+    - Логировать время старта и завершения задачи
+    - Добавить healthcheck endpoint для воркера
+  - Файлы для создания/изменения:
+    - `shared/reminders/scheduler.go` — основная логика
+    - `bronivik_jr/cmd/worker/main.go` — точка входа worker
+    - `bronivik_crm/cmd/worker/main.go` — точка входа worker
+
+#### 1.2.3 Rate Limiter для отправки
+- [ ] **Реализовать ограничение скорости отправки**
+  - Описание: Предотвратить бан бота за флуд при массовой рассылке.
+  - Реализация простого rate limiter:
+    ```go
+    type RateLimiter struct {
+        rate     float64       // сообщений в секунду
+        burst    int           // максимальный burst
+        tokens   float64
+        lastTime time.Time
+        mu       sync.Mutex
+    }
+    
+    func NewRateLimiter(rate float64, burst int) *RateLimiter {
+        return &RateLimiter{
+            rate:     rate,
+            burst:    burst,
+            tokens:   float64(burst),
+            lastTime: time.Now(),
+        }
+    }
+    
+    func (r *RateLimiter) Wait(ctx context.Context) error {
+        r.mu.Lock()
+        defer r.mu.Unlock()
+        
+        now := time.Now()
+        elapsed := now.Sub(r.lastTime).Seconds()
+        r.tokens = math.Min(float64(r.burst), r.tokens+elapsed*r.rate)
+        r.lastTime = now
+        
+        if r.tokens < 1 {
+            waitTime := time.Duration((1-r.tokens)/r.rate) * time.Second
+            r.mu.Unlock()
+            select {
+            case <-time.After(waitTime):
+            case <-ctx.Done():
+                return ctx.Err()
+            }
+            r.mu.Lock()
+            r.tokens = 0
+        } else {
+            r.tokens--
+        }
+        return nil
+    }
+    ```
+  - Параметры по умолчанию:
+    - `RATE_LIMIT_PER_SECOND=20`
+    - `RATE_LIMIT_BURST=30`
+    - `JITTER_MS=50-150` (случайная задержка)
+  - Продвинутый вариант (с очередью):
+    - Использовать Redis как очередь задач
+    - Worker читает из очереди с rate limiting
+  - Файлы для создания:
+    - `shared/reminders/ratelimit.go` — rate limiter
+    - `shared/reminders/sender.go` — отправщик с лимитами
+
+#### 1.2.4 Retry и обработка ошибок
+- [ ] **Реализовать механизм повторных попыток**
+  - Описание: Обрабатывать ошибки Telegram API с exponential backoff.
+  - Логика retry:
+    ```go
+    func (s *ReminderSender) SendWithRetry(ctx context.Context, r Reminder) error {
+        delays := []time.Duration{1*time.Second, 5*time.Second, 30*time.Second}
+        maxRetries := len(delays)
+        
+        for attempt := 0; attempt <= maxRetries; attempt++ {
+            err := s.send(ctx, r)
+            if err == nil {
+                return s.markAsSent(ctx, r.ID)
+            }
+            
+            // Проверяем тип ошибки
+            if tgErr, ok := err.(*telegram.Error); ok {
+                if tgErr.Code == 429 { // Too Many Requests
+                    retryAfter := tgErr.RetryAfter
+                    if retryAfter == 0 {
+                        retryAfter = int(delays[attempt].Seconds())
+                    }
+                    time.Sleep(time.Duration(retryAfter) * time.Second)
+                    continue
+                }
+                if tgErr.Code == 403 { // Bot blocked by user
+                    return s.markAsFailed(ctx, r.ID, "user_blocked")
+                }
+            }
+            
+            if attempt < maxRetries {
+                time.Sleep(delays[attempt])
+            }
+        }
+        
+        return s.markAsFailed(ctx, r.ID, "max_retries_exceeded")
+    }
+    ```
+  - Константы:
+    - `MAX_RETRIES=3`
+    - `RETRY_DELAYS=[1s, 5s, 30s]`
+  - Обработка специфичных ошибок:
+    - 403 Forbidden → пользователь заблокировал бота → не повторять
+    - 400 Bad Request → невалидные данные → не повторять
+    - 429 Too Many Requests → ждать Retry-After
+    - 5xx → повторить с backoff
+
+#### 1.2.5 Идемпотентность и дедупликация
+- [ ] **Гарантировать отсутствие дублей**
+  - Описание: Повторный запуск cron не должен отправлять напоминания повторно.
+  - Механизм:
+    1. Уникальный ключ: `(user_id, booking_id, reminder_type)`
+    2. Статус `sent` блокирует повторную отправку
+    3. Транзакционное обновление статуса перед отправкой
+  - Реализация:
+    ```go
+    func (s *ReminderService) ProcessReminder(ctx context.Context, r Reminder) error {
+        // Атомарно забираем напоминание на обработку
+        acquired, err := s.repo.TryAcquireReminder(ctx, r.ID)
+        if err != nil || !acquired {
+            return err // Уже обрабатывается другим воркером
+        }
+        defer s.repo.ReleaseReminder(ctx, r.ID)
+        
+        return s.sender.SendWithRetry(ctx, r)
+    }
+    ```
+  - SQL для atomic acquire:
+    ```sql
+    UPDATE reminders 
+    SET status = 'processing', updated_at = NOW()
+    WHERE id = $1 AND status IN ('pending', 'scheduled')
+    RETURNING id;
+    ```
+
+#### 1.2.6 Очистка таблицы напоминаний
+- [ ] **Реализовать ежедневную очистку старых записей**
+  - Описание: Удалять обработанные напоминания старше 1 дня.
+  - Правила:
+    - Удалять записи со статусом `sent` старше 24 часов
+    - Удалять записи со статусом `failed` после 3 дней (для аудита)
+    - Не удалять записи со статусом `pending`/`scheduled`
+  - Реализация:
+    ```go
+    func (s *ReminderService) CleanupOldReminders(ctx context.Context) (int64, error) {
+        return s.repo.DeleteReminders(ctx, ReminderFilter{
+            Status:          []string{"sent"},
+            SentBefore:      time.Now().Add(-24 * time.Hour),
+        })
+    }
+    ```
+  - Запуск: после основной рассылки или отдельным cron job
+  - Логирование: количество удалённых записей
+
+#### 1.2.7 Метрики и логирование
+- [ ] **Добавить observability для напоминаний**
+  - Описание: Логировать и экспортировать метрики отправки.
+  - Prometheus метрики:
+    ```go
+    var (
+        remindersSentTotal = prometheus.NewCounterVec(
+            prometheus.CounterOpts{
+                Name: "reminders_sent_total",
+                Help: "Total number of reminders sent",
+            },
+            []string{"status", "reminder_type"},
+        )
+        remindersQueueSize = prometheus.NewGauge(
+            prometheus.GaugeOpts{
+                Name: "reminders_queue_size",
+                Help: "Current number of pending reminders",
+            },
+        )
+        reminderSendDuration = prometheus.NewHistogram(
+            prometheus.HistogramOpts{
+                Name:    "reminder_send_duration_seconds",
+                Help:    "Time to send a reminder",
+                Buckets: []float64{.01, .05, .1, .5, 1, 5},
+            },
+        )
+    )
+    ```
+  - Логирование (zerolog):
+    ```go
+    log.Info().
+        Int("total_selected", len(reminders)).
+        Int("sent", sentCount).
+        Int("skipped", skippedCount).
+        Int("failed", failedCount).
+        Dur("duration", time.Since(start)).
+        Msg("Daily reminders processed")
+    ```
+  - Файлы для создания/изменения:
+    - `shared/reminders/metrics.go` — определение метрик
+    - `bronivik_jr/internal/metrics/metrics.go` — регистрация
+    - `monitoring/prometheus.yml` — scrape config
+
+---
+
+### 1.3 Ежемесячный аудит и экспорт данных
+
+#### 1.3.1 Генерация XLS-отчёта
 - [x] **Реализовать задачу экспорта** ✅ (13.01.2026)
   - Описание: 1-го числа каждого месяца формировать Excel-файл со всеми таблицами БД.
   - Реализовано:
@@ -75,7 +460,7 @@
     - `bronivik_crm/internal/db/audit.go` — TableExporter для Бота 2.
     - Имя файла: `{Месяц}_{Год}.xlsx` на русском языке.
 
-#### 1.2.2 Отправка отчёта менеджеру
+#### 1.3.2 Отправка отчёта менеджеру
 - [x] **Отправить файл в чат менеджера** ✅ (13.01.2026)
   - Описание: После генерации отправить документ через Telegram Bot API.
   - Реализовано:
@@ -83,7 +468,7 @@
     - Метод `sendReportToManagers()` в `AuditScheduler`.
     - Получение менеджеров через `ManagerProvider` interface.
 
-#### 1.2.3 Автоудаление старых заявок
+#### 1.3.3 Автоудаление старых заявок
 - [x] **Реализовать очистку данных старше 31 дня** ✅ (13.01.2026)
   - Описание: После экспорта (или отдельной задачей) удалять записи.
   - Реализовано:
@@ -93,9 +478,9 @@
 
 ---
 
-### 1.3 Система управления доступом
+### 1.4 Система управления доступом
 
-#### 1.3.1 Чёрный список (blocklist)
+#### 1.4.1 Чёрный список (blocklist)
 - [x] **Создать таблицу `blocked_users`** ✅ (13.01.2026)
   - Поля: `user_id`, `blocked_at`, `reason` (optional), `blocked_by`.
   - Реализовано в обеих БД: bronivik_jr и bronivik_crm.
@@ -107,7 +492,7 @@
     - `bronivik_jr/internal/database/access.go` — реализация для Бота 1.
     - `bronivik_crm/internal/db/access.go` — реализация для Бота 2.
 
-#### 1.3.2 Список менеджеров
+#### 1.4.2 Список менеджеров
 - [x] **Создать таблицу `managers`** ✅ (13.01.2026)
   - Поля: `user_id`, `chat_id`, `name`, `added_at`, `added_by`.
   - Реализовано в обеих БД.
@@ -119,11 +504,202 @@
 
 ---
 
-## II. БОТ 1: Бронирование аппаратов (`bronivik_jr`)
+## II. Данные и миграции (NEW)
 
-### 2.1 Управление аппаратами
+> Эпик на основе features2.md — доработка модели данных для поддержки диапазонных бронирований
 
-#### 2.1.1 «Вечная аренда» аппаратов
+### 2.1 Документирование текущей схемы
+
+#### 2.1.1 Аудит текущих таблиц
+- [ ] **Описать текущие таблицы и поля**
+  - Описание: Зафиксировать актуальную схему БД для bookings/requests, reminders.
+  - Задачи:
+    - Выписать все поля таблицы `bookings` (включая `comment`)
+    - Сверить DTO/модели в коде с фактической схемой
+    - Документировать в `docs/DATABASE_SCHEMA.md`
+  - Рекомендации:
+    - Использовать команду для экспорта схемы:
+      ```bash
+      # SQLite
+      sqlite3 database.db ".schema" > schema.sql
+      # PostgreSQL
+      pg_dump -s -d database > schema.sql
+      ```
+    - Сравнить с моделями в Go коде
+  - Файлы для проверки:
+    - `bronivik_jr/internal/models/`
+    - `bronivik_crm/internal/model/`
+    - `docs/DATABASE_SCHEMA.md`
+
+### 2.2 Доработка модели бронирования под диапазоны
+
+#### 2.2.1 Добавление поля end_time
+- [ ] **Расширить модель бронирования для диапазонов**
+  - Описание: Добавить поддержку "вечной/долгой аренды" через поле `end_time`.
+  - Миграция:
+    ```sql
+    -- Добавляем nullable end_time
+    ALTER TABLE bookings ADD COLUMN end_time TIMESTAMP NULL;
+    
+    -- Комментарий для документации
+    COMMENT ON COLUMN bookings.end_time IS 
+      'End time for range bookings. NULL means single-slot (end_time = start_time)';
+    ```
+  - Правило по умолчанию:
+    - Если `end_time IS NULL` → трактовать как `end_time = start_time` (одноразовая заявка)
+    - В коде: `GetEffectiveEndTime()` метод
+  - Реализация в модели:
+    ```go
+    type Booking struct {
+        ID        int64
+        StartTime time.Time
+        EndTime   *time.Time // nullable
+        // ...
+    }
+    
+    func (b *Booking) GetEffectiveEndTime() time.Time {
+        if b.EndTime != nil {
+            return *b.EndTime
+        }
+        return b.StartTime
+    }
+    
+    func (b *Booking) IsRangeBooking() bool {
+        return b.EndTime != nil && !b.EndTime.Equal(b.StartTime)
+    }
+    ```
+  - Файлы для изменения:
+    - `bronivik_jr/internal/models/booking.go`
+    - `bronivik_crm/internal/model/hourly_booking.go`
+    - Миграции в `migrations/` директории
+
+#### 2.2.2 Определить хранение "пула дат" от менеджера
+- [!] **Выбрать способ хранения диапазонов**
+  - Описание: Как хранить диапазон дат для "вечной аренды"?
+  - Вариант A — одна запись с диапазоном:
+    ```sql
+    INSERT INTO bookings (start_time, end_time, booking_type)
+    VALUES ('2026-01-15', '2026-12-31', 'permanent');
+    ```
+    - Плюсы: простота, один запрос для проверки
+    - Минусы: сложнее отменять отдельные дни
+  - Вариант B — отдельные записи для каждой даты:
+    ```sql
+    INSERT INTO bookings (start_time, booking_type, parent_booking_id)
+    VALUES 
+      ('2026-01-15', 'permanent', 123),
+      ('2026-01-16', 'permanent', 123);
+    ```
+    - Плюсы: гибкость, легко отменить отдельный день
+    - Минусы: много записей, сложнее управлять
+  - Вариант C — отдельная таблица дат:
+    ```sql
+    CREATE TABLE booking_dates (
+        id SERIAL PRIMARY KEY,
+        booking_id INTEGER REFERENCES bookings(id),
+        date DATE NOT NULL,
+        UNIQUE(booking_id, date)
+    );
+    ```
+    - Плюсы: чёткое разделение, гибкость
+    - Минусы: дополнительная таблица, JOIN'ы
+  - Рекомендация: Для MVP — Вариант A. Для гибкости — Вариант C.
+
+### 2.3 Миграции данных
+
+#### 2.3.1 Backfill существующих записей
+- [ ] **Обновить существующие записи**
+  - Описание: Для всех текущих заявок проставить `end_time`.
+  - Скрипт миграции:
+    ```sql
+    -- Вариант 1: Оставить NULL (обрабатывать в коде)
+    -- Ничего не делаем, код учитывает NULL
+    
+    -- Вариант 2: Проставить end_time = start_time явно
+    UPDATE bookings 
+    SET end_time = start_time 
+    WHERE end_time IS NULL;
+    ```
+  - Рекомендации:
+    - Создать backup перед миграцией
+    - Выполнять в транзакции
+    - Логировать количество обновлённых записей
+  - План отката:
+    ```sql
+    -- Rollback
+    ALTER TABLE bookings DROP COLUMN end_time;
+    ```
+
+#### 2.3.2 Обновление индексов
+- [ ] **Создать индексы для диапазонных запросов**
+  - Описание: Оптимизировать запросы на пересечение диапазонов.
+  - SQL индексы:
+    ```sql
+    -- Индекс для выборки по диапазону дат
+    CREATE INDEX idx_bookings_time_range 
+    ON bookings (start_time, end_time);
+    
+    -- Индекс для выборки по item + дате
+    CREATE INDEX idx_bookings_item_time 
+    ON bookings (item_id, start_time, end_time);
+    
+    -- Частичный индекс для активных бронирований
+    CREATE INDEX idx_bookings_active 
+    ON bookings (start_time, end_time) 
+    WHERE status IN ('pending', 'approved');
+    ```
+  - Запрос на пересечение диапазонов:
+    ```sql
+    -- Найти все бронирования, пересекающиеся с [req_start, req_end]
+    SELECT * FROM bookings
+    WHERE item_id = $1
+      AND start_time <= $2  -- req_end
+      AND COALESCE(end_time, start_time) >= $3  -- req_start
+      AND status IN ('pending', 'approved');
+    ```
+  - Рекомендации:
+    - Использовать `EXPLAIN ANALYZE` для проверки индексов
+    - Рассмотреть GiST индекс для PostgreSQL (range types)
+
+### 2.4 Доработка таблицы напоминаний
+
+#### 2.4.1 Проверка и расширение схемы
+- [ ] **Убедиться в наличии необходимых полей**
+  - Описание: Таблица напоминаний должна поддерживать все сценарии.
+  - Обязательные поля:
+    ```sql
+    CREATE TABLE IF NOT EXISTS reminders (
+        id SERIAL PRIMARY KEY,
+        user_id BIGINT NOT NULL,
+        booking_id INTEGER REFERENCES bookings(id),
+        reminder_type VARCHAR(50) NOT NULL,
+        scheduled_at TIMESTAMP NOT NULL,
+        sent_at TIMESTAMP NULL,
+        status VARCHAR(20) DEFAULT 'pending',
+        enabled BOOLEAN DEFAULT true,
+        retry_count INTEGER DEFAULT 0,
+        last_error TEXT NULL,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW(),
+        
+        UNIQUE(user_id, booking_id, reminder_type)
+    );
+    
+    CREATE INDEX idx_reminders_pending 
+    ON reminders (scheduled_at, status, enabled) 
+    WHERE status = 'pending' AND enabled = true;
+    ```
+  - Файлы для изменения:
+    - `shared/reminders/interfaces.go` — модель Reminder
+    - Миграции в обоих ботах
+
+---
+
+## III. БОТ 1: Бронирование аппаратов (`bronivik_jr`)
+
+### 3.1 Управление аппаратами
+
+#### 3.1.1 «Вечная аренда» аппаратов
 - [x] **Добавить поле `permanent_reserved` в таблицу `devices`** ✅ (13.01.2026)
   - Тип: `boolean`, default=false.
   - Реализовано в models/item.go и database schema.
@@ -136,9 +712,9 @@
 
 ---
 
-### 2.2 API для интеграции с Ботом 2
+### 3.2 API для интеграции с Ботом 2
 
-#### 2.2.1 Эндпоинт `GET /api/devices`
+#### 3.2.1 Эндпоинт `GET /api/devices`
 - [x] **Реализовать HTTP-сервер (если ещё нет)** ✅ (13.01.2026)
   - HTTP-сервер уже существовал в api/http_server.go.
 - [x] **Реализовать endpoint** ✅ (13.01.2026)
@@ -154,7 +730,7 @@
     ```
   - Реализовано в api/devices_api.go — handleDevices().
 
-#### 2.2.2 Эндпоинт `POST /api/book-device`
+#### 3.2.2 Эндпоинт `POST /api/book-device`
 - [x] **Реализовать endpoint бронирования** ✅ (13.01.2026)
   - Описание: Бот 2 отправляет запрос на бронирование аппарата.
   - URL: POST /api/book-device
@@ -182,26 +758,176 @@
     - Проверка доступности и транзакционное создание.
     - DELETE /api/book-device/{external_id} для отмены.
 
+### 3.3 API занятости/доступности items (NEW)
+
+> Эпик на основе features2.md — унификация API для проверки занятости
+
+#### 3.3.1 Унификация контракта API
+- [ ] **Привести API к единому контракту**
+  - Описание: В текущей документации конфликт — путь "GET /api/items", но метод "POST".
+  - Решение: Использовать POST для запросов с телом (фильтры по датам).
+  - Новый endpoint:
+    ```
+    POST /api/items/availability
+    Content-Type: application/json
+    X-API-Key: {api_key}
+    ```
+  - Request body:
+    ```json
+    {
+      "start_date": "2026-01-15",
+      "end_date": "2026-01-20",
+      "item_ids": [1, 2, 3],        // опционально
+      "cabinet_id": 1,              // опционально
+      "category": "medical"         // опционально
+    }
+    ```
+  - Рекомендации:
+    - Формат дат: ISO 8601 (YYYY-MM-DD или YYYY-MM-DDTHH:MM:SSZ)
+    - Валидировать `start_date <= end_date`
+    - Максимальный диапазон: 90 дней (конфигурируемо)
+
+#### 3.3.2 Реализация endpoint занятости
+- [ ] **Реализовать POST /api/items/availability**
+  - Response structure:
+    ```json
+    {
+      "items": [
+        {
+          "id": 1,
+          "name": "Аппарат A",
+          "availability": [
+            {"date": "2026-01-15", "available": true},
+            {"date": "2026-01-16", "available": false, "reason": "booked"},
+            {"date": "2026-01-17", "available": false, "reason": "maintenance"}
+          ]
+        },
+        {
+          "id": 2,
+          "name": "Аппарат B",
+          "availability": [
+            {"date": "2026-01-15", "available": true},
+            {"date": "2026-01-16", "available": true},
+            {"date": "2026-01-17", "available": true}
+          ]
+        }
+      ],
+      "period": {
+        "start": "2026-01-15",
+        "end": "2026-01-17"
+      }
+    }
+    ```
+  - Логика занятости для диапазонных заявок:
+    ```go
+    func (s *AvailabilityService) GetAvailability(ctx context.Context, req AvailabilityRequest) (*AvailabilityResponse, error) {
+        items, err := s.itemRepo.GetByFilter(ctx, req.ItemIDs, req.CabinetID, req.Category)
+        if err != nil {
+            return nil, err
+        }
+        
+        result := &AvailabilityResponse{
+            Items:  make([]ItemAvailability, 0, len(items)),
+            Period: Period{Start: req.StartDate, End: req.EndDate},
+        }
+        
+        for _, item := range items {
+            availability := make([]DateAvailability, 0)
+            
+            for d := req.StartDate; !d.After(req.EndDate); d = d.AddDate(0, 0, 1) {
+                // Проверяем пересечение с существующими бронированиями
+                booked, reason := s.checkDateBooked(ctx, item.ID, d)
+                availability = append(availability, DateAvailability{
+                    Date:      d.Format("2006-01-02"),
+                    Available: !booked,
+                    Reason:    reason,
+                })
+            }
+            
+            result.Items = append(result.Items, ItemAvailability{
+                ID:           item.ID,
+                Name:         item.Name,
+                Availability: availability,
+            })
+        }
+        
+        return result, nil
+    }
+    ```
+  - Уточнить конфликт пересечения:
+    - Включительно/исключительно границы
+    - Пересечение по дате vs по времени
+  - Файлы для создания:
+    - `bronivik_jr/internal/api/availability_api.go`
+    - `bronivik_jr/internal/service/availability.go`
+
+#### 3.3.3 Авторизация API key
+- [ ] **Добавить проверку API ключа**
+  - Описание: Защитить API от несанкционированного доступа.
+  - Реализация:
+    ```go
+    func APIKeyMiddleware(validKeys []string) func(http.Handler) http.Handler {
+        keySet := make(map[string]struct{}, len(validKeys))
+        for _, k := range validKeys {
+            keySet[k] = struct{}{}
+        }
+        
+        return func(next http.Handler) http.Handler {
+            return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+                apiKey := r.Header.Get("X-API-Key")
+                if apiKey == "" {
+                    apiKey = r.URL.Query().Get("api_key") // fallback
+                }
+                
+                if _, ok := keySet[apiKey]; !ok {
+                    http.Error(w, `{"error": "unauthorized"}`, http.StatusUnauthorized)
+                    return
+                }
+                
+                next.ServeHTTP(w, r)
+            })
+        }
+    }
+    ```
+  - Хранение ключей:
+    - Переменная окружения: `API_KEYS=key1,key2,key3`
+    - Или secret manager (Vault, AWS Secrets Manager)
+    - **НЕ** хранить в git
+  - Ошибки:
+    - 401 Unauthorized — ключ отсутствует
+    - 403 Forbidden — ключ невалидный
+
+#### 3.3.4 Контракт бронирования
+- [ ] **Обновить DTO/Swagger с полем comment**
+  - Описание: Убедиться, что все поля корректно передаются.
+  - Проверить поля в `docs/openapi.yaml`:
+    - `comment` — текстовый комментарий к бронированию
+    - `start_time`, `end_time` — диапазон
+    - `status` — статус заявки
+  - Сверить с кодом:
+    - DTO в API handlers
+    - Модели в database layer
+
 ---
 
-## III. БОТ 2: Бронирование кабинетов (`bronivik_crm`)
+## IV. БОТ 2: Бронирование кабинетов (`bronivik_crm`)
 
-### 3.1 Гибкое управление расписанием
+### 4.1 Гибкое управление расписанием
 
-#### 3.1.1 Расписание по умолчанию
+#### 4.1.1 Расписание по умолчанию
 - [x] **Создать таблицу `default_schedule`** ✅ (13.01.2026)
   - Уже реализовано в cabinet_schedules с полями: day_of_week, start_time, end_time, lunch_start, lunch_end.
   - Значения по умолчанию: 10:00–22:00, slot_duration=30 мин.
   - Реализовано: db/schedule.go — DefaultScheduleConfig, EnsureDefaultSchedules().
 
-#### 3.1.2 Особое расписание на конкретные даты
+#### 4.1.2 Особое расписание на конкретные даты
 - [x] **Создать таблицу `special_schedule`** ✅ (13.01.2026)
   - Уже реализовано в cabinet_schedule_overrides с полями: date, is_closed, start_time, end_time, lunch_start, lunch_end, reason.
 - [x] **Реализовать функцию получения расписания на дату** ✅ (13.01.2026)
   - Логика: Сначала проверить override, затем cabinet_schedules.
   - Реализовано: db/schedule.go — GetScheduleForDate(), GetScheduleByDay(), GetScheduleOverride().
 
-#### 3.1.3 Команды менеджера для управления расписанием
+#### 4.1.3 Команды менеджера для управления расписанием
 - [x] **Изменение дефолтного расписания** ✅ (13.01.2026)
   - Реализовано: UpdateScheduleHours(), UpdateScheduleLunch().
 - [x] **Установка особого расписания** ✅ (13.01.2026)
@@ -211,9 +937,9 @@
 
 ---
 
-### 3.2 Диалог бронирования для пользователя
+### 4.2 Диалог бронирования для пользователя
 
-#### 3.2.1 Сбор данных клиента
+#### 4.2.1 Сбор данных клиента
 - [x] **Реализовать пошаговый диалог (FSM)** ✅ (13.01.2026)
   - Шаги: ФИО → Дата → Время начала → Длительность → Аппарат → Подтверждение.
   - Реализовано:
@@ -221,48 +947,48 @@
     - `booking/handler.go` — DefaultHandler с обработкой каждого шага.
     - Поддержка команд /cancel, /back, валидация ввода.
 
-#### 3.2.2 Слоты по 30 минут
+#### 4.2.2 Слоты по 30 минут
 - [x] **Генерировать доступные слоты на основе расписания** ✅ (13.01.2026)
   - Реализовано в slots/generator.go — GenerateSlots().
   - Учёт обеденного перерыва, исключение занятых слотов.
 
-#### 3.2.3 Выбор нескольких последовательных слотов
+#### 4.2.3 Выбор нескольких последовательных слотов
 - [x] **Позволить выбрать 1–N слотов подряд** ✅ (13.01.2026)
   - Реализовано:
     - GetDurationOptions() — доступные варианты длительности.
     - CanBookConsecutive() — проверка последовательных слотов.
     - FindConsecutiveSlots() — группировка свободных слотов.
 
-#### 3.2.4 Интеграция с API Бота 1
+#### 4.2.4 Интеграция с API Бота 1
 - [x] **Получить список аппаратов через `GET /api/devices`** ✅ (13.01.2026)
   - Реализовано: crmapi/client.go — GetDevices(), GetAvailableDevicesForDate().
 - [x] **Забронировать аппарат через `POST /api/book-device`** ✅ (13.01.2026)
   - Реализовано: BookDevice(), BookDeviceSimple(), CancelDeviceBooking().
 
-#### 3.2.5 Проверка доступности кабинета
+#### 4.2.5 Проверка доступности кабинета
 - [x] **Проверить, свободен ли кабинет в выбранное время** ✅ (13.01.2026)
   - Реализовано: db/schedule.go — IsSlotBooked(), CheckSlotAvailability().
 
-#### 3.2.6 Создание заявки со статусом «ожидает подтверждения»
+#### 4.2.6 Создание заявки со статусом «ожидает подтверждения»
 - [x] **Создать запись в таблице `bookings`** ✅ (13.01.2026)
   - Статус: `pending`. Время блокируется для других пользователей.
   - Реализовано: CreateHourlyBookingWithChecks().
 
-#### 3.2.7 Информационное предупреждение
+#### 4.2.7 Информационное предупреждение
 - [x] **Показать disclaimer перед подтверждением** ✅ (13.01.2026)
   - Текст включён в StatePrompts[StateConfirm].
 
 ---
 
-### 3.3 Расширенный функционал менеджера
+### 4.3 Расширенный функционал менеджера
 
-#### 3.3.1 Просмотр заявок
+#### 4.3.1 Просмотр заявок
 - [x] **Команда `/bookings` — список всех заявок** ✅ (13.01.2026)
   - Реализовано: manager/service.go — ListBookings(), FormatBookingList().
   - BookingFilter для фильтрации по статусу, датам, пользователю.
   - Пагинация через Limit/Offset.
 
-#### 3.3.2 Редактирование заявки
+#### 4.3.2 Редактирование заявки
 - [x] **Перенос на другую дату/время** ✅ (13.01.2026)
   - Реализовано: RescheduleBooking() — проверка слотов, уведомление пользователя.
   - Автоматическая отмена старой брони аппарата и создание новой.
@@ -273,7 +999,7 @@
 - [x] **Изменение аппарата** ✅ (13.01.2026)
   - Реализовано: ChangeDevice() — освобождение старого, бронирование нового.
 
-#### 3.3.3 Управление статусами заявки
+#### 4.3.3 Управление статусами заявки
 - [x] **Согласовать (одобрить)** ✅ (13.01.2026)
   - Реализовано: ApproveBooking() → статус 'approved', уведомление пользователю.
 
@@ -285,19 +1011,149 @@
 
 ---
 
-### 3.4 Конфигурация и интеграции
+### 4.4 Конфигурация кабинетов (NEW)
 
-#### 3.4.1 Настройка количества кабинетов
+> Эпик на основе features2.md — централизованная конфигурация кабинетов
+
+#### 4.4.1 Формат конфигурации кабинетов
+- [ ] **Определить и реализовать cabinets.yaml**
+  - Описание: Конфигурация кабинетов в YAML формате.
+  - Формат файла `configs/cabinets.yaml`:
+    ```yaml
+    cabinets:
+      - id: 1
+        name: "Кабинет №1"
+        number: "101"
+        address: "ул. Примерная, 1"
+        description: "Основной кабинет для процедур"
+        floor: 1
+        capacity: 2  # количество одновременных сеансов
+        
+      - id: 2
+        name: "Кабинет №2"
+        number: "102"
+        address: "ул. Примерная, 1"
+        description: "Дополнительный кабинет"
+        floor: 1
+        capacity: 1
+    ```
+  - Альтернатива — раздел в `items.yaml`:
+    ```yaml
+    items:
+      # ... существующие items ...
+    
+    cabinets:
+      - id: 1
+        name: "Кабинет №1"
+        # ...
+    ```
+  - Рекомендации:
+    - Поле `id` для сортировки и привязки
+    - Валидация уникальности id при загрузке
+    - Логирование при невалидном конфиге
+
+#### 4.4.2 Загрузка и валидация конфигурации
+- [ ] **Реализовать загрузку cabinets.yaml**
+  - Описание: Загрузка конфигурации при старте с валидацией.
+  - Реализация:
+    ```go
+    type CabinetConfig struct {
+        ID          int    `yaml:"id"`
+        Name        string `yaml:"name"`
+        Number      string `yaml:"number"`
+        Address     string `yaml:"address"`
+        Description string `yaml:"description"`
+        Floor       int    `yaml:"floor"`
+        Capacity    int    `yaml:"capacity"`
+    }
+    
+    type CabinetsConfig struct {
+        Cabinets []CabinetConfig `yaml:"cabinets"`
+    }
+    
+    func LoadCabinetsConfig(path string) (*CabinetsConfig, error) {
+        data, err := os.ReadFile(path)
+        if err != nil {
+            return nil, fmt.Errorf("read cabinets config: %w", err)
+        }
+        
+        var cfg CabinetsConfig
+        if err := yaml.Unmarshal(data, &cfg); err != nil {
+            return nil, fmt.Errorf("parse cabinets config: %w", err)
+        }
+        
+        if err := cfg.Validate(); err != nil {
+            return nil, fmt.Errorf("validate cabinets config: %w", err)
+        }
+        
+        return &cfg, nil
+    }
+    
+    func (c *CabinetsConfig) Validate() error {
+        ids := make(map[int]bool)
+        for i, cab := range c.Cabinets {
+            if cab.ID <= 0 {
+                return fmt.Errorf("cabinet[%d]: id must be positive", i)
+            }
+            if ids[cab.ID] {
+                return fmt.Errorf("cabinet[%d]: duplicate id %d", i, cab.ID)
+            }
+            ids[cab.ID] = true
+            
+            if cab.Name == "" {
+                return fmt.Errorf("cabinet[%d]: name is required", i)
+            }
+        }
+        return nil
+    }
+    ```
+  - Поведение при ошибке:
+    - **Fatal error** при старте, если конфиг невалидный
+    - Логировать все загруженные кабинеты
+  - Файлы для создания/изменения:
+    - `bronivik_crm/internal/config/cabinets.go`
+    - `bronivik_crm/configs/cabinets.yaml`
+
+#### 4.4.3 Привязка items к кабинетам
+- [ ] **Добавить cabinet_id к items**
+  - Описание: Связать аппараты с конкретными кабинетами.
+  - Опционально: Аппарат может быть без кабинета (mobile)
+  - Использование:
+    - Фильтрация аппаратов по кабинету
+    - Отображение в UI: "Аппарат A (Кабинет №1)"
+  - Миграция:
+    ```sql
+    ALTER TABLE items ADD COLUMN cabinet_id INTEGER NULL;
+    CREATE INDEX idx_items_cabinet ON items (cabinet_id);
+    ```
+
+#### 4.4.4 Горячая перезагрузка конфигурации (опционально)
+- [ ] **Реализовать hot reload**
+  - Описание: Перезагрузка конфигурации без перезапуска.
+  - Варианты:
+    - A) SIGHUP signal handler
+    - B) Админ-команда `/reload_config`
+    - C) Файловый watcher (fsnotify)
+  - Рекомендации:
+    - Не обязательно для MVP
+    - Если реализовать — логировать изменения
+    - Валидировать новый конфиг перед применением
+
+---
+
+### 4.5 Интеграции
+
+#### 4.5.1 Настройка количества кабинетов
 - [x] **Параметр конфигурации `ROOMS_COUNT`** ✅ (13.01.2026)
   - Реализовано через cabinets таблицу.
   - EnsureDefaultSchedules() создаёт расписание для всех кабинетов.
 
-#### 3.4.2 Интеграция с Google Таблицами
+#### 4.5.2 Интеграция с Google Таблицами
 - [ ] **Настроить Google Sheets API**
   - Описание: Выгрузка/синхронизация данных (детали уточняются).
   - TODO: Требует настройки сервисного аккаунта.
 
-#### 3.4.3 Интеграция с Ботом 1
+#### 4.5.3 Интеграция с Ботом 1
 - [x] **Настроить URL и авторизацию для API Бота 1** ✅ (13.01.2026)
   - Реализовано: crmapi/client.go — BronivikClient.
   - Конфигурация: BOT1_API_URL, x-api-key, x-api-extra.
@@ -306,21 +1162,184 @@
 
 ---
 
-## IV. Тестирование и документация
+## V. Тестирование (NEW)
 
-### 4.1 Тесты
+> Эпик на основе features2.md — расширенное тестирование
+
+### 5.1 Unit-тесты
+
+#### 5.1.1 Тесты существующей логики
 - [x] **Unit-тесты для бизнес-логики** ✅ (13.01.2026)
   - Генерация слотов: slots/generator_test.go
   - Проверка пересечений, валидация расписания
   - FSM бронирования: booking/fsm_test.go
   - Хранилище сессий, переходы состояний
+
+#### 5.1.2 Тесты пересечения диапазонов
+- [ ] **Тесты для диапазонных бронирований**
+  - Описание: Проверка корректности определения пересечений.
+  - Тест-кейсы:
+    ```go
+    func TestBookingOverlap(t *testing.T) {
+        tests := []struct {
+            name     string
+            existing Booking  // существующее бронирование
+            request  Booking  // новый запрос
+            overlap  bool     // ожидаемый результат
+        }{
+            {
+                name:     "no overlap - before",
+                existing: Booking{StartTime: day(15), EndTime: day(20)},
+                request:  Booking{StartTime: day(10), EndTime: day(14)},
+                overlap:  false,
+            },
+            {
+                name:     "no overlap - after",
+                existing: Booking{StartTime: day(15), EndTime: day(20)},
+                request:  Booking{StartTime: day(21), EndTime: day(25)},
+                overlap:  false,
+            },
+            {
+                name:     "overlap - partial start",
+                existing: Booking{StartTime: day(15), EndTime: day(20)},
+                request:  Booking{StartTime: day(13), EndTime: day(16)},
+                overlap:  true,
+            },
+            {
+                name:     "overlap - partial end",
+                existing: Booking{StartTime: day(15), EndTime: day(20)},
+                request:  Booking{StartTime: day(19), EndTime: day(25)},
+                overlap:  true,
+            },
+            {
+                name:     "overlap - contained",
+                existing: Booking{StartTime: day(15), EndTime: day(20)},
+                request:  Booking{StartTime: day(16), EndTime: day(18)},
+                overlap:  true,
+            },
+            {
+                name:     "overlap - containing",
+                existing: Booking{StartTime: day(15), EndTime: day(20)},
+                request:  Booking{StartTime: day(10), EndTime: day(25)},
+                overlap:  true,
+            },
+            {
+                name:     "edge case - adjacent (no overlap)",
+                existing: Booking{StartTime: day(15), EndTime: day(20)},
+                request:  Booking{StartTime: day(20), EndTime: day(25)},
+                overlap:  false, // если границы исключающие
+            },
+            {
+                name:     "null end_time treated as start_time",
+                existing: Booking{StartTime: day(15), EndTime: nil},
+                request:  Booking{StartTime: day(15), EndTime: day(15)},
+                overlap:  true,
+            },
+        }
+        
+        for _, tt := range tests {
+            t.Run(tt.name, func(t *testing.T) {
+                result := tt.existing.OverlapsWith(&tt.request)
+                assert.Equal(t, tt.overlap, result)
+            })
+        }
+    }
+    ```
+  - Файлы для создания:
+    - `bronivik_jr/internal/models/booking_test.go`
+    - `bronivik_crm/internal/model/booking_test.go`
+
+#### 5.1.3 Тесты дедупликации напоминаний
+- [ ] **Тесты идемпотентности отправки**
+  - Описание: Проверка, что напоминания не дублируются.
+  - Тест-кейсы:
+    ```go
+    func TestReminderDeduplication(t *testing.T) {
+        store := NewInMemoryReminderStore()
+        sender := NewMockSender()
+        service := NewReminderService(store, sender)
+        
+        reminder := Reminder{
+            UserID:       123,
+            BookingID:    456,
+            ReminderType: "24h_before",
+        }
+        
+        // Первая отправка
+        err := service.ProcessReminder(context.Background(), reminder)
+        assert.NoError(t, err)
+        assert.Equal(t, 1, sender.SendCount())
+        
+        // Повторная отправка — должна быть пропущена
+        err = service.ProcessReminder(context.Background(), reminder)
+        assert.NoError(t, err)
+        assert.Equal(t, 1, sender.SendCount()) // счётчик не изменился
+    }
+    ```
+
+### 5.2 Интеграционные тесты
+
+#### 5.2.1 Тесты API
 - [x] **Integration-тесты для API** ✅ (13.01.2026)
   - api/devices_api_test.go — тесты для GET /api/devices, POST /api/book-device
   - Тесты аутентификации, health endpoints
+
+#### 5.2.2 Тесты cron-задач
+- [ ] **Тесты для cron job напоминаний**
+  - Описание: Проверка корректной выборки и обработки.
+  - Тест с фикстурами:
+    ```go
+    func TestCronReminderSelection(t *testing.T) {
+        db := setupTestDB(t)
+        defer db.Close()
+        
+        // Создаём тестовые данные
+        fixtures := []Reminder{
+            {ScheduledAt: time.Now().Add(-1*time.Hour), Status: "pending", Enabled: true},  // должен быть выбран
+            {ScheduledAt: time.Now().Add(1*time.Hour), Status: "pending", Enabled: true},   // ещё рано
+            {ScheduledAt: time.Now().Add(-1*time.Hour), Status: "sent", Enabled: true},     // уже отправлен
+            {ScheduledAt: time.Now().Add(-1*time.Hour), Status: "pending", Enabled: false}, // отключён
+        }
+        
+        for _, f := range fixtures {
+            _, err := db.CreateReminder(context.Background(), f)
+            require.NoError(t, err)
+        }
+        
+        // Запускаем выборку
+        service := NewReminderService(db, nil)
+        selected, err := service.GetPendingReminders(context.Background())
+        require.NoError(t, err)
+        
+        assert.Len(t, selected, 1)
+        assert.Equal(t, "pending", selected[0].Status)
+    }
+    ```
+
+#### 5.2.3 Тесты API availability
+- [ ] **Тесты для POST /api/items/availability**
+  - Описание: Проверка корректности расчёта занятости.
+  - Тест-кейсы:
+    - Пустой период — все свободны
+    - Частичная занятость
+    - Полная занятость диапазоном
+    - Фильтрация по item_ids, cabinet_id
+
+### 5.3 E2E-тесты
+
+#### 5.3.1 Тесты диалогов бота
 - [ ] **E2E-тесты для ботов**
   - Эмуляция диалога с пользователем (требует настройки test environment).
+  - Варианты реализации:
+    - A) Mock Telegram API
+    - B) Тестовый бот с отдельным токеном
+    - C) Selenium/Puppeteer для веб-версии
 
-### 4.2 Документация
+---
+
+## VI. Документация
+
+### 6.1 Существующая документация
 - [x] **README для каждого бота** ✅ (13.01.2026)
   - Установка, настройка, запуск.
   - README уже существуют и поддерживаются актуальными.
@@ -333,8 +1352,9 @@
 
 ---
 
-## V. Деплой и DevOps
+## VII. Деплой и DevOps
 
+### 7.1 Существующая инфраструктура
 - [x] **Docker-образы для обоих ботов** ✅ (13.01.2026)
   - Dockerfile для bronivik_jr (multi-stage build, bot + api)
   - Dockerfile для bronivik_crm (multi-stage build)
@@ -357,17 +1377,169 @@
   - Grafana datasources provisioning
   - Deploy job с SSH (шаблон)
 
+### 7.2 Деплой worker/cron (NEW)
+
+#### 7.2.1 Worker контейнер для напоминаний
+- [ ] **Добавить отдельный worker контейнер**
+  - Описание: Выделенный контейнер для cron-задач.
+  - docker-compose.yml:
+    ```yaml
+    services:
+      # ... existing services ...
+      
+      reminder-worker:
+        image: bronivik-jr:${VERSION:-latest}
+        command: ["./app", "worker", "--job=reminders"]
+        environment:
+          - TZ=Europe/Moscow
+          - CRON_SCHEDULE=0 12 * * *
+          - DATABASE_URL=${DATABASE_URL}
+          - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+        depends_on:
+          - bronivik-jr-bot
+        restart: unless-stopped
+        healthcheck:
+          test: ["CMD", "./app", "health", "--worker"]
+          interval: 60s
+          timeout: 10s
+          retries: 3
+    ```
+  - Альтернатива — встроенный scheduler в основном боте:
+    ```go
+    // В main.go
+    go func() {
+        scheduler := cron.New(cron.WithLocation(moscowTZ))
+        scheduler.AddFunc("0 12 * * *", func() {
+            reminderService.ProcessDailyReminders(context.Background())
+        })
+        scheduler.Start()
+    }()
+    ```
+
+#### 7.2.2 Настройка расписания и таймзоны
+- [ ] **Конфигурация cron schedule**
+  - Описание: Настройка времени запуска через переменные окружения.
+  - Переменные:
+    - `TZ=Europe/Moscow` — таймзона
+    - `REMINDER_CRON=0 12 * * *` — расписание (12:00 ежедневно)
+  - Документация: добавить в README
+
+#### 7.2.3 Алерты для worker
+- [ ] **Настроить алерты мониторинга**
+  - Описание: Уведомления о проблемах с напоминаниями.
+  - Prometheus alerts (`monitoring/alerts.yml`):
+    ```yaml
+    groups:
+      - name: reminders
+        rules:
+          - alert: ReminderFailureRateHigh
+            expr: rate(reminders_sent_total{status="failed"}[1h]) > 0.1
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High reminder failure rate"
+              description: "More than 10% of reminders are failing"
+          
+          - alert: ReminderBacklogGrowing
+            expr: reminders_queue_size > 100
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Reminder backlog is growing"
+              description: "{{ $value }} reminders pending"
+          
+          - alert: NoRemindersSentInExpectedWindow
+            expr: increase(reminders_sent_total[2h]) == 0 and hour() >= 12 and hour() <= 14
+            for: 30m
+            labels:
+              severity: critical
+            annotations:
+              summary: "No reminders sent during expected window"
+              description: "Expected reminders at 12:00, but none were sent"
+    ```
+  - Файлы для создания/изменения:
+    - `monitoring/alerts.yml`
+    - `monitoring/prometheus.yml` — добавить rule_files
+
+### 7.3 Миграции и обратимость
+
+#### 7.3.1 Скрипты миграции
+- [ ] **Создать систему миграций**
+  - Описание: Версионированные миграции схемы БД.
+  - Рекомендуемый инструмент: `golang-migrate/migrate`
+  - Структура:
+    ```
+    migrations/
+      001_initial_schema.up.sql
+      001_initial_schema.down.sql
+      002_add_end_time.up.sql
+      002_add_end_time.down.sql
+      003_reminders_table.up.sql
+      003_reminders_table.down.sql
+    ```
+  - Команды:
+    ```bash
+    # Применить все миграции
+    migrate -path ./migrations -database "$DATABASE_URL" up
+    
+    # Откатить последнюю
+    migrate -path ./migrations -database "$DATABASE_URL" down 1
+    
+    # Посмотреть текущую версию
+    migrate -path ./migrations -database "$DATABASE_URL" version
+    ```
+
+#### 7.3.2 Rollback-план
+- [ ] **Документировать план отката**
+  - Описание: Как откатиться, если новый функционал ломает систему.
+  - Документ `docs/ROLLBACK.md`:
+    - Список критических изменений
+    - Команды отката для каждого изменения
+    - Процедура восстановления данных
+  - Рекомендации:
+    - Всегда создавать backup перед миграцией
+    - Тестировать rollback на staging
+
 ---
 
-## Приоритеты (рекомендуемый порядок)
+## VIII. Приоритеты (обновлённый порядок)
 
-1. **MVP Бота 1**: таблица аппаратов, базовые CRUD, API `/api/devices` и `/api/book-device`.
-2. **MVP Бота 2**: диалог бронирования, таблица заявок, интеграция с API Бота 1.
-3. **Общие модули**: напоминания, access control.
-4. **Менеджерский функционал**: управление заявками, расписанием.
-5. **Аудит и экспорт**: XLS-отчёты, автоочистка.
-6. **Интеграции**: Google Sheets.
-7. **Тесты, документация, DevOps**.
+### Фаза 0: Архитектурные решения (БЛОКИРУЮЩАЯ)
+1. Зафиксировать политику напоминаний (типы, таймзоны)
+2. Определить rate limits для Telegram
+3. Принять решение по БД (SQLite vs PostgreSQL)
+4. Определить стратегию TTL
+
+### Фаза 1: Данные и миграции
+5. Аудит текущей схемы БД
+6. Добавить поле `end_time` для диапазонов
+7. Обновить индексы
+8. Расширить таблицу напоминаний
+
+### Фаза 2: Система напоминаний
+9. Реализовать cron-задачу отправки
+10. Добавить rate limiter
+11. Реализовать retry и дедупликацию
+12. Добавить метрики и логирование
+
+### Фаза 3: API и конфигурация
+13. Реализовать POST /api/items/availability
+14. Добавить авторизацию API key
+15. Создать cabinets.yaml
+
+### Фаза 4: Тестирование
+16. Unit-тесты для диапазонов
+17. Тесты дедупликации напоминаний
+18. Интеграционные тесты cron
+19. Тесты API availability
+
+### Фаза 5: Деплой
+20. Worker контейнер
+21. Алерты мониторинга
+22. Система миграций
+23. Rollback-план
 
 ---
 
