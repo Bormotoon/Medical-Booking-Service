@@ -15,6 +15,7 @@ const (
 	StateIdle         State = "idle"
 	StateAskName      State = "ask_name"
 	StateAskDate      State = "ask_date"
+	StateAskCabinet   State = "ask_cabinet"
 	StateAskStartTime State = "ask_start_time"
 	StateAskDuration  State = "ask_duration"
 	StateAskDevice    State = "ask_device"
@@ -27,6 +28,7 @@ const (
 type BookingData struct {
 	UserID      int64
 	CabinetID   int64
+	CabinetName string
 	ClientName  string
 	ClientPhone string
 	Date        time.Time
@@ -173,8 +175,9 @@ func NewFSM() *FSM {
 		transitions: map[State][]State{
 			StateIdle:         {StateAskName},
 			StateAskName:      {StateAskDate, StateCanceled},
-			StateAskDate:      {StateAskStartTime, StateAskName, StateCanceled},
-			StateAskStartTime: {StateAskDuration, StateAskDate, StateCanceled},
+			StateAskDate:      {StateAskCabinet, StateAskName, StateCanceled},
+			StateAskCabinet:   {StateAskStartTime, StateAskDate, StateCanceled},
+			StateAskStartTime: {StateAskDuration, StateAskCabinet, StateCanceled},
 			StateAskDuration:  {StateAskDevice, StateAskStartTime, StateCanceled},
 			StateAskDevice:    {StateConfirm, StateAskDuration, StateCanceled},
 			StateConfirm:      {StateComplete, StateAskDevice, StateCanceled},
