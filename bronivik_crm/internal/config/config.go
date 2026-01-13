@@ -52,6 +52,9 @@ type Config struct {
 	} `yaml:"booking"`
 
 	Managers []int64 `yaml:"managers"`
+
+	// CabinetsConfigPath is the path to cabinets.yaml configuration file
+	CabinetsConfigPath string `yaml:"cabinets_config_path"`
 }
 
 func Load(path string) (*Config, error) {
@@ -80,6 +83,11 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 
+	// Set default cabinets config path
+	if cfg.CabinetsConfigPath == "" {
+		cfg.CabinetsConfigPath = "configs/cabinets.yaml"
+	}
+
 	return &cfg, nil
 }
 
@@ -95,4 +103,9 @@ func (c *Config) BookingMaxAdvance() time.Duration {
 		return 30 * 24 * time.Hour
 	}
 	return time.Duration(c.Booking.MaxAdvanceDays) * 24 * time.Hour
+}
+
+// LoadCabinets loads cabinets configuration from the configured path.
+func (c *Config) LoadCabinets() (*CabinetsConfig, error) {
+	return LoadCabinetsConfig(c.CabinetsConfigPath)
 }

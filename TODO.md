@@ -619,128 +619,32 @@
 > Эпик на основе features2.md — централизованная конфигурация кабинетов
 
 #### 4.4.1 Формат конфигурации кабинетов
-- [ ] **Определить и реализовать cabinets.yaml**
-  - Описание: Конфигурация кабинетов в YAML формате.
-  - Формат файла `configs/cabinets.yaml`:
-    ```yaml
-    cabinets:
-      - id: 1
-        name: "Кабинет №1"
-        number: "101"
-        address: "ул. Примерная, 1"
-        description: "Основной кабинет для процедур"
-        floor: 1
-        capacity: 2  # количество одновременных сеансов
-        
-      - id: 2
-        name: "Кабинет №2"
-        number: "102"
-        address: "ул. Примерная, 1"
-        description: "Дополнительный кабинет"
-        floor: 1
-        capacity: 1
-    ```
-  - Альтернатива — раздел в `items.yaml`:
-    ```yaml
-    items:
-      # ... существующие items ...
-    
-    cabinets:
-      - id: 1
-        name: "Кабинет №1"
-        # ...
-    ```
-  - Рекомендации:
-    - Поле `id` для сортировки и привязки
-    - Валидация уникальности id при загрузке
-    - Логирование при невалидном конфиге
+- [x] **Определить и реализовать cabinets.yaml** ✅ (13.01.2026)
+  - Создан `bronivik_crm/configs/cabinets.yaml`:
+    - Список кабинетов с id, name, number, address, description, floor, capacity
+    - default_schedule для каждого кабинета (start_time, end_time, slot_duration, lunch)
+    - Глобальные defaults для schedule и days_off
+    - Праздничные дни (holidays) с датой и названием
 
 #### 4.4.2 Загрузка и валидация конфигурации
-- [ ] **Реализовать загрузку cabinets.yaml**
-  - Описание: Загрузка конфигурации при старте с валидацией.
-  - Реализация:
-    ```go
-    type CabinetConfig struct {
-        ID          int    `yaml:"id"`
-        Name        string `yaml:"name"`
-        Number      string `yaml:"number"`
-        Address     string `yaml:"address"`
-        Description string `yaml:"description"`
-        Floor       int    `yaml:"floor"`
-        Capacity    int    `yaml:"capacity"`
-    }
-    
-    type CabinetsConfig struct {
-        Cabinets []CabinetConfig `yaml:"cabinets"`
-    }
-    
-    func LoadCabinetsConfig(path string) (*CabinetsConfig, error) {
-        data, err := os.ReadFile(path)
-        if err != nil {
-            return nil, fmt.Errorf("read cabinets config: %w", err)
-        }
-        
-        var cfg CabinetsConfig
-        if err := yaml.Unmarshal(data, &cfg); err != nil {
-            return nil, fmt.Errorf("parse cabinets config: %w", err)
-        }
-        
-        if err := cfg.Validate(); err != nil {
-            return nil, fmt.Errorf("validate cabinets config: %w", err)
-        }
-        
-        return &cfg, nil
-    }
-    
-    func (c *CabinetsConfig) Validate() error {
-        ids := make(map[int]bool)
-        for i, cab := range c.Cabinets {
-            if cab.ID <= 0 {
-                return fmt.Errorf("cabinet[%d]: id must be positive", i)
-            }
-            if ids[cab.ID] {
-                return fmt.Errorf("cabinet[%d]: duplicate id %d", i, cab.ID)
-            }
-            ids[cab.ID] = true
-            
-            if cab.Name == "" {
-                return fmt.Errorf("cabinet[%d]: name is required", i)
-            }
-        }
-        return nil
-    }
-    ```
-  - Поведение при ошибке:
-    - **Fatal error** при старте, если конфиг невалидный
-    - Логировать все загруженные кабинеты
-  - Файлы для создания/изменения:
-    - `bronivik_crm/internal/config/cabinets.go`
-    - `bronivik_crm/configs/cabinets.yaml`
+- [x] **Реализовать загрузку cabinets.yaml** ✅ (13.01.2026)
+  - Создан `bronivik_crm/internal/config/cabinets.go`:
+    - Структуры: CabinetConfig, CabinetScheduleConfig, HolidayConfig, CabinetsConfig
+    - LoadCabinetsConfig() с чтением и парсингом YAML
+    - Validate() с проверкой уникальности id/name, форматов времени
+    - validateSchedule() для проверки расписания
+    - applyDefaults() для применения значений по умолчанию
+  - Helper методы: GetCabinetByID(), GetCabinetByName(), GetActiveCabinets()
+  - IsHoliday(), IsDayOff() для проверки выходных
+  - Интеграция с основным Config через LoadCabinets()
 
 #### 4.4.3 Привязка items к кабинетам
-- [ ] **Добавить cabinet_id к items**
-  - Описание: Связать аппараты с конкретными кабинетами.
-  - Опционально: Аппарат может быть без кабинета (mobile)
-  - Использование:
-    - Фильтрация аппаратов по кабинету
-    - Отображение в UI: "Аппарат A (Кабинет №1)"
-  - Миграция:
-    ```sql
-    ALTER TABLE items ADD COLUMN cabinet_id INTEGER NULL;
-    CREATE INDEX idx_items_cabinet ON items (cabinet_id);
-    ```
+- [ ] **Добавить cabinet_id к items** (отложено)
+  - Опционально: Для будущего расширения
 
 #### 4.4.4 Горячая перезагрузка конфигурации (опционально)
-- [ ] **Реализовать hot reload**
-  - Описание: Перезагрузка конфигурации без перезапуска.
-  - Варианты:
-    - A) SIGHUP signal handler
-    - B) Админ-команда `/reload_config`
-    - C) Файловый watcher (fsnotify)
-  - Рекомендации:
-    - Не обязательно для MVP
-    - Если реализовать — логировать изменения
-    - Валидировать новый конфиг перед применением
+- [ ] **Реализовать hot reload** (отложено)
+  - Не обязательно для MVP
 
 ---
 

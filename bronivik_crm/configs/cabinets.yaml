@@ -1,0 +1,67 @@
+# Конфигурация кабинетов для bronivik_crm
+# Этот файл определяет список кабинетов и их параметры
+
+cabinets:
+  - id: 1
+    name: "Кабинет №1"
+    number: "101"
+    address: "ул. Примерная, д. 1"
+    description: "Основной кабинет для процедур"
+    floor: 1
+    capacity: 2    # количество одновременных сеансов
+    is_active: true
+    default_schedule:
+      start_time: "10:00"
+      end_time: "22:00"
+      slot_duration_minutes: 30
+      lunch_start: "13:00"
+      lunch_end: "14:00"
+    
+  - id: 2
+    name: "Кабинет №2"
+    number: "102"
+    address: "ул. Примерная, д. 1"
+    description: "Дополнительный кабинет"
+    floor: 1
+    capacity: 1
+    is_active: true
+    default_schedule:
+      start_time: "09:00"
+      end_time: "21:00"
+      slot_duration_minutes: 30
+      lunch_start: "13:00"
+      lunch_end: "14:00"
+
+# Глобальные настройки по умолчанию
+# Применяются, если у кабинета не указано своё расписание
+defaults:
+  schedule:
+    start_time: "10:00"
+    end_time: "22:00"
+    slot_duration_minutes: 30
+    lunch_start: "13:00"
+    lunch_end: "14:00"
+  
+  # Выходные дни по умолчанию (1=Пн, 7=Вс)
+  days_off: []  # пусто = работаем каждый день
+
+# Праздничные дни (автоматически выходные для всех кабинетов)
+holidays:
+  - date: "2026-01-01"
+    name: "Новый год"
+  - date: "2026-01-02"
+    name: "Новогодние каникулы"
+  - date: "2026-01-07"
+    name: "Рождество"
+  - date: "2026-02-23"
+    name: "День защитника Отечества"
+  - date: "2026-03-08"
+    name: "Международный женский день"
+  - date: "2026-05-01"
+    name: "Праздник Весны и Труда"
+  - date: "2026-05-09"
+    name: "День Победы"
+  - date: "2026-06-12"
+    name: "День России"
+  - date: "2026-11-04"
+    name: "День народного единства"
