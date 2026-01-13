@@ -17,12 +17,12 @@ var AuditTableNames = []string{
 }
 
 // GetTableNames returns list of table names to export.
-func (db *DB) GetTableNames(ctx context.Context) ([]string, error) {
+func (db *DB) GetTableNames(ctx context.Context) (names []string, err error) {
 	return AuditTableNames, nil
 }
 
 // GetTableData returns all rows from a table as maps.
-func (db *DB) GetTableData(ctx context.Context, tableName string) ([]map[string]interface{}, []string, error) {
+func (db *DB) GetTableData(ctx context.Context, tableName string) (data []map[string]interface{}, columns []string, err error) {
 	// Validate table name to prevent SQL injection
 	validTable := false
 	for _, t := range AuditTableNames {
@@ -41,7 +41,6 @@ func (db *DB) GetTableData(ctx context.Context, tableName string) ([]map[string]
 		return nil, nil, err
 	}
 
-	var columns []string
 	for rows.Next() {
 		var cid int
 		var name, typeName string
@@ -66,7 +65,6 @@ func (db *DB) GetTableData(ctx context.Context, tableName string) ([]map[string]
 	}
 	defer dataRows.Close()
 
-	var result []map[string]interface{}
 	for dataRows.Next() {
 		values := make([]interface{}, len(columns))
 		valuePtrs := make([]interface{}, len(columns))
@@ -82,10 +80,10 @@ func (db *DB) GetTableData(ctx context.Context, tableName string) ([]map[string]
 		for i, col := range columns {
 			row[col] = values[i]
 		}
-		result = append(result, row)
+		data = append(data, row)
 	}
 
-	return result, columns, dataRows.Err()
+	return data, columns, dataRows.Err()
 }
 
 // GetDB returns the underlying sql.DB.

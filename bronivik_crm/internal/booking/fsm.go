@@ -198,6 +198,15 @@ func (f *FSM) CanTransition(from, to State) bool {
 	return false
 }
 
+// Transition updates the session state if the transition is allowed.
+func (f *FSM) Transition(session *Session, to State) bool {
+	if f.CanTransition(session.GetState(), to) {
+		session.SetState(to)
+		return true
+	}
+	return false
+}
+
 // TransitionResult contains the result of processing input.
 type TransitionResult struct {
 	NewState State

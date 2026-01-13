@@ -14,7 +14,7 @@ func TestFSMTransitions(t *testing.T) {
 		to          State
 		shouldAllow bool
 	}{
-		{"init to ask name", StateInit, StateAskName, true},
+		{"idle to ask name", StateIdle, StateAskName, true},
 		{"ask name to ask date", StateAskName, StateAskDate, true},
 		{"ask date to ask start time", StateAskDate, StateAskStartTime, true},
 		{"ask start time to ask duration", StateAskStartTime, StateAskDuration, true},
@@ -26,7 +26,7 @@ func TestFSMTransitions(t *testing.T) {
 		{"ask start time back to ask date", StateAskStartTime, StateAskDate, true},
 		{"confirm back to ask device", StateConfirm, StateAskDevice, true},
 		// Invalid transitions
-		{"init to complete", StateInit, StateComplete, false},
+		{"idle to complete", StateIdle, StateComplete, false},
 		{"ask name to confirm", StateAskName, StateConfirm, false},
 	}
 
@@ -42,7 +42,7 @@ func TestFSMTransitions(t *testing.T) {
 }
 
 func TestSessionStore(t *testing.T) {
-	store := NewInMemorySessionStore()
+	store := NewSessionStore(30 * time.Minute)
 
 	// Test Get non-existent session
 	session := store.Get(123)
@@ -50,16 +50,16 @@ func TestSessionStore(t *testing.T) {
 		t.Error("expected nil for non-existent session")
 	}
 
-	// Test Create
-	created := store.Create(123)
+	// Test GetOrCreate
+	created := store.GetOrCreate(123)
 	if created == nil {
 		t.Fatal("expected created session")
 	}
-	if created.UserID != 123 {
-		t.Errorf("expected UserID 123, got %d", created.UserID)
+	if created.Data.UserID != 123 {
+		t.Errorf("expected UserID 123, got %d", created.Data.UserID)
 	}
-	if created.State != StateInit {
-		t.Errorf("expected initial state, got %s", created.State)
+	if created.State != StateAskName {
+		t.Errorf("expected initial state StateAskName, got %s", created.State)
 	}
 
 	// Test Get existing session
@@ -82,8 +82,8 @@ func TestSessionStore(t *testing.T) {
 	if newSession == nil {
 		t.Fatal("expected new session")
 	}
-	if newSession.UserID != 456 {
-		t.Errorf("expected UserID 456, got %d", newSession.UserID)
+	if newSession.Data.UserID != 456 {
+		t.Errorf("expected UserID 456, got %d", newSession.Data.UserID)
 	}
 
 	// Test Delete
@@ -94,14 +94,17 @@ func TestSessionStore(t *testing.T) {
 }
 
 func TestSessionStateTransitions(t *testing.T) {
-	store := NewInMemorySessionStore()
-	session := store.Create(123)
+	store := NewSessionStore(30 * time.Minute)
+	session := store.GetOrCreate(123)
 	fsm := NewFSM()
 
-	// Initial state
-	if session.State != StateInit {
-		t.Errorf("expected StateInit, got %s", session.State)
+	// Initial state (NewSession starts with StateAskName)
+	if session.State != StateAskName {
+		t.Errorf("expected StateAskName, got %s", session.State)
 	}
+
+	// Set state to Idle to test transition
+	session.SetState(StateIdle)
 
 	// Valid transition
 	if !fsm.Transition(session, StateAskName) {
@@ -112,7 +115,7 @@ func TestSessionStateTransitions(t *testing.T) {
 	}
 
 	// Set name and transition
-	session.ClientName = "Иванов Иван"
+	session.Data.ClientName = "Иванов Иван"
 	if !fsm.Transition(session, StateAskDate) {
 		t.Error("transition to StateAskDate should succeed")
 	}
@@ -128,33 +131,34 @@ func TestSessionStateTransitions(t *testing.T) {
 
 func TestSessionDataStorage(t *testing.T) {
 	session := &Session{
-		UserID:    123,
 		State:     StateAskName,
 		StartedAt: time.Now(),
+		Data: BookingData{
+			UserID: 123,
+		},
 	}
 
 	// Test client data
-	session.ClientName = "Иванов Иван Иванович"
-	session.ClientPhone = "+79991234567"
+	session.Data.ClientName = "Иванов Иван Иванович"
+	session.Data.ClientPhone = "+79991234567"
 
-	if session.ClientName != "Иванов Иван Иванович" {
+	if session.Data.ClientName != "Иванов Иван Иванович" {
 		t.Error("client name not stored correctly")
 	}
-	if session.ClientPhone != "+79991234567" {
+	if session.Data.ClientPhone != "+79991234567" {
 		t.Error("client phone not stored correctly")
 	}
 
 	// Test booking data
-	session.CabinetID = 1
-	session.SelectedDate = time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC)
-	session.StartTime = "09:00"
-	session.Duration = 60
-	session.DeviceID = 5
+	session.Data.CabinetID = 1
+	session.Data.Date = time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC)
+	session.Data.Duration = 60
+	session.Data.DeviceID = 5
 
-	if session.CabinetID != 1 {
+	if session.Data.CabinetID != 1 {
 		t.Error("cabinet ID not stored correctly")
 	}
-	if session.Duration != 60 {
+	if session.Data.Duration != 60 {
 		t.Error("duration not stored correctly")
 	}
 }
@@ -183,7 +187,7 @@ func TestStatePrompts(t *testing.T) {
 
 func TestIsValidState(t *testing.T) {
 	validStates := []State{
-		StateInit,
+		StateIdle,
 		StateAskName,
 		StateAskDate,
 		StateAskStartTime,
@@ -191,7 +195,7 @@ func TestIsValidState(t *testing.T) {
 		StateAskDevice,
 		StateConfirm,
 		StateComplete,
-		StateCancelled,
+		StateCanceled,
 	}
 
 	for _, state := range validStates {
@@ -209,8 +213,8 @@ func TestIsValidState(t *testing.T) {
 // Helper function to check if state is valid
 func isValidState(s State) bool {
 	switch s {
-	case StateInit, StateAskName, StateAskDate, StateAskStartTime,
-		StateAskDuration, StateAskDevice, StateConfirm, StateComplete, StateCancelled:
+	case StateIdle, StateAskName, StateAskDate, StateAskStartTime,
+		StateAskDuration, StateAskDevice, StateConfirm, StateComplete, StateCanceled:
 		return true
 	}
 	return false
@@ -218,10 +222,12 @@ func isValidState(s State) bool {
 
 func TestSessionTimeout(t *testing.T) {
 	session := &Session{
-		UserID:    123,
 		State:     StateAskName,
 		StartedAt: time.Now().Add(-25 * time.Hour),
 		UpdatedAt: time.Now().Add(-25 * time.Hour),
+		Data: BookingData{
+			UserID: 123,
+		},
 	}
 
 	timeout := 24 * time.Hour
@@ -233,10 +239,12 @@ func TestSessionTimeout(t *testing.T) {
 
 	// Fresh session
 	freshSession := &Session{
-		UserID:    456,
 		State:     StateAskName,
 		StartedAt: time.Now(),
 		UpdatedAt: time.Now(),
+		Data: BookingData{
+			UserID: 456,
+		},
 	}
 
 	isFreshExpired := time.Since(freshSession.UpdatedAt) > timeout

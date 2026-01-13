@@ -52,20 +52,20 @@ func (c *BronivikClient) UseRedisCache(redisClient *redis.Client, ttl time.Durat
 }
 
 // GetAvailability fetches availability for item/date (YYYY-MM-DD).
-func (c *BronivikClient) GetAvailability(ctx context.Context, itemName, date string) (*AvailabilityResponse, error) {
-	endpoint := fmt.Sprintf("%s/api/v1/availability/%s?date=%s", c.baseURL, url.PathEscape(itemName), url.QueryEscape(date))
+func (c *BronivikClient) GetAvailability(ctx context.Context, itemName, date string) (resp *AvailabilityResponse, err error) {
+	endpoint := fmt.Sprintf("%s/api/v1/availability/%s?date=%s",
+		c.baseURL, url.PathEscape(itemName), url.QueryEscape(date))
 	cacheKey := fmt.Sprintf("availability:%s:%s", itemName, date)
-	var resp AvailabilityResponse
 
 	if c.readCache(ctx, cacheKey, &resp) {
-		return &resp, nil
+		return resp, nil
 	}
 
 	if err := c.doGet(ctx, endpoint, &resp); err != nil {
 		return nil, err
 	}
 	c.writeCache(ctx, cacheKey, resp)
-	return &resp, nil
+	return resp, nil
 }
 
 // GetAvailabilityBulk fetches availability for multiple items/dates.
@@ -78,18 +78,17 @@ type BulkAvailabilityResponse struct {
 	Results []map[string]any `json:"results"`
 }
 
-func (c *BronivikClient) GetAvailabilityBulk(ctx context.Context, items, dates []string) (*BulkAvailabilityResponse, error) {
+func (c *BronivikClient) GetAvailabilityBulk(ctx context.Context, items, dates []string) (resp *BulkAvailabilityResponse, err error) {
 	endpoint := fmt.Sprintf("%s/api/v1/availability/bulk", c.baseURL)
 	body := BulkAvailabilityRequest{Items: items, Dates: dates}
-	var resp BulkAvailabilityResponse
 	if err := c.doPost(ctx, endpoint, body, &resp); err != nil {
 		return nil, err
 	}
-	return &resp, nil
+	return resp, nil
 }
 
 // ListItems returns all items.
-func (c *BronivikClient) ListItems(ctx context.Context) ([]Item, error) {
+func (c *BronivikClient) ListItems(ctx context.Context) (items []Item, err error) {
 	endpoint := fmt.Sprintf("%s/api/v1/items", c.baseURL)
 	cacheKey := "items"
 	var wrap struct {
@@ -213,7 +212,7 @@ type BookDeviceResponse struct {
 }
 
 // GetDevices fetches available devices for a date.
-func (c *BronivikClient) GetDevices(ctx context.Context, date string, includeReserved bool) ([]Device, error) {
+func (c *BronivikClient) GetDevices(ctx context.Context, date string, includeReserved bool) (devices []Device, err error) {
 	endpoint := fmt.Sprintf("%s/api/devices?date=%s", c.baseURL, url.QueryEscape(date))
 	if includeReserved {
 		endpoint += "&include_reserved=true"
@@ -234,7 +233,7 @@ func (c *BronivikClient) GetDevices(ctx context.Context, date string, includeRes
 }
 
 // GetAvailableDevicesForDate returns only available devices for a date.
-func (c *BronivikClient) GetAvailableDevicesForDate(ctx context.Context, date time.Time) ([]Device, error) {
+func (c *BronivikClient) GetAvailableDevicesForDate(ctx context.Context, date time.Time) (available []Device, err error) {
 	dateStr := date.Format("2006-01-02")
 	devices, err := c.GetDevices(ctx, dateStr, true) // include reserved for full list
 	if err != nil {
@@ -242,7 +241,6 @@ func (c *BronivikClient) GetAvailableDevicesForDate(ctx context.Context, date ti
 	}
 
 	// Filter to available only
-	var available []Device
 	for _, d := range devices {
 		if d.Available {
 			available = append(available, d)
