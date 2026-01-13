@@ -10,9 +10,9 @@ import (
 	"syscall"
 	"time"
 
-	crmapi "bronivik/bronivik_crm/internal/crmapi"
 	"bronivik/bronivik_crm/internal/bot"
 	"bronivik/bronivik_crm/internal/config"
+	crmapi "bronivik/bronivik_crm/internal/crmapi"
 	"bronivik/bronivik_crm/internal/db"
 	"bronivik/bronivik_crm/internal/metrics"
 
@@ -53,7 +53,7 @@ func main() {
 		MaxAdvance:       cfg.BookingMaxAdvance(),
 		MaxActivePerUser: cfg.Booking.MaxActivePerUser,
 	}
-	b, err := bot.New(cfg.Telegram.BotToken, client, cfg.API.Enabled, database, cfg.Managers, rules, &logger)
+	b, err := bot.New(cfg.Telegram.BotToken, client, cfg.API.Enabled, database, cfg.Managers, &rules, &logger)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("create bot error")
 	}

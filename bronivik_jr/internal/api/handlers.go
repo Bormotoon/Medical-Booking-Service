@@ -54,7 +54,8 @@ func (s *AvailabilityService) GetAvailability(ctx context.Context, req *availabi
 		return nil, status.Error(codes.InvalidArgument, "invalid date format; expected YYYY-MM-DD")
 	}
 
-	booked, err := s.db.GetBookedCount(ctx, item.ID, date)
+	var booked int
+	booked, err = s.db.GetBookedCount(ctx, item.ID, date)
 	if err != nil {
 		return nil, status.Error(codes.Internal, "failed to get booked count")
 	}
@@ -98,7 +99,8 @@ func (s *AvailabilityService) GetAvailabilityBulk(ctx context.Context, req *avai
 				return nil, status.Errorf(codes.InvalidArgument, "invalid date format: %s", dateStr)
 			}
 
-			booked, err := s.db.GetBookedCount(ctx, item.ID, date)
+			var booked int
+			booked, err = s.db.GetBookedCount(ctx, item.ID, date)
 			if err != nil {
 				return nil, status.Error(codes.Internal, "failed to get booked count")
 			}

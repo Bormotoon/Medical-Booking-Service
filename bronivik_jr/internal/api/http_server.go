@@ -198,7 +198,10 @@ func (s *HTTPServer) handleAvailabilityBulk(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusOK, map[string]any{"results": results})
 }
 
-func (s *HTTPServer) processBulkAvailability(ctx context.Context, items, dates []string) ([]map[string]any, error) {
+func (s *HTTPServer) processBulkAvailability(
+	ctx context.Context,
+	items, dates []string,
+) ([]map[string]any, error) {
 	results := make([]map[string]any, 0, len(items)*len(dates))
 	for _, rawItem := range items {
 		itemName := strings.TrimSpace(rawItem)
