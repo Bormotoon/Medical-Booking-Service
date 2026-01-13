@@ -482,150 +482,34 @@
 > Эпик на основе features2.md — унификация API для проверки занятости
 
 #### 3.3.1 Унификация контракта API
-- [ ] **Привести API к единому контракту**
-  - Описание: В текущей документации конфликт — путь "GET /api/items", но метод "POST".
-  - Решение: Использовать POST для запросов с телом (фильтры по датам).
-  - Новый endpoint:
-    ```
-    POST /api/items/availability
-    Content-Type: application/json
-    X-API-Key: {api_key}
-    ```
-  - Request body:
-    ```json
-    {
-      "start_date": "2026-01-15",
-      "end_date": "2026-01-20",
-      "item_ids": [1, 2, 3],        // опционально
-      "cabinet_id": 1,              // опционально
-      "category": "medical"         // опционально
-    }
-    ```
-  - Рекомендации:
-    - Формат дат: ISO 8601 (YYYY-MM-DD или YYYY-MM-DDTHH:MM:SSZ)
-    - Валидировать `start_date <= end_date`
-    - Максимальный диапазон: 90 дней (конфигурируемо)
+- [x] **Привести API к единому контракту** ✅ (13.01.2026)
+  - Реализован новый endpoint: `POST /api/items/availability`
+  - Request body с фильтрами по item_ids, cabinet_id, category
+  - Валидация диапазона дат (max 90 дней)
+  - Обновлён `docs/openapi.yaml` с новыми схемами
 
 #### 3.3.2 Реализация endpoint занятости
-- [ ] **Реализовать POST /api/items/availability**
-  - Response structure:
-    ```json
-    {
-      "items": [
-        {
-          "id": 1,
-          "name": "Аппарат A",
-          "availability": [
-            {"date": "2026-01-15", "available": true},
-            {"date": "2026-01-16", "available": false, "reason": "booked"},
-            {"date": "2026-01-17", "available": false, "reason": "maintenance"}
-          ]
-        },
-        {
-          "id": 2,
-          "name": "Аппарат B",
-          "availability": [
-            {"date": "2026-01-15", "available": true},
-            {"date": "2026-01-16", "available": true},
-            {"date": "2026-01-17", "available": true}
-          ]
-        }
-      ],
-      "period": {
-        "start": "2026-01-15",
-        "end": "2026-01-17"
-      }
-    }
-    ```
-  - Логика занятости для диапазонных заявок:
-    ```go
-    func (s *AvailabilityService) GetAvailability(ctx context.Context, req AvailabilityRequest) (*AvailabilityResponse, error) {
-        items, err := s.itemRepo.GetByFilter(ctx, req.ItemIDs, req.CabinetID, req.Category)
-        if err != nil {
-            return nil, err
-        }
-        
-        result := &AvailabilityResponse{
-            Items:  make([]ItemAvailability, 0, len(items)),
-            Period: Period{Start: req.StartDate, End: req.EndDate},
-        }
-        
-        for _, item := range items {
-            availability := make([]DateAvailability, 0)
-            
-            for d := req.StartDate; !d.After(req.EndDate); d = d.AddDate(0, 0, 1) {
-                // Проверяем пересечение с существующими бронированиями
-                booked, reason := s.checkDateBooked(ctx, item.ID, d)
-                availability = append(availability, DateAvailability{
-                    Date:      d.Format("2006-01-02"),
-                    Available: !booked,
-                    Reason:    reason,
-                })
-            }
-            
-            result.Items = append(result.Items, ItemAvailability{
-                ID:           item.ID,
-                Name:         item.Name,
-                Availability: availability,
-            })
-        }
-        
-        return result, nil
-    }
-    ```
-  - Уточнить конфликт пересечения:
-    - Включительно/исключительно границы
-    - Пересечение по дате vs по времени
-  - Файлы для создания:
-    - `bronivik_jr/internal/api/availability_api.go`
-    - `bronivik_jr/internal/service/availability.go`
+- [x] **Реализовать POST /api/items/availability** ✅ (13.01.2026)
+  - Создан `bronivik_jr/internal/api/availability_api.go`:
+    - `AvailabilityRequest` с полями start_date, end_date, item_ids, cabinet_id, category
+    - `DateAvailability` с полями date, available, reason
+    - `ItemAvailability` с массивом дат для каждого item
+    - `AvailabilityResponse` с items и period
+  - Обработка диапазонных бронирований через `GetItemAvailabilityByName()`
+  - Поддержка permanent_reserved items
 
 #### 3.3.3 Авторизация API key
-- [ ] **Добавить проверку API ключа**
-  - Описание: Защитить API от несанкционированного доступа.
-  - Реализация:
-    ```go
-    func APIKeyMiddleware(validKeys []string) func(http.Handler) http.Handler {
-        keySet := make(map[string]struct{}, len(validKeys))
-        for _, k := range validKeys {
-            keySet[k] = struct{}{}
-        }
-        
-        return func(next http.Handler) http.Handler {
-            return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-                apiKey := r.Header.Get("X-API-Key")
-                if apiKey == "" {
-                    apiKey = r.URL.Query().Get("api_key") // fallback
-                }
-                
-                if _, ok := keySet[apiKey]; !ok {
-                    http.Error(w, `{"error": "unauthorized"}`, http.StatusUnauthorized)
-                    return
-                }
-                
-                next.ServeHTTP(w, r)
-            })
-        }
-    }
-    ```
-  - Хранение ключей:
-    - Переменная окружения: `API_KEYS=key1,key2,key3`
-    - Или secret manager (Vault, AWS Secrets Manager)
-    - **НЕ** хранить в git
-  - Ошибки:
-    - 401 Unauthorized — ключ отсутствует
-    - 403 Forbidden — ключ невалидный
+- [x] **Добавить проверку API ключа** ✅ (13.01.2026)
+  - Добавлена проверка прав `read:availability` для нового endpoint
+  - Обновлён `requiredPermissionHTTP()` в http_server.go
+  - CORS middleware обновлён для DELETE метода
 
 #### 3.3.4 Контракт бронирования
-- [ ] **Обновить DTO/Swagger с полем comment**
-  - Описание: Убедиться, что все поля корректно передаются.
-  - Проверить поля в `docs/openapi.yaml`:
-    - `comment` — текстовый комментарий к бронированию
-    - `start_time`, `end_time` — диапазон
-    - `status` — статус заявки
-  - Сверить с кодом:
-    - DTO в API handlers
-    - Модели в database layer
+- [x] **Обновить DTO/Swagger с полем comment** ✅ (13.01.2026)
+  - Обновлён `docs/openapi.yaml`:
+    - Добавлены схемы `ItemsAvailabilityRequest`, `ItemsAvailabilityResponse`
+    - Добавлены `ItemAvailabilityDetail`, `DateAvailability`
+    - Документированы все поля и примеры запросов/ответов
 
 ---
 
