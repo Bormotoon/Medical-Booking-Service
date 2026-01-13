@@ -54,6 +54,9 @@ func NewHTTPServer(
 	apiMux.HandleFunc("/api/v1/availability/bulk", srv.handleAvailabilityBulk)
 	apiMux.HandleFunc("/api/v1/availability/", srv.handleAvailability)
 	apiMux.HandleFunc("/api/v1/items", srv.handleItems)
+	apiMux.HandleFunc("/api/devices", srv.handleDevices)
+	apiMux.HandleFunc("/api/book-device", srv.handleBookDevice)
+	apiMux.HandleFunc("/api/book-device/", srv.handleCancelExternalBooking)
 	apiMux.HandleFunc("/healthz", srv.handleHealthz)
 	apiMux.HandleFunc("/readyz", srv.handleReadyz)
 

@@ -38,16 +38,16 @@ type DataCleaner interface {
 
 // Service handles monthly audit exports and data cleanup.
 type Service struct {
-	config      *Config
-	exporter    TableExporter
-	writer      func() ExcelWriter // factory for creating new Excel writers
-	notifier    Notifier
-	cleaner     DataCleaner
-	logger      Logger
-	stopCh      chan struct{}
-	wg          sync.WaitGroup
-	mu          sync.Mutex
-	running     bool
+	config   *Config
+	exporter TableExporter
+	writer   func() ExcelWriter // factory for creating new Excel writers
+	notifier Notifier
+	cleaner  DataCleaner
+	logger   Logger
+	stopCh   chan struct{}
+	wg       sync.WaitGroup
+	mu       sync.Mutex
+	running  bool
 }
 
 // NewService creates a new audit service.

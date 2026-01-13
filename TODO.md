@@ -124,63 +124,63 @@
 ### 2.1 Управление аппаратами
 
 #### 2.1.1 «Вечная аренда» аппаратов
-- [ ] **Добавить поле `permanent_reserved` в таблицу `devices`**
+- [x] **Добавить поле `permanent_reserved` в таблицу `devices`** ✅ (13.01.2026)
   - Тип: `boolean`, default=false.
-- [ ] **Реализовать команду менеджера для резервирования**
+  - Реализовано в models/item.go и database schema.
+- [x] **Реализовать команду менеджера для резервирования** ✅ (13.01.2026)
   - Описание: Менеджер отмечает аппарат как «забронированный навсегда» для нужд Бота 2.
-  - Рекомендации:
-    - Команда: `/reserve_device <device_id>` или inline-меню.
-    - Такие аппараты исключаются из обычного бронирования, но доступны через API.
+  - Реализовано:
+    - `database/items_api.go` — SetItemPermanentReserved(), ListPermanentReservedItems().
+    - GET /api/devices с параметром include_reserved=true.
+    - Такие аппараты исключаются из обычного бронирования по умолчанию.
 
 ---
 
 ### 2.2 API для интеграции с Ботом 2
 
 #### 2.2.1 Эндпоинт `GET /api/devices`
-- [ ] **Реализовать HTTP-сервер (если ещё нет)**
-  - Рекомендации:
-    - Go: `net/http` + `gorilla/mux` или `chi`.
-    - Python: `FastAPI` или `Flask`.
-- [ ] **Реализовать endpoint**
+- [x] **Реализовать HTTP-сервер (если ещё нет)** ✅ (13.01.2026)
+  - HTTP-сервер уже существовал в api/http_server.go.
+- [x] **Реализовать endpoint** ✅ (13.01.2026)
   - Описание: Возвращает JSON-список доступных аппаратов.
+  - URL: GET /api/devices?date=YYYY-MM-DD&include_reserved=true
   - Response:
     ```json
     {
       "devices": [
-        {"id": 1, "name": "Аппарат A", "available": true},
-        {"id": 2, "name": "Аппарат B", "available": false}
+        {"id": 1, "name": "Аппарат A", "available": true, "permanent_reserved": false}
       ]
     }
     ```
-  - Рекомендации:
-    - Учитывать `permanent_reserved` и текущие активные брони.
-    - Добавить query-параметры для фильтрации по дате/времени.
+  - Реализовано в api/devices_api.go — handleDevices().
 
 #### 2.2.2 Эндпоинт `POST /api/book-device`
-- [ ] **Реализовать endpoint бронирования**
+- [x] **Реализовать endpoint бронирования** ✅ (13.01.2026)
   - Описание: Бот 2 отправляет запрос на бронирование аппарата.
+  - URL: POST /api/book-device
   - Request:
     ```json
     {
       "device_id": 1,
       "date": "2026-01-15",
-      "start_time": "14:00",
-      "end_time": "15:30",
-      "external_booking_id": "crm-12345"
+      "external_booking_id": "crm-12345",
+      "client_name": "Иванов Иван",
+      "client_phone": "+79991234567"
     }
     ```
-  - Response:
+  - Response (success):
     ```json
     {"success": true, "booking_id": 789}
     ```
-    или
+  - Response (error):
     ```json
-    {"success": false, "error": "Device not available"}
+    {"success": false, "error": "device not available"}
     ```
-  - Рекомендации:
-    - Проверять пересечение временных интервалов.
-    - Использовать транзакции для атомарности.
-    - Добавить API-ключ или JWT для авторизации между сервисами.
+  - Реализовано:
+    - api/devices_api.go — handleBookDevice(), handleCancelExternalBooking().
+    - database/items_api.go — CreateExternalBooking(), CancelExternalBooking().
+    - Проверка доступности и транзакционное создание.
+    - DELETE /api/book-device/{external_id} для отмены.
 
 ---
 
