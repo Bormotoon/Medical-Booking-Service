@@ -825,41 +825,26 @@
 ### 7.3 Миграции и обратимость
 
 #### 7.3.1 Скрипты миграции
-- [ ] **Создать систему миграций**
-  - Описание: Версионированные миграции схемы БД.
-  - Рекомендуемый инструмент: `golang-migrate/migrate`
-  - Структура:
-    ```
-    migrations/
-      001_initial_schema.up.sql
-      001_initial_schema.down.sql
-      002_add_end_time.up.sql
-      002_add_end_time.down.sql
-      003_reminders_table.up.sql
-      003_reminders_table.down.sql
-    ```
-  - Команды:
-    ```bash
-    # Применить все миграции
-    migrate -path ./migrations -database "$DATABASE_URL" up
-    
-    # Откатить последнюю
-    migrate -path ./migrations -database "$DATABASE_URL" down 1
-    
-    # Посмотреть текущую версию
-    migrate -path ./migrations -database "$DATABASE_URL" version
-    ```
+- [x] **Создать систему миграций** ✅ (13.01.2026)
+  - Создан `scripts/migrate.sh` с поддержкой:
+    - up/down для применения/отката миграций
+    - version для проверки текущей версии
+    - force для принудительной установки версии
+    - backup для создания резервных копий
+    - status для списка доступных миграций
+    - all для операций на всех сервисах
+  - Инструмент: `golang-migrate/migrate` с поддержкой sqlite3
+  - Автоматическое создание backup перед миграциями
 
 #### 7.3.2 Rollback-план
-- [ ] **Документировать план отката**
-  - Описание: Как откатиться, если новый функционал ломает систему.
-  - Документ `docs/ROLLBACK.md`:
-    - Список критических изменений
-    - Команды отката для каждого изменения
-    - Процедура восстановления данных
-  - Рекомендации:
-    - Всегда создавать backup перед миграцией
-    - Тестировать rollback на staging
+- [x] **Документировать план отката** ✅ (13.01.2026)
+  - Создан `docs/ROLLBACK.md` с разделами:
+    - General Rollback Procedures (backup, version tracking)
+    - Database Migrations (команды migrate)
+    - Migration-Specific Rollbacks (для каждой миграции)
+    - Configuration Changes (cabinets.yaml, env vars)
+    - Container Deployments (docker rollback)
+    - Emergency Procedures (corruption, rate limits)
 
 ---
 
