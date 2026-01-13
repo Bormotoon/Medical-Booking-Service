@@ -59,7 +59,7 @@ func (m *MockReminderRepository) GetPending(ctx context.Context, before time.Tim
 
 	var result []*Reminder
 	for _, r := range m.reminders {
-		if r.Status == StatusPending && r.Enabled && !r.ScheduledAt.After(before) {
+		if r.Status == ReminderStatusPending && r.Enabled && !r.ScheduledAt.After(before) {
 			result = append(result, r)
 		}
 	}
@@ -97,8 +97,17 @@ func (m *MockReminderRepository) GetByFilter(ctx context.Context, filter Reminde
 		if filter.BookingID != nil && r.BookingID != *filter.BookingID {
 			match = false
 		}
-		if filter.Status != nil && r.Status != *filter.Status {
-			match = false
+		if len(filter.Status) > 0 {
+			found := false
+			for _, s := range filter.Status {
+				if r.Status == s {
+					found = true
+					break
+				}
+			}
+			if !found {
+				match = false
+			}
 		}
 		if match {
 			result = append(result, r)
@@ -115,10 +124,10 @@ func (m *MockReminderRepository) TryAcquireReminder(ctx context.Context, id int6
 	if !ok {
 		return false, nil
 	}
-	if r.Status != StatusPending {
+	if r.Status != ReminderStatusPending {
 		return false, nil
 	}
-	r.Status = StatusProcessing
+	r.Status = ReminderStatusProcessing
 	return true, nil
 }
 
@@ -128,11 +137,11 @@ func (m *MockReminderRepository) DeleteOldReminders(ctx context.Context, sentBef
 
 	var count int64
 	for id, r := range m.reminders {
-		if r.Status == StatusSent && r.SentAt != nil && r.SentAt.Before(sentBefore) {
+		if r.Status == ReminderStatusSent && r.SentAt != nil && r.SentAt.Before(sentBefore) {
 			delete(m.reminders, id)
 			count++
 		}
-		if r.Status == StatusFailed && r.UpdatedAt.Before(failedBefore) {
+		if r.Status == ReminderStatusFailed && r.UpdatedAt.Before(failedBefore) {
 			delete(m.reminders, id)
 			count++
 		}
@@ -154,9 +163,9 @@ func TestReminderDeduplication(t *testing.T) {
 	r1 := &Reminder{
 		UserID:       123,
 		BookingID:    456,
-		ReminderType: ReminderType24hBefore,
+		ReminderType: ReminderType24HBefore,
 		ScheduledAt:  time.Now().Add(time.Hour),
-		Status:       StatusPending,
+		Status:       ReminderStatusPending,
 		Enabled:      true,
 	}
 	err := repo.Create(ctx, r1)
@@ -167,9 +176,9 @@ func TestReminderDeduplication(t *testing.T) {
 	r2 := &Reminder{
 		UserID:       123,
 		BookingID:    456,
-		ReminderType: ReminderType24hBefore,
+		ReminderType: ReminderType24HBefore,
 		ScheduledAt:  time.Now().Add(2 * time.Hour),
-		Status:       StatusPending,
+		Status:       ReminderStatusPending,
 		Enabled:      true,
 	}
 	err = repo.Create(ctx, r2)
@@ -180,9 +189,9 @@ func TestReminderDeduplication(t *testing.T) {
 	r3 := &Reminder{
 		UserID:       123,
 		BookingID:    456,
-		ReminderType: ReminderTypeDayOf,
+		ReminderType: ReminderTypeDayOfBooking,
 		ScheduledAt:  time.Now().Add(time.Hour),
-		Status:       StatusPending,
+		Status:       ReminderStatusPending,
 		Enabled:      true,
 	}
 	err = repo.Create(ctx, r3)
@@ -193,9 +202,9 @@ func TestReminderDeduplication(t *testing.T) {
 	r4 := &Reminder{
 		UserID:       789,
 		BookingID:    456,
-		ReminderType: ReminderType24hBefore,
+		ReminderType: ReminderType24HBefore,
 		ScheduledAt:  time.Now().Add(time.Hour),
-		Status:       StatusPending,
+		Status:       ReminderStatusPending,
 		Enabled:      true,
 	}
 	err = repo.Create(ctx, r4)
@@ -211,9 +220,9 @@ func TestTryAcquireReminder(t *testing.T) {
 	r := &Reminder{
 		UserID:       123,
 		BookingID:    456,
-		ReminderType: ReminderType24hBefore,
+		ReminderType: ReminderType24HBefore,
 		ScheduledAt:  time.Now().Add(time.Hour),
-		Status:       StatusPending,
+		Status:       ReminderStatusPending,
 		Enabled:      true,
 	}
 	err := repo.Create(ctx, r)
@@ -241,10 +250,10 @@ func TestDeleteOldReminders(t *testing.T) {
 	oldSent := &Reminder{
 		UserID:       1,
 		BookingID:    1,
-		ReminderType: ReminderType24hBefore,
+		ReminderType: ReminderType24HBefore,
 		ScheduledAt:  sentAt,
 		SentAt:       &sentAt,
-		Status:       StatusSent,
+		Status:       ReminderStatusSent,
 		Enabled:      true,
 		UpdatedAt:    sentAt,
 	}
@@ -256,10 +265,10 @@ func TestDeleteOldReminders(t *testing.T) {
 	recentSent := &Reminder{
 		UserID:       2,
 		BookingID:    2,
-		ReminderType: ReminderType24hBefore,
+		ReminderType: ReminderType24HBefore,
 		ScheduledAt:  recentSentAt,
 		SentAt:       &recentSentAt,
-		Status:       StatusSent,
+		Status:       ReminderStatusSent,
 		Enabled:      true,
 		UpdatedAt:    recentSentAt,
 	}
@@ -270,9 +279,9 @@ func TestDeleteOldReminders(t *testing.T) {
 	oldFailed := &Reminder{
 		UserID:       3,
 		BookingID:    3,
-		ReminderType: ReminderType24hBefore,
+		ReminderType: ReminderType24HBefore,
 		ScheduledAt:  sentAt,
-		Status:       StatusFailed,
+		Status:       ReminderStatusFailed,
 		Enabled:      true,
 		UpdatedAt:    sentAt,
 	}
@@ -301,9 +310,9 @@ func TestGetPending(t *testing.T) {
 	past := &Reminder{
 		UserID:       1,
 		BookingID:    1,
-		ReminderType: ReminderType24hBefore,
+		ReminderType: ReminderType24HBefore,
 		ScheduledAt:  now.Add(-1 * time.Hour),
-		Status:       StatusPending,
+		Status:       ReminderStatusPending,
 		Enabled:      true,
 	}
 	_ = repo.Create(ctx, past)
@@ -312,9 +321,9 @@ func TestGetPending(t *testing.T) {
 	future := &Reminder{
 		UserID:       2,
 		BookingID:    2,
-		ReminderType: ReminderType24hBefore,
+		ReminderType: ReminderType24HBefore,
 		ScheduledAt:  now.Add(1 * time.Hour),
-		Status:       StatusPending,
+		Status:       ReminderStatusPending,
 		Enabled:      true,
 	}
 	_ = repo.Create(ctx, future)
@@ -323,9 +332,9 @@ func TestGetPending(t *testing.T) {
 	sent := &Reminder{
 		UserID:       3,
 		BookingID:    3,
-		ReminderType: ReminderType24hBefore,
+		ReminderType: ReminderType24HBefore,
 		ScheduledAt:  now.Add(-1 * time.Hour),
-		Status:       StatusSent,
+		Status:       ReminderStatusSent,
 		Enabled:      true,
 	}
 	_ = repo.Create(ctx, sent)
@@ -334,9 +343,9 @@ func TestGetPending(t *testing.T) {
 	disabled := &Reminder{
 		UserID:       4,
 		BookingID:    4,
-		ReminderType: ReminderType24hBefore,
+		ReminderType: ReminderType24HBefore,
 		ScheduledAt:  now.Add(-1 * time.Hour),
-		Status:       StatusPending,
+		Status:       ReminderStatusPending,
 		Enabled:      false,
 	}
 	_ = repo.Create(ctx, disabled)

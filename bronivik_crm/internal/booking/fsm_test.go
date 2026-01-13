@@ -14,20 +14,22 @@ func TestFSMTransitions(t *testing.T) {
 		to          State
 		shouldAllow bool
 	}{
-		{"idle to ask name", StateIdle, StateAskName, true},
-		{"ask name to ask date", StateAskName, StateAskDate, true},
+		{"idle to ask cabinet", StateIdle, StateAskCabinet, true},
+		{"ask cabinet to ask date", StateAskCabinet, StateAskDate, true},
 		{"ask date to ask start time", StateAskDate, StateAskStartTime, true},
 		{"ask start time to ask duration", StateAskStartTime, StateAskDuration, true},
 		{"ask duration to ask device", StateAskDuration, StateAskDevice, true},
-		{"ask device to confirm", StateAskDevice, StateConfirm, true},
+		{"ask device to ask name", StateAskDevice, StateAskName, true},
+		{"ask name to ask phone", StateAskName, StateAskPhone, true},
+		{"ask phone to confirm", StateAskPhone, StateConfirm, true},
 		{"confirm to complete", StateConfirm, StateComplete, true},
 		// Back transitions
-		{"ask date back to ask name", StateAskDate, StateAskName, true},
+		{"ask date back to ask cabinet", StateAskDate, StateAskCabinet, true},
 		{"ask start time back to ask date", StateAskStartTime, StateAskDate, true},
-		{"confirm back to ask device", StateConfirm, StateAskDevice, true},
+		{"ask name back to ask device", StateAskName, StateAskDevice, true},
 		// Invalid transitions
 		{"idle to complete", StateIdle, StateComplete, false},
-		{"ask name to confirm", StateAskName, StateConfirm, false},
+		{"ask cabinet to confirm", StateAskCabinet, StateConfirm, false},
 	}
 
 	for _, tt := range tests {
@@ -58,8 +60,8 @@ func TestSessionStore(t *testing.T) {
 	if created.Data.UserID != 123 {
 		t.Errorf("expected UserID 123, got %d", created.Data.UserID)
 	}
-	if created.State != StateAskName {
-		t.Errorf("expected initial state StateAskName, got %s", created.State)
+	if created.State != StateAskCabinet {
+		t.Errorf("expected initial state StateAskCabinet, got %s", created.State)
 	}
 
 	// Test Get existing session
@@ -98,24 +100,24 @@ func TestSessionStateTransitions(t *testing.T) {
 	session := store.GetOrCreate(123)
 	fsm := NewFSM()
 
-	// Initial state (NewSession starts with StateAskName)
-	if session.State != StateAskName {
-		t.Errorf("expected StateAskName, got %s", session.State)
+	// Initial state (NewSession starts with StateAskCabinet)
+	if session.State != StateAskCabinet {
+		t.Errorf("expected StateAskCabinet, got %s", session.State)
 	}
 
 	// Set state to Idle to test transition
 	session.SetState(StateIdle)
 
 	// Valid transition
-	if !fsm.Transition(session, StateAskName) {
-		t.Error("transition to StateAskName should succeed")
+	if !fsm.Transition(session, StateAskCabinet) {
+		t.Error("transition to StateAskCabinet should succeed")
 	}
-	if session.State != StateAskName {
-		t.Errorf("expected StateAskName, got %s", session.State)
+	if session.State != StateAskCabinet {
+		t.Errorf("expected StateAskCabinet, got %s", session.State)
 	}
 
-	// Set name and transition
-	session.Data.ClientName = "Иванов Иван"
+	// Set cabinet and transition
+	session.Data.CabinetID = 1
 	if !fsm.Transition(session, StateAskDate) {
 		t.Error("transition to StateAskDate should succeed")
 	}
@@ -166,11 +168,13 @@ func TestSessionDataStorage(t *testing.T) {
 func TestStatePrompts(t *testing.T) {
 	// Verify all states have prompts
 	states := []State{
-		StateAskName,
+		StateAskCabinet,
 		StateAskDate,
 		StateAskStartTime,
 		StateAskDuration,
 		StateAskDevice,
+		StateAskName,
+		StateAskPhone,
 		StateConfirm,
 	}
 
@@ -188,11 +192,13 @@ func TestStatePrompts(t *testing.T) {
 func TestIsValidState(t *testing.T) {
 	validStates := []State{
 		StateIdle,
-		StateAskName,
+		StateAskCabinet,
 		StateAskDate,
 		StateAskStartTime,
 		StateAskDuration,
 		StateAskDevice,
+		StateAskName,
+		StateAskPhone,
 		StateConfirm,
 		StateComplete,
 		StateCanceled,
@@ -213,8 +219,9 @@ func TestIsValidState(t *testing.T) {
 // Helper function to check if state is valid
 func isValidState(s State) bool {
 	switch s {
-	case StateIdle, StateAskName, StateAskDate, StateAskStartTime,
-		StateAskDuration, StateAskDevice, StateConfirm, StateComplete, StateCanceled:
+	case StateIdle, StateAskCabinet, StateAskDate, StateAskStartTime,
+		StateAskDuration, StateAskDevice, StateAskName, StateAskPhone,
+		StateConfirm, StateComplete, StateCanceled:
 		return true
 	}
 	return false
@@ -258,11 +265,13 @@ func TestBackNavigation(t *testing.T) {
 
 	// Define back navigation paths
 	backPaths := map[State]State{
-		StateAskDate:      StateAskName,
+		StateAskDate:      StateAskCabinet,
 		StateAskStartTime: StateAskDate,
 		StateAskDuration:  StateAskStartTime,
 		StateAskDevice:    StateAskDuration,
-		StateConfirm:      StateAskDevice,
+		StateAskName:      StateAskDevice,
+		StateAskPhone:     StateAskName,
+		StateConfirm:      StateAskPhone,
 	}
 
 	for from, to := range backPaths {

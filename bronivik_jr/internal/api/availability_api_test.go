@@ -9,6 +9,27 @@ import (
 	"time"
 )
 
+const testAPIKey = "valid-key"
+
+type ErrorResponse struct {
+	Error string `json:"error"`
+}
+
+type testServer struct {
+	*httptest.Server
+	Handler http.Handler
+}
+
+func setupTestServer(t *testing.T) *testServer {
+	db := newTestDB(t)
+	server := newTestHTTPServer(db)
+	handler := server.server.Handler
+	return &testServer{
+		Server:  httptest.NewServer(handler),
+		Handler: handler,
+	}
+}
+
 func TestHandleItemsAvailability_Validation(t *testing.T) {
 	srv := setupTestServer(t)
 	defer srv.Close()

@@ -66,7 +66,7 @@ func TestShouldRemindStatus(t *testing.T) {
 		{models.StatusConfirmed, true},
 		{models.StatusChanged, true},
 		{models.StatusPending, false},
-		{models.StatusCancelled, false},
+		{models.StatusCanceled, false},
 		{models.StatusCompleted, false},
 		{"unknown", false},
 		{"", false},
@@ -156,7 +156,7 @@ func TestCronReminderSelection(t *testing.T) {
 	bookings := []*models.Booking{
 		{ID: 1, Status: models.StatusConfirmed, Date: tomorrow},
 		{ID: 2, Status: models.StatusPending, Date: tomorrow},
-		{ID: 3, Status: models.StatusCancelled, Date: tomorrow},
+		{ID: 3, Status: models.StatusCanceled, Date: tomorrow},
 		{ID: 4, Status: models.StatusChanged, Date: tomorrow},
 		{ID: 5, Status: models.StatusConfirmed, Date: tomorrow.Add(-24 * time.Hour)}, // yesterday
 		{ID: 6, Status: models.StatusConfirmed, Date: tomorrow.Add(48 * time.Hour)},  // day after tomorrow
