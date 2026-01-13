@@ -10,6 +10,7 @@ type HourlyBooking struct {
 	ItemName                string    `json:"item_name"`
 	ClientName              string    `json:"client_name"`
 	ClientPhone             string    `json:"client_phone"`
+	CabinetName             string    `json:"cabinet_name,omitempty"`
 	StartTime               time.Time `json:"start_time"`
 	EndTime                 time.Time `json:"end_time"`
 	Status                  string    `json:"status"`

@@ -70,6 +70,39 @@ func New(
 }
 
 // Start begins polling updates and handles commands.
+var (
+	mainMenu = tgbotapi.NewReplyKeyboard(
+		tgbotapi.NewKeyboardButtonRow(
+			tgbotapi.NewKeyboardButton("🗓 Записаться"),
+			tgbotapi.NewKeyboardButton("📌 Мои записи"),
+		),
+		tgbotapi.NewKeyboardButtonRow(
+			tgbotapi.NewKeyboardButton("ℹ️ Помощь"),
+		),
+	)
+
+	managerMenu = tgbotapi.NewReplyKeyboard(
+		tgbotapi.NewKeyboardButtonRow(
+			tgbotapi.NewKeyboardButton("📥 Заявки"),
+			tgbotapi.NewKeyboardButton("➕ Создать запись"),
+		),
+		tgbotapi.NewKeyboardButtonRow(
+			tgbotapi.NewKeyboardButton("📅 Расписание"),
+			tgbotapi.NewKeyboardButton("⚙️ Админка"),
+		),
+	)
+)
+
+func (b *Bot) sendMainMenu(chatID int64, userID int64) {
+	msg := tgbotapi.NewMessage(chatID, "Выберите действие:")
+	if b.isManager(userID) {
+		msg.ReplyMarkup = managerMenu
+	} else {
+		msg.ReplyMarkup = mainMenu
+	}
+	b.bot.Send(msg)
+}
+
 func (b *Bot) Start(ctx context.Context) {
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
@@ -120,10 +153,28 @@ func (b *Bot) handleMessage(ctx context.Context, msg *tgbotapi.Message) {
 		switch {
 		case strings.HasPrefix(text, "/start"):
 			b.state.reset(msg.From.ID)
-			b.reply(msg.Chat.ID, "Добро пожаловать в бронь кабинетов! Используйте /book для создания заявки.")
+			b.sendMainMenu(msg.Chat.ID, msg.From.ID)
 			return
-		case strings.HasPrefix(text, "/help"):
-			b.reply(msg.Chat.ID, "Доступные команды: /book, /my_bookings, /cancel_booking <id>, /cancel, /help")
+		case text == "🗓 Записаться":
+			b.startBookingFlow(ctx, msg)
+			return
+		case text == "📌 Мои записи":
+			b.handleMyBookings(ctx, msg)
+			return
+		case text == "ℹ️ Помощь" || strings.HasPrefix(text, "/help"):
+			b.reply(msg.Chat.ID, "Доступные команды: /book, /my_bookings, /help")
+			return
+		case text == "📥 Заявки" && b.isManager(msg.From.ID):
+			b.handlePendingBookings(ctx, msg.Chat.ID)
+			return
+		case text == "➕ Создать запись" && b.isManager(msg.From.ID):
+			b.startManualBookingFlow(ctx, msg)
+			return
+		case text == "📅 Расписание" && b.isManager(msg.From.ID):
+			b.handleTodaySchedule(ctx, msg.Chat.ID)
+			return
+		case (text == "⚙️ Админка" || text == "/admin") && b.isManager(msg.From.ID):
+			b.sendAdminPanel(msg.Chat.ID)
 			return
 		case strings.HasPrefix(text, "/book"):
 			b.startBookingFlow(ctx, msg)
@@ -131,12 +182,10 @@ func (b *Bot) handleMessage(ctx context.Context, msg *tgbotapi.Message) {
 		case strings.HasPrefix(text, "/my_bookings"):
 			b.handleMyBookings(ctx, msg)
 			return
-		case strings.HasPrefix(text, "/cancel_booking"):
-			b.handleCancelBooking(ctx, msg)
-			return
 		case strings.HasPrefix(text, "/cancel"):
 			b.state.reset(msg.From.ID)
-			b.reply(msg.Chat.ID, "Операция отменена. /book чтобы начать заново")
+			b.reply(msg.Chat.ID, "Операция отменена.")
+			b.sendMainMenu(msg.Chat.ID, msg.From.ID)
 			return
 		}
 
@@ -495,6 +544,116 @@ func (b *Bot) reply(chatID int64, text string) {
 	_, _ = b.bot.Send(msg)
 }
 
+func (b *Bot) handlePendingBookings(ctx context.Context, chatID int64) {
+	bookings, err := b.db.ListPendingBookings(ctx)
+	if err != nil {
+		b.reply(chatID, "Ошибка получения заявок")
+		return
+	}
+	if len(bookings) == 0 {
+		b.reply(chatID, "Нет новых заявок")
+		return
+	}
+
+	for _, bk := range bookings {
+		text := b.formatBookingInfo(bk)
+		b.sendManagerDecisionMessage(chatID, bk.ID, text)
+	}
+}
+
+func (b *Bot) startManualBookingFlow(ctx context.Context, msg *tgbotapi.Message) {
+	b.state.reset(msg.From.ID)
+	st := b.state.get(msg.From.ID)
+	st.IsManual = true
+	st.Step = stepCabinet
+	b.sendCabinets(ctx, msg.Chat.ID)
+}
+
+func (b *Bot) handleTodaySchedule(ctx context.Context, chatID int64) {
+	now := time.Now().Format("2006-01-02")
+	bookings, err := b.db.ListBookingsByDate(ctx, now)
+	if err != nil {
+		b.reply(chatID, "Ошибка получения расписания")
+		return
+	}
+	if len(bookings) == 0 {
+		b.reply(chatID, "Сегодня ( "+now+" ) записей нет")
+		return
+	}
+
+	var sb strings.Builder
+	sb.WriteString("🗓 Расписание на " + now + ":\n\n")
+	for _, bk := range bookings {
+		timeRange := fmt.Sprintf("%s-%s", bk.StartTime.Format("15:04"), bk.EndTime.Format("15:04"))
+		sb.WriteString(fmt.Sprintf("🔹 %s | %s | %s | %s\n", timeRange, bk.CabinetName, bk.ClientName, bk.Status))
+	}
+	b.reply(chatID, sb.String())
+}
+
+func (b *Bot) sendAdminPanel(chatID int64) {
+	text := "⚙️ Панель управления (Admin Panel)\n\n" +
+		"/add_cabinet - Добавить кабинет\n" +
+		"/list_cabinets - Список всех кабинетов\n" +
+		"/cabinet_schedule <id> - Просмотр расписания\n" +
+		"/close_cabinet <id> <date> - Закрыть кабинет\n"
+	b.reply(chatID, text)
+}
+
+func (b *Bot) formatBookingInfo(bk model.HourlyBooking) string {
+	item := bk.ItemName
+	if item == "" {
+		item = "Без аппарата"
+	}
+	return fmt.Sprintf(
+		"🆕 ЗАЯВКА #%d\n"+
+			"🚪 Кабинет: %s\n"+
+			"📅 Дата: %s\n"+
+			"⏱ Время: %s\n"+
+			"🛠 Аппарат: %s\n"+
+			"👤 Клиент: %s\n"+
+			"📞 Телефон: %s\n"+
+			"💬 Коммент: %s",
+		bk.ID, bk.CabinetName, bk.StartTime.Format("2006-01-02"),
+		fmt.Sprintf("%s-%s", bk.StartTime.Format("15:04"), bk.EndTime.Format("15:04")),
+		item, bk.ClientName, bk.ClientPhone, bk.Comment,
+	)
+}
+
+func (b *Bot) sendManagerDecisionMessage(chatID int64, bookingID int64, text string) {
+	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("✅ Подтвердить", fmt.Sprintf("mgr:approve:%d", bookingID)),
+			tgbotapi.NewInlineKeyboardButtonData("❌ Отклонить", fmt.Sprintf("mgr:reject:%d", bookingID)),
+		),
+	)
+	b.bot.Send(msg)
+}
+
+func (b *Bot) sendCabinets(ctx context.Context, chatID int64) {
+	cabs, err := b.db.ListActiveCabinets(ctx)
+	if err != nil {
+		b.reply(chatID, "Не удалось загрузить кабинеты")
+		return
+	}
+
+	if len(cabs) == 0 {
+		b.reply(chatID, "Нет доступных кабинетов")
+		return
+	}
+
+	var rows [][]tgbotapi.InlineKeyboardButton
+	for _, cab := range cabs {
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData(cab.Name, fmt.Sprintf("cab:%d", cab.ID)),
+		))
+	}
+
+	msg := tgbotapi.NewMessage(chatID, "Выберите кабинет:")
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
+	b.bot.Send(msg)
+}
+
 func (b *Bot) isManager(id int64) bool {
 	_, ok := b.managers[id]
 	return ok
@@ -656,6 +815,11 @@ func (b *Bot) finalizeBooking(ctx context.Context, cq *tgbotapi.CallbackQuery, s
 		apiClient = nil
 	}
 
+	status := "pending"
+	if st.IsManual {
+		status = "approved"
+	}
+
 	bk := &model.HourlyBooking{
 		UserID:      u.ID,
 		CabinetID:   st.Draft.CabinetID,
@@ -664,7 +828,7 @@ func (b *Bot) finalizeBooking(ctx context.Context, cq *tgbotapi.CallbackQuery, s
 		ClientPhone: st.Draft.ClientPhone,
 		StartTime:   start,
 		EndTime:     end,
-		Status:      "pending",
+		Status:      status,
 		Comment:     "",
 	}
 
@@ -677,10 +841,12 @@ func (b *Bot) finalizeBooking(ctx context.Context, cq *tgbotapi.CallbackQuery, s
 	if item == "" {
 		item = "Без аппарата"
 	}
-	msg := fmt.Sprintf("Заявка #%d создана. Кабинет: %s, %s %s, %s",
-		bk.ID, st.Draft.CabinetName, st.Draft.Date, st.Draft.TimeLabel, item)
+	msg := fmt.Sprintf("Заявка #%d создана. Статус: %s. Кабинет: %s, %s %s, %s",
+		bk.ID, bk.Status, st.Draft.CabinetName, st.Draft.Date, st.Draft.TimeLabel, item)
 	b.reply(cq.Message.Chat.ID, msg)
-	b.notifyManagersNewBooking(bk.ID, st.Draft.CabinetName, item, st.Draft.Date, st.Draft.TimeLabel, st.Draft.ClientName, st.Draft.ClientPhone)
+	if !st.IsManual {
+		b.notifyManagersNewBooking(bk.ID, st.Draft.CabinetName, item, st.Draft.Date, st.Draft.TimeLabel, st.Draft.ClientName, st.Draft.ClientPhone)
+	}
 	return nil
 }
 

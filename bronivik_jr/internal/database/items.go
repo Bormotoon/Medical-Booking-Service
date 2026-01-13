@@ -11,7 +11,7 @@ import (
 )
 
 func (db *DB) LoadItems(ctx context.Context) error {
-	query := `SELECT id, name, description, total_quantity, sort_order, is_active, created_at, updated_at FROM items`
+	query := `SELECT id, name, description, total_quantity, sort_order, is_active, permanent_reserved, created_at, updated_at FROM items`
 	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
 		return fmt.Errorf("failed to load items: %w", err)
@@ -26,7 +26,7 @@ func (db *DB) LoadItems(ctx context.Context) error {
 		var item models.Item
 		if err := rows.Scan(
 			&item.ID, &item.Name, &item.Description, &item.TotalQuantity,
-			&item.SortOrder, &item.IsActive, &item.CreatedAt, &item.UpdatedAt,
+			&item.SortOrder, &item.IsActive, &item.PermanentReserved, &item.CreatedAt, &item.UpdatedAt,
 		); err != nil {
 			return fmt.Errorf("failed to scan item: %w", err)
 		}
@@ -91,8 +91,8 @@ func (db *DB) itemByNameFromCache(name string) (*models.Item, bool) {
 }
 
 func (db *DB) CreateItem(ctx context.Context, item *models.Item) error {
-	query := `INSERT INTO items (name, description, total_quantity, sort_order, is_active, created_at, updated_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?)`
+	query := `INSERT INTO items (name, description, total_quantity, sort_order, is_active, permanent_reserved, created_at, updated_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
 	now := time.Now()
 	result, err := db.ExecContext(ctx, query,
 		item.Name,
@@ -100,6 +100,7 @@ func (db *DB) CreateItem(ctx context.Context, item *models.Item) error {
 		item.TotalQuantity,
 		item.SortOrder,
 		item.IsActive,
+		item.PermanentReserved,
 		now,
 		now,
 	)
@@ -133,10 +134,10 @@ func (db *DB) GetItemByID(ctx context.Context, id int64) (*models.Item, error) {
 	}
 
 	var dbItem models.Item
-	query := `SELECT id, name, description, total_quantity, sort_order, is_active, created_at, updated_at FROM items WHERE id = ?`
+	query := `SELECT id, name, description, total_quantity, sort_order, is_active, permanent_reserved, created_at, updated_at FROM items WHERE id = ?`
 	err := db.QueryRowContext(ctx, query, id).Scan(
 		&dbItem.ID, &dbItem.Name, &dbItem.Description, &dbItem.TotalQuantity,
-		&dbItem.SortOrder, &dbItem.IsActive, &dbItem.CreatedAt, &dbItem.UpdatedAt,
+		&dbItem.SortOrder, &dbItem.IsActive, &dbItem.PermanentReserved, &dbItem.CreatedAt, &dbItem.UpdatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get item by id: %w", err)
@@ -158,9 +159,9 @@ func (db *DB) GetItemByName(ctx context.Context, name string) (*models.Item, err
 	}
 
 	var item models.Item
-	query := `SELECT id, name, description, total_quantity, sort_order, is_active, created_at, updated_at FROM items WHERE name = ?`
+	query := `SELECT id, name, description, total_quantity, sort_order, is_active, permanent_reserved, created_at, updated_at FROM items WHERE name = ?`
 	err := db.QueryRowContext(ctx, query, name).Scan(
-		&item.ID, &item.Name, &item.Description, &item.TotalQuantity, &item.SortOrder, &item.IsActive, &item.CreatedAt, &item.UpdatedAt,
+		&item.ID, &item.Name, &item.Description, &item.TotalQuantity, &item.SortOrder, &item.IsActive, &item.PermanentReserved, &item.CreatedAt, &item.UpdatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get item by name: %w", err)
@@ -219,9 +220,9 @@ func (db *DB) GetActiveItems(ctx context.Context) ([]*models.Item, error) {
 }
 
 func (db *DB) UpdateItem(ctx context.Context, item *models.Item) error {
-	query := `UPDATE items SET name = ?, description = ?, total_quantity = ?, sort_order = ?, is_active = ?, updated_at = ? WHERE id = ?`
+	query := `UPDATE items SET name = ?, description = ?, total_quantity = ?, sort_order = ?, is_active = ?, permanent_reserved = ?, updated_at = ? WHERE id = ?`
 	now := time.Now()
-	_, err := db.ExecContext(ctx, query, item.Name, item.Description, item.TotalQuantity, item.SortOrder, item.IsActive, now, item.ID)
+	_, err := db.ExecContext(ctx, query, item.Name, item.Description, item.TotalQuantity, item.SortOrder, item.IsActive, item.PermanentReserved, now, item.ID)
 	if err != nil {
 		return fmt.Errorf("failed to update item: %w", err)
 	}

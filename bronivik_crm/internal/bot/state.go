@@ -29,6 +29,7 @@ type userState struct {
 	Step           bookingStep
 	Draft          BookingDraft
 	APIUnreachable bool
+	IsManual       bool // Created by manager manually
 }
 
 type stateStore struct {
