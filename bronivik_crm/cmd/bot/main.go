@@ -61,6 +61,26 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// Initial load + hot reload of cabinets configuration
+	if cabCfg, err := cfg.LoadCabinets(); err != nil {
+		logger.Error().Err(err).Msg("failed to load cabinets config")
+	} else if err := database.SyncCabinetsFromConfig(ctx, cabCfg); err != nil {
+		logger.Error().Err(err).Msg("failed to apply cabinets config")
+	}
+
+	if err := config.WatchCabinets(ctx, cfg.CabinetsConfigPath, 30*time.Second, func(updated *config.CabinetsConfig) {
+		if updated == nil {
+			return
+		}
+		if err := database.SyncCabinetsFromConfig(ctx, updated); err != nil {
+			logger.Error().Err(err).Msg("failed to reapply cabinets config")
+			return
+		}
+		logger.Info().Time("reloaded_at", time.Now()).Msg("cabinets config reloaded")
+	}); err != nil {
+		logger.Error().Err(err).Msg("cabinets watch failed")
+	}
+
 	if cfg.Monitoring.HealthCheckPort == 0 {
 		cfg.Monitoring.HealthCheckPort = 8090
 	}

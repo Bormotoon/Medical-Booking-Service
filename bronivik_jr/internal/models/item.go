@@ -7,6 +7,7 @@ type Item struct {
 	Name              string    `yaml:"name" json:"name"`
 	Description       string    `yaml:"description" json:"description"`
 	TotalQuantity     int64     `yaml:"total_quantity" json:"total_quantity"`
+	CabinetID         *int64    `yaml:"cabinet_id,omitempty" json:"cabinet_id,omitempty"`
 	SortOrder         int64     `yaml:"sort_order" json:"sort_order"`
 	IsActive          bool      `yaml:"is_active" json:"is_active"`
 	PermanentReserved bool      `yaml:"permanent_reserved" json:"permanent_reserved"`

@@ -15,6 +15,7 @@ type DeviceResponse struct {
 	Name              string `json:"name"`
 	Description       string `json:"description,omitempty"`
 	Available         bool   `json:"available"`
+	CabinetID         *int64 `json:"cabinet_id,omitempty"`
 	PermanentReserved bool   `json:"permanent_reserved"`
 }
 
@@ -88,6 +89,7 @@ func (s *HTTPServer) handleDevices(w http.ResponseWriter, r *http.Request) {
 			Name:              item.Name,
 			Description:       item.Description,
 			Available:         available,
+			CabinetID:         item.CabinetID,
 			PermanentReserved: item.PermanentReserved,
 		})
 	}
