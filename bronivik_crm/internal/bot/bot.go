@@ -109,7 +109,7 @@ func (b *Bot) sendMainMenu(chatID int64, userID int64) {
 	} else {
 		msg.ReplyMarkup = mainMenu
 	}
-	b.bot.Send(msg)
+	_, _ = b.bot.Send(msg)
 }
 
 func (b *Bot) Start(ctx context.Context) {
@@ -190,6 +190,9 @@ func (b *Bot) handleMessage(ctx context.Context, msg *tgbotapi.Message) {
 			return
 		case strings.HasPrefix(text, "/my_bookings"):
 			b.handleMyBookings(ctx, msg)
+			return
+		case strings.HasPrefix(text, "/cancel_booking"):
+			b.handleCancelBooking(ctx, msg)
 			return
 		case strings.HasPrefix(text, "/cancel"):
 			b.state.reset(msg.From.ID)
@@ -636,7 +639,7 @@ func (b *Bot) sendManagerDecisionMessage(chatID int64, bookingID int64, text str
 			tgbotapi.NewInlineKeyboardButtonData("❌ Отклонить", fmt.Sprintf("mgr:reject:%d", bookingID)),
 		),
 	)
-	b.bot.Send(msg)
+	_, _ = b.bot.Send(msg)
 }
 
 func (b *Bot) sendCabinets(ctx context.Context, chatID int64) {
@@ -660,7 +663,7 @@ func (b *Bot) sendCabinets(ctx context.Context, chatID int64) {
 
 	msg := tgbotapi.NewMessage(chatID, "Выберите кабинет:")
 	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
-	b.bot.Send(msg)
+	_, _ = b.bot.Send(msg)
 }
 
 func (b *Bot) isManager(id int64) bool {
@@ -703,11 +706,10 @@ func (b *Bot) sendItems(ctx context.Context, chatID int64) {
 	}
 	if b.apiEnabled && b.api != nil {
 		apiCtx := ctx
-		cancel := func() {}
 		if apiCtx == nil {
 			apiCtx = context.Background()
 		}
-		apiCtx, cancel = context.WithTimeout(apiCtx, 3*time.Second)
+		apiCtx, cancel := context.WithTimeout(apiCtx, 3*time.Second)
 		defer cancel()
 		items, err := b.api.ListItems(apiCtx)
 		if err == nil {
