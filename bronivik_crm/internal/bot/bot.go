@@ -327,7 +327,7 @@ func (b *Bot) handleCallback(ctx context.Context, cq *tgbotapi.CallbackQuery) {
 	}
 }
 
-func (b *Bot) handleCabCallback(ctx context.Context, chatID, userID int64, st *userState, data string) {
+func (b *Bot) handleCabCallback(ctx context.Context, chatID int64, _userID int64, st *userState, data string) {
 	idStr := strings.TrimPrefix(data, "cab:")
 	cabID, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
@@ -345,7 +345,7 @@ func (b *Bot) handleCabCallback(ctx context.Context, chatID, userID int64, st *u
 	b.sendCalendar(chatID)
 }
 
-func (b *Bot) handleItemCallback(ctx context.Context, chatID int64, st *userState, data string) {
+func (b *Bot) handleItemCallback(_ctx context.Context, chatID int64, st *userState, data string) {
 	name := strings.TrimPrefix(data, "item:")
 	if name == "none" {
 		name = ""
@@ -427,7 +427,7 @@ func (b *Bot) handleSlotCallback(ctx context.Context, chatID, userID int64, st *
 	b.sendDurations(chatID)
 }
 
-func (b *Bot) handleDurationCallback(ctx context.Context, chatID, userID int64, st *userState, data string) {
+func (b *Bot) handleDurationCallback(ctx context.Context, chatID int64, _userID int64, st *userState, data string) {
 	durStr := strings.TrimPrefix(data, "dur:")
 	dur, err := strconv.Atoi(durStr)
 	if err != nil {
@@ -829,9 +829,9 @@ func (b *Bot) sendItems(ctx context.Context, chatID int64, dateStr string) {
 		items, err := b.api.ListItems(apiCtx)
 		if err == nil {
 			for _, it := range items {
-				avail, err := b.api.GetAvailability(apiCtx, it.Name, dateStr)
+				avail, availErr := b.api.GetAvailability(apiCtx, it.Name, dateStr)
 				status := ""
-				if err == nil && avail != nil {
+				if availErr == nil && avail != nil {
 					if avail.Available {
 						status = "✅ Свободен"
 					} else {
