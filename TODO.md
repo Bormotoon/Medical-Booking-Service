@@ -314,10 +314,11 @@
   - Проверка пересечений, валидация расписания
   - FSM бронирования: booking/fsm_test.go
   - Хранилище сессий, переходы состояний
-- [ ] **Integration-тесты для API**
-  - Тестировать `GET /api/devices`, `POST /api/book-device`.
+- [x] **Integration-тесты для API** ✅ (13.01.2026)
+  - api/devices_api_test.go — тесты для GET /api/devices, POST /api/book-device
+  - Тесты аутентификации, health endpoints
 - [ ] **E2E-тесты для ботов**
-  - Эмуляция диалога с пользователем.
+  - Эмуляция диалога с пользователем (требует настройки test environment).
 
 ### 4.2 Документация
 - [x] **README для каждого бота** ✅ (13.01.2026)
