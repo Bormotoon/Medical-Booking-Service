@@ -101,7 +101,6 @@ func (s *HTTPServer) handleItemsAvailability(w http.ResponseWriter, r *http.Requ
 }
 
 func (s *HTTPServer) validateAvailabilityRequest(req *AvailabilityRequest) (start, end time.Time, err error) {
-func (s *HTTPServer) validateAvailabilityRequest(req *AvailabilityRequest) (start time.Time, end time.Time, err error) {
 	if req.StartDate == "" || req.EndDate == "" {
 		return time.Time{}, time.Time{}, fmt.Errorf("start_date and end_date are required")
 	}
