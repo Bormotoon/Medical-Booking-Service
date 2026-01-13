@@ -89,6 +89,7 @@ func (db *DB) createTables() error {
 			total_quantity INTEGER NOT NULL DEFAULT 1,
 			sort_order INTEGER NOT NULL DEFAULT 0,
 			is_active BOOLEAN NOT NULL DEFAULT 1,
+			permanent_reserved BOOLEAN NOT NULL DEFAULT 0,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
@@ -107,6 +108,16 @@ func (db *DB) createTables() error {
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )`,
+		// Таблица настроек пользователя (напоминания)
+		`CREATE TABLE IF NOT EXISTS user_settings (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER NOT NULL UNIQUE,
+			reminders_enabled BOOLEAN NOT NULL DEFAULT 1,
+			reminder_hours_before INTEGER NOT NULL DEFAULT 24,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (user_id) REFERENCES users(telegram_id) ON DELETE CASCADE
+		)`,
 		// Таблица бронирований
 		`CREATE TABLE IF NOT EXISTS bookings (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -119,6 +130,8 @@ func (db *DB) createTables() error {
 			date DATETIME NOT NULL,
 			status TEXT NOT NULL DEFAULT 'pending',
 			comment TEXT,
+			reminder_sent BOOLEAN NOT NULL DEFAULT 0,
+			external_booking_id TEXT,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			version INTEGER NOT NULL DEFAULT 1,
@@ -161,6 +174,15 @@ func (db *DB) createTables() error {
 		`CREATE INDEX IF NOT EXISTS idx_bookings_status ON bookings(status)`,
 		`CREATE INDEX IF NOT EXISTS idx_bookings_item_id ON bookings(item_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_bookings_user_id ON bookings(user_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_bookings_reminder ON bookings(reminder_sent, date)`,
+		`CREATE INDEX IF NOT EXISTS idx_bookings_external ON bookings(external_booking_id)`,
+
+		// Индексы для items
+		`CREATE INDEX IF NOT EXISTS idx_items_active ON items(is_active)`,
+		`CREATE INDEX IF NOT EXISTS idx_items_permanent ON items(permanent_reserved)`,
+
+		// Индексы для user_settings
+		`CREATE INDEX IF NOT EXISTS idx_user_settings_user_id ON user_settings(user_id)`,
 	}
 
 	for _, query := range queries {
@@ -170,6 +192,9 @@ func (db *DB) createTables() error {
 	}
 
 	if err := db.ensureBookingVersionColumn(); err != nil {
+		return err
+	}
+	if err := db.ensureNewColumns(); err != nil {
 		return err
 	}
 	return nil
@@ -183,6 +208,26 @@ func (db *DB) ensureBookingVersionColumn() error {
 			return nil
 		}
 		return fmt.Errorf("failed to add version column: %w", err)
+	}
+	return nil
+}
+
+// ensureNewColumns adds new columns to existing tables if they don't exist
+func (db *DB) ensureNewColumns() error {
+	migrations := []string{
+		`ALTER TABLE bookings ADD COLUMN reminder_sent BOOLEAN NOT NULL DEFAULT 0`,
+		`ALTER TABLE bookings ADD COLUMN external_booking_id TEXT`,
+		`ALTER TABLE items ADD COLUMN permanent_reserved BOOLEAN NOT NULL DEFAULT 0`,
+	}
+
+	for _, m := range migrations {
+		_, err := db.Exec(m)
+		if err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+			// Log but don't fail - column might already exist
+			if db.logger != nil {
+				db.logger.Debug().Err(err).Str("migration", m).Msg("Migration skipped")
+			}
+		}
 	}
 	return nil
 }
