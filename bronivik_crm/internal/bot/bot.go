@@ -906,7 +906,7 @@ func (b *Bot) sendTimeSlots(ctx context.Context, chatID, userID int64) {
 
 		var sb strings.Builder
 		sb.WriteString("⚠️ Кабинет полностью занят на выбранную дату.\n\n")
-		sb.WriteString(fmt.Sprintf("Расписание на сегодня (%s):\n", st.Draft.Date))
+		sb.WriteString(fmt.Sprintf("Расписание на выбранную дату (%s):\n", date.Format("02.01.2006")))
 		for _, s := range slots {
 			status := "✅"
 			if !s.Available {
@@ -915,7 +915,7 @@ func (b *Bot) sendTimeSlots(ctx context.Context, chatID, userID int64) {
 			sb.WriteString(fmt.Sprintf("%s %s-%s\n", status, s.StartTime, s.EndTime))
 		}
 
-		sb.WriteString(fmt.Sprintf("\nРасписание на завтра (%s):\n", nextDate.Format("02.01.2006")))
+		sb.WriteString(fmt.Sprintf("\nРасписание на следующий день (%s):\n", nextDate.Format("02.01.2006")))
 		if len(nextSlots) == 0 {
 			sb.WriteString("Нет данных или выходной.")
 		} else {
@@ -927,8 +927,7 @@ func (b *Bot) sendTimeSlots(ctx context.Context, chatID, userID int64) {
 				sb.WriteString(fmt.Sprintf("%s %s-%s\n", status, s.StartTime, s.EndTime))
 			}
 		}
-		b.reply(chatID, sb.String())
-		header = "Все равно выберите время (для записи в очередь или другое):"
+		header = sb.String() + "\nВсе равно выберите время (для записи в очередь или другое):"
 	}
 
 	out := tgbotapi.NewMessage(chatID, header)
