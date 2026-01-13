@@ -58,11 +58,13 @@ func (db *DB) GetOrCreateUserByTelegramID(
 			telegram_id, username, first_name, last_name, phone, 
 			is_manager, is_blacklisted, created_at, updated_at
 		) VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?)`
-		res, err := tx.ExecContext(ctx, query, telegramID, username, firstName, lastName, phone, now, now)
+		var res sql.Result
+		res, err = tx.ExecContext(ctx, query, telegramID, username, firstName, lastName, phone, now, now)
 		if err != nil {
 			return nil, err
 		}
-		id, err := res.LastInsertId()
+		var id int64
+		id, err = res.LastInsertId()
 		if err != nil {
 			return nil, err
 		}
@@ -306,9 +308,9 @@ func ensureScheduleColumns(db *sql.DB) error {
 	}
 	for _, col := range []string{"lunch_start", "lunch_end"} {
 		if !schedCols[col] {
-			if _, err := db.Exec(fmt.Sprintf("ALTER TABLE cabinet_schedules ADD COLUMN %s TEXT", col)); err != nil {
-				if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
-					return fmt.Errorf("add column %s to cabinet_schedules: %w", col, err)
+			if _, e := db.Exec(fmt.Sprintf("ALTER TABLE cabinet_schedules ADD COLUMN %s TEXT", col)); e != nil {
+				if !strings.Contains(strings.ToLower(e.Error()), "duplicate column") {
+					return fmt.Errorf("add column %s to cabinet_schedules: %w", col, e)
 				}
 			}
 		}
@@ -321,9 +323,9 @@ func ensureScheduleColumns(db *sql.DB) error {
 	}
 	for _, col := range []string{"lunch_start", "lunch_end", "reason"} {
 		if !ovrCols[col] {
-			if _, err := db.Exec(fmt.Sprintf("ALTER TABLE cabinet_schedule_overrides ADD COLUMN %s TEXT", col)); err != nil {
-				if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
-					return fmt.Errorf("add column %s to cabinet_schedule_overrides: %w", col, err)
+			if _, e := db.Exec(fmt.Sprintf("ALTER TABLE cabinet_schedule_overrides ADD COLUMN %s TEXT", col)); e != nil {
+				if !strings.Contains(strings.ToLower(e.Error()), "duplicate column") {
+					return fmt.Errorf("add column %s to cabinet_schedule_overrides: %w", col, e)
 				}
 			}
 		}
@@ -577,9 +579,10 @@ func (db *DB) CancelUserBooking(ctx context.Context, bookingID, userID int64) er
 	var ownerID int64
 	var status string
 	var start time.Time
-	if err := tx.QueryRowContext(ctx, `
+	err = tx.QueryRowContext(ctx, `
 		SELECT user_id, status, start_time 
-		FROM hourly_bookings WHERE id = ?`, bookingID).Scan(&ownerID, &status, &start); err != nil {
+		FROM hourly_bookings WHERE id = ?`, bookingID).Scan(&ownerID, &status, &start)
+	if err != nil {
 		if err == sql.ErrNoRows {
 			return ErrBookingNotFound
 		}
