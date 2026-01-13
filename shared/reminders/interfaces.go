@@ -5,6 +5,81 @@ import (
 	"time"
 )
 
+// ReminderType defines the type of reminder.
+type ReminderType string
+
+const (
+	ReminderType24HBefore    ReminderType = "24h_before"
+	ReminderTypeDayOfBooking ReminderType = "day_of_booking"
+	ReminderTypeCustom       ReminderType = "custom"
+)
+
+// ReminderStatus defines the status of a reminder.
+type ReminderStatus string
+
+const (
+	ReminderStatusPending    ReminderStatus = "pending"
+	ReminderStatusScheduled  ReminderStatus = "scheduled"
+	ReminderStatusProcessing ReminderStatus = "processing"
+	ReminderStatusSent       ReminderStatus = "sent"
+	ReminderStatusFailed     ReminderStatus = "failed"
+	ReminderStatusCancelled  ReminderStatus = "cancelled"
+)
+
+// Reminder represents a scheduled reminder.
+type Reminder struct {
+	ID           int64
+	UserID       int64
+	BookingID    int64
+	ReminderType ReminderType
+	ScheduledAt  time.Time
+	SentAt       *time.Time
+	Status       ReminderStatus
+	Enabled      bool
+	RetryCount   int
+	LastError    string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+// ReminderFilter defines criteria for querying reminders.
+type ReminderFilter struct {
+	Enabled           *bool
+	Status            []ReminderStatus
+	ScheduledAtBefore *time.Time
+	SentBefore        *time.Time
+	UserID            *int64
+	BookingID         *int64
+}
+
+// ReminderRepository provides access to reminders storage.
+type ReminderRepository interface {
+	// CreateReminder creates a new reminder.
+	CreateReminder(ctx context.Context, r *Reminder) error
+
+	// UpdateReminder updates an existing reminder.
+	UpdateReminder(ctx context.Context, r *Reminder) error
+
+	// FindReminders returns reminders matching the filter.
+	FindReminders(ctx context.Context, filter ReminderFilter) ([]Reminder, error)
+
+	// TryAcquireReminder atomically acquires a reminder for processing.
+	// Returns true if acquired, false if already being processed.
+	TryAcquireReminder(ctx context.Context, id int64) (bool, error)
+
+	// ReleaseReminder releases a reminder after processing.
+	ReleaseReminder(ctx context.Context, id int64) error
+
+	// DeleteReminders deletes reminders matching the filter.
+	DeleteReminders(ctx context.Context, filter ReminderFilter) (int64, error)
+
+	// GetReminderByKey returns a reminder by unique key (user_id, booking_id, reminder_type).
+	GetReminderByKey(ctx context.Context, userID, bookingID int64, reminderType ReminderType) (*Reminder, error)
+
+	// CountPendingReminders returns the count of pending reminders.
+	CountPendingReminders(ctx context.Context) (int64, error)
+}
+
 // Booking represents a booking that may need a reminder.
 type Booking interface {
 	GetID() int64

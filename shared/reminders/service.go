@@ -33,15 +33,16 @@ func DefaultConfig() *Config {
 
 // Service handles sending booking reminders.
 type Service struct {
-	config   *Config
-	bookings BookingStore
-	settings UserSettingsStore
-	notifier Notifier
-	logger   Logger
-	stopCh   chan struct{}
-	wg       sync.WaitGroup
-	mu       sync.Mutex
-	running  bool
+	config       *Config
+	bookings     BookingStore
+	userSettings UserSettingsStore
+	repo         ReminderRepository
+	notifier     Notifier
+	logger       Logger
+	stopCh       chan struct{}
+	wg           sync.WaitGroup
+	mu           sync.Mutex
+	running      bool
 }
 
 // NewService creates a new reminder service.
@@ -49,6 +50,7 @@ func NewService(
 	config *Config,
 	bookings BookingStore,
 	settings UserSettingsStore,
+	repo ReminderRepository,
 	notifier Notifier,
 	logger Logger,
 ) *Service {
@@ -66,12 +68,13 @@ func NewService(
 	}
 
 	return &Service{
-		config:   config,
-		bookings: bookings,
-		settings: settings,
-		notifier: notifier,
-		logger:   logger,
-		stopCh:   make(chan struct{}),
+		config:       config,
+		bookings:     bookings,
+		userSettings: settings,
+		repo:         repo,
+		notifier:     notifier,
+		logger:       logger,
+		stopCh:       make(chan struct{}),
 	}
 }
 
@@ -166,7 +169,7 @@ func (s *Service) checkAndSendReminders() {
 		}
 
 		// Check user settings
-		settings, err := s.settings.GetUserSettings(ctx, booking.GetUserID())
+		settings, err := s.userSettings.GetUserSettings(ctx, booking.GetUserID())
 		if err != nil {
 			if s.logger != nil {
 				s.logger.Error("Failed to get user settings",
