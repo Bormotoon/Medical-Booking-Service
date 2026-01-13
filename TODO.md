@@ -350,187 +350,67 @@
 ### 2.1 Документирование текущей схемы
 
 #### 2.1.1 Аудит текущих таблиц
-- [ ] **Описать текущие таблицы и поля**
+- [x] **Описать текущие таблицы и поля** ✅ (13.01.2026)
   - Описание: Зафиксировать актуальную схему БД для bookings/requests, reminders.
-  - Задачи:
-    - Выписать все поля таблицы `bookings` (включая `comment`)
-    - Сверить DTO/модели в коде с фактической схемой
-    - Документировать в `docs/DATABASE_SCHEMA.md`
-  - Рекомендации:
-    - Использовать команду для экспорта схемы:
-      ```bash
-      # SQLite
-      sqlite3 database.db ".schema" > schema.sql
-      # PostgreSQL
-      pg_dump -s -d database > schema.sql
-      ```
-    - Сравнить с моделями в Go коде
-  - Файлы для проверки:
-    - `bronivik_jr/internal/models/`
-    - `bronivik_crm/internal/model/`
-    - `docs/DATABASE_SCHEMA.md`
+  - Реализовано:
+    - Обновлён `docs/DATABASE_SCHEMA.md` с полным описанием таблиц
+    - Добавлено описание таблицы `reminders`
+    - Документированы статусы и типы напоминаний
+    - Сверены модели Go с фактической схемой
 
 ### 2.2 Доработка модели бронирования под диапазоны
 
 #### 2.2.1 Добавление поля end_time
-- [ ] **Расширить модель бронирования для диапазонов**
+- [x] **Расширить модель бронирования для диапазонов** ✅ (13.01.2026)
   - Описание: Добавить поддержку "вечной/долгой аренды" через поле `end_time`.
-  - Миграция:
-    ```sql
-    -- Добавляем nullable end_time
-    ALTER TABLE bookings ADD COLUMN end_time TIMESTAMP NULL;
-    
-    -- Комментарий для документации
-    COMMENT ON COLUMN bookings.end_time IS 
-      'End time for range bookings. NULL means single-slot (end_time = start_time)';
-    ```
-  - Правило по умолчанию:
-    - Если `end_time IS NULL` → трактовать как `end_time = start_time` (одноразовая заявка)
-    - В коде: `GetEffectiveEndTime()` метод
-  - Реализация в модели:
-    ```go
-    type Booking struct {
-        ID        int64
-        StartTime time.Time
-        EndTime   *time.Time // nullable
-        // ...
-    }
-    
-    func (b *Booking) GetEffectiveEndTime() time.Time {
-        if b.EndTime != nil {
-            return *b.EndTime
-        }
-        return b.StartTime
-    }
-    
-    func (b *Booking) IsRangeBooking() bool {
-        return b.EndTime != nil && !b.EndTime.Equal(b.StartTime)
-    }
-    ```
-  - Файлы для изменения:
-    - `bronivik_jr/internal/models/booking.go`
-    - `bronivik_crm/internal/model/hourly_booking.go`
-    - Миграции в `migrations/` директории
+  - Реализовано:
+    - Модель `Booking` в `bronivik_jr/internal/models/booking.go`:
+      - Поле `EndTime *time.Time` (nullable)
+      - Методы: `GetEffectiveEndTime()`, `IsRangeBooking()`, `OverlapsWith()`, `ContainsDate()`
+    - Модель `HourlyBooking` в `bronivik_crm/internal/model/hourly_booking.go`:
+      - Методы: `Duration()`, `SlotCount()`, `IsRangeBooking()`, `OverlapsWith()`, `ContainsTime()`, `ContainsDate()`
+    - Миграция `bronivik_jr/migrations/001_add_end_time.up.sql`
+    - Rollback `bronivik_jr/migrations/001_add_end_time.down.sql`
+  - Правило: `end_time IS NULL` → одноразовая заявка (end_time = date)
 
 #### 2.2.2 Определить хранение "пула дат" от менеджера
-- [!] **Выбрать способ хранения диапазонов**
-  - Описание: Как хранить диапазон дат для "вечной аренды"?
-  - Вариант A — одна запись с диапазоном:
-    ```sql
-    INSERT INTO bookings (start_time, end_time, booking_type)
-    VALUES ('2026-01-15', '2026-12-31', 'permanent');
-    ```
-    - Плюсы: простота, один запрос для проверки
-    - Минусы: сложнее отменять отдельные дни
-  - Вариант B — отдельные записи для каждой даты:
-    ```sql
-    INSERT INTO bookings (start_time, booking_type, parent_booking_id)
-    VALUES 
-      ('2026-01-15', 'permanent', 123),
-      ('2026-01-16', 'permanent', 123);
-    ```
-    - Плюсы: гибкость, легко отменить отдельный день
-    - Минусы: много записей, сложнее управлять
-  - Вариант C — отдельная таблица дат:
-    ```sql
-    CREATE TABLE booking_dates (
-        id SERIAL PRIMARY KEY,
-        booking_id INTEGER REFERENCES bookings(id),
-        date DATE NOT NULL,
-        UNIQUE(booking_id, date)
-    );
-    ```
-    - Плюсы: чёткое разделение, гибкость
-    - Минусы: дополнительная таблица, JOIN'ы
-  - Рекомендация: Для MVP — Вариант A. Для гибкости — Вариант C.
+- [x] **Выбрать способ хранения диапазонов** ✅ (13.01.2026)
+  - **Решение**: Вариант A — одна запись с диапазоном (start_time, end_time)
+  - Обоснование:
+    - Простота реализации для MVP
+    - Один запрос для проверки пересечений
+    - Достаточно для текущих требований
+  - Компромисс: При необходимости отмены отдельных дней — создавать отдельные записи или использовать исключения
 
 ### 2.3 Миграции данных
 
 #### 2.3.1 Backfill существующих записей
-- [ ] **Обновить существующие записи**
-  - Описание: Для всех текущих заявок проставить `end_time`.
-  - Скрипт миграции:
-    ```sql
-    -- Вариант 1: Оставить NULL (обрабатывать в коде)
-    -- Ничего не делаем, код учитывает NULL
-    
-    -- Вариант 2: Проставить end_time = start_time явно
-    UPDATE bookings 
-    SET end_time = start_time 
-    WHERE end_time IS NULL;
-    ```
-  - Рекомендации:
-    - Создать backup перед миграцией
-    - Выполнять в транзакции
-    - Логировать количество обновлённых записей
-  - План отката:
-    ```sql
-    -- Rollback
-    ALTER TABLE bookings DROP COLUMN end_time;
-    ```
+- [x] **Обновить существующие записи** ✅ (13.01.2026)
+  - Решение: Оставить NULL для существующих записей
+  - Обоснование: Код корректно обрабатывает NULL как end_time = start_time
+  - Миграция не требует backfill — поведение обратно совместимо
 
 #### 2.3.2 Обновление индексов
-- [ ] **Создать индексы для диапазонных запросов**
-  - Описание: Оптимизировать запросы на пересечение диапазонов.
-  - SQL индексы:
-    ```sql
-    -- Индекс для выборки по диапазону дат
-    CREATE INDEX idx_bookings_time_range 
-    ON bookings (start_time, end_time);
-    
-    -- Индекс для выборки по item + дате
-    CREATE INDEX idx_bookings_item_time 
-    ON bookings (item_id, start_time, end_time);
-    
-    -- Частичный индекс для активных бронирований
-    CREATE INDEX idx_bookings_active 
-    ON bookings (start_time, end_time) 
-    WHERE status IN ('pending', 'approved');
-    ```
-  - Запрос на пересечение диапазонов:
-    ```sql
-    -- Найти все бронирования, пересекающиеся с [req_start, req_end]
-    SELECT * FROM bookings
-    WHERE item_id = $1
-      AND start_time <= $2  -- req_end
-      AND COALESCE(end_time, start_time) >= $3  -- req_start
-      AND status IN ('pending', 'approved');
-    ```
-  - Рекомендации:
-    - Использовать `EXPLAIN ANALYZE` для проверки индексов
-    - Рассмотреть GiST индекс для PostgreSQL (range types)
+- [x] **Создать индексы для диапазонных запросов** ✅ (13.01.2026)
+  - Реализовано в миграции `001_add_end_time.up.sql`:
+    - `idx_bookings_time_range ON bookings(date, end_time)`
+    - `idx_bookings_item_time ON bookings(item_id, date, end_time)`
+  - Запрос на пересечение диапазонов использует метод `OverlapsWith()` в модели
 
 ### 2.4 Доработка таблицы напоминаний
 
 #### 2.4.1 Проверка и расширение схемы
-- [ ] **Убедиться в наличии необходимых полей**
-  - Описание: Таблица напоминаний должна поддерживать все сценарии.
-  - Обязательные поля:
-    ```sql
-    CREATE TABLE IF NOT EXISTS reminders (
-        id SERIAL PRIMARY KEY,
-        user_id BIGINT NOT NULL,
-        booking_id INTEGER REFERENCES bookings(id),
-        reminder_type VARCHAR(50) NOT NULL,
-        scheduled_at TIMESTAMP NOT NULL,
-        sent_at TIMESTAMP NULL,
-        status VARCHAR(20) DEFAULT 'pending',
-        enabled BOOLEAN DEFAULT true,
-        retry_count INTEGER DEFAULT 0,
-        last_error TEXT NULL,
-        created_at TIMESTAMP DEFAULT NOW(),
-        updated_at TIMESTAMP DEFAULT NOW(),
-        
-        UNIQUE(user_id, booking_id, reminder_type)
-    );
-    
-    CREATE INDEX idx_reminders_pending 
-    ON reminders (scheduled_at, status, enabled) 
-    WHERE status = 'pending' AND enabled = true;
-    ```
-  - Файлы для изменения:
-    - `shared/reminders/interfaces.go` — модель Reminder
-    - Миграции в обоих ботах
+- [x] **Убедиться в наличии необходимых полей** ✅ (13.01.2026)
+  - Реализовано:
+    - Миграции созданы для обоих ботов:
+      - `bronivik_jr/migrations/002_create_reminders.up.sql`
+      - `bronivik_crm/migrations/001_create_reminders.up.sql`
+    - Таблица `reminders` содержит все необходимые поля:
+      - id, user_id, booking_id, reminder_type
+      - scheduled_at, sent_at, status, enabled
+      - retry_count, last_error, created_at, updated_at
+    - Уникальный индекс `(user_id, booking_id, reminder_type)` для дедупликации
+    - Индексы для производительности запросов
 
 ---
 
