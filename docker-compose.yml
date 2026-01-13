@@ -74,6 +74,47 @@ services:
       start_period: 10s
 
   # =============================================================================
+  # Bronivik Jr - Reminder Worker (Cron Tasks)
+  # =============================================================================
+  bronivik-jr-worker:
+    build:
+      context: ./bronivik_jr
+      dockerfile: Dockerfile
+    container_name: bronivik-jr-worker
+    restart: unless-stopped
+    command: ["./bot", "worker", "--job=reminders"]
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+      - DB_PATH=/app/data/bronivik_jr.db
+      - REDIS_URL=redis://redis:6379/0
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - TZ=Europe/Moscow
+      # Reminder cron configuration
+      - REMINDER_CRON=${REMINDER_CRON:-0 12 * * *}
+      - REMINDER_ENABLED=${REMINDER_ENABLED:-true}
+      # Rate limiter settings
+      - RATE_LIMIT_PER_SEC=${RATE_LIMIT_PER_SEC:-20}
+      - RATE_LIMIT_BURST=${RATE_LIMIT_BURST:-30}
+      # Retry settings
+      - RETRY_MAX_ATTEMPTS=${RETRY_MAX_ATTEMPTS:-3}
+      - RETRY_DELAYS=${RETRY_DELAYS:-1s,5s,30s}
+    volumes:
+      - bronivik_jr_data:/app/data
+    depends_on:
+      bronivik-jr-bot:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - bronivik-network
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8091/healthz"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # =============================================================================
   # Bronivik CRM - Bot (Cabinet Booking)
   # =============================================================================
   bronivik-crm-bot:

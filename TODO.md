@@ -791,88 +791,36 @@
 ### 7.2 Деплой worker/cron (NEW)
 
 #### 7.2.1 Worker контейнер для напоминаний
-- [ ] **Добавить отдельный worker контейнер**
-  - Описание: Выделенный контейнер для cron-задач.
-  - docker-compose.yml:
-    ```yaml
-    services:
-      # ... existing services ...
-      
-      reminder-worker:
-        image: bronivik-jr:${VERSION:-latest}
-        command: ["./app", "worker", "--job=reminders"]
-        environment:
-          - TZ=Europe/Moscow
-          - CRON_SCHEDULE=0 12 * * *
-          - DATABASE_URL=${DATABASE_URL}
-          - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-        depends_on:
-          - bronivik-jr-bot
-        restart: unless-stopped
-        healthcheck:
-          test: ["CMD", "./app", "health", "--worker"]
-          interval: 60s
-          timeout: 10s
-          retries: 3
-    ```
-  - Альтернатива — встроенный scheduler в основном боте:
-    ```go
-    // В main.go
-    go func() {
-        scheduler := cron.New(cron.WithLocation(moscowTZ))
-        scheduler.AddFunc("0 12 * * *", func() {
-            reminderService.ProcessDailyReminders(context.Background())
-        })
-        scheduler.Start()
-    }()
-    ```
+- [x] **Добавить отдельный worker контейнер** ✅ (13.01.2026)
+  - Добавлен сервис `bronivik-jr-worker` в docker-compose.yml:
+    - Команда: `["./bot", "worker", "--job=reminders"]`
+    - Таймзона: `TZ=Europe/Moscow`
+    - Cron расписание: `REMINDER_CRON=0 12 * * *` (12:00 ежедневно)
+    - Rate limiter: `RATE_LIMIT_PER_SEC=20`, `RATE_LIMIT_BURST=30`
+    - Retry: `RETRY_MAX_ATTEMPTS=3`, `RETRY_DELAYS=1s,5s,30s`
+    - Health check: `/healthz` endpoint на порту 8091
+  - Зависит от `bronivik-jr-bot` и `redis`
 
 #### 7.2.2 Настройка расписания и таймзоны
-- [ ] **Конфигурация cron schedule**
-  - Описание: Настройка времени запуска через переменные окружения.
-  - Переменные:
-    - `TZ=Europe/Moscow` — таймзона
-    - `REMINDER_CRON=0 12 * * *` — расписание (12:00 ежедневно)
-  - Документация: добавить в README
+- [x] **Конфигурация cron schedule** ✅ (13.01.2026)
+  - Переменные окружения:
+    - `TZ=Europe/Moscow` — таймзона для cron
+    - `REMINDER_CRON=0 12 * * *` — расписание (настраивается)
+    - `REMINDER_ENABLED=true` — флаг включения
 
 #### 7.2.3 Алерты для worker
-- [ ] **Настроить алерты мониторинга**
-  - Описание: Уведомления о проблемах с напоминаниями.
-  - Prometheus alerts (`monitoring/alerts.yml`):
-    ```yaml
-    groups:
-      - name: reminders
-        rules:
-          - alert: ReminderFailureRateHigh
-            expr: rate(reminders_sent_total{status="failed"}[1h]) > 0.1
-            for: 5m
-            labels:
-              severity: warning
-            annotations:
-              summary: "High reminder failure rate"
-              description: "More than 10% of reminders are failing"
-          
-          - alert: ReminderBacklogGrowing
-            expr: reminders_queue_size > 100
-            for: 15m
-            labels:
-              severity: warning
-            annotations:
-              summary: "Reminder backlog is growing"
-              description: "{{ $value }} reminders pending"
-          
-          - alert: NoRemindersSentInExpectedWindow
-            expr: increase(reminders_sent_total[2h]) == 0 and hour() >= 12 and hour() <= 14
-            for: 30m
-            labels:
-              severity: critical
-            annotations:
-              summary: "No reminders sent during expected window"
-              description: "Expected reminders at 12:00, but none were sent"
-    ```
-  - Файлы для создания/изменения:
-    - `monitoring/alerts.yml`
-    - `monitoring/prometheus.yml` — добавить rule_files
+- [x] **Настроить алерты мониторинга** ✅ (13.01.2026)
+  - Создан `monitoring/alerts.yml` с группами:
+    - **reminders**: ReminderFailureRateHigh, ReminderBacklogGrowing, NoRemindersSentInExpectedWindow, ReminderWorkerDown
+    - **api**: APIHighLatency, APIHighErrorRate, APIDown
+    - **bots**: BotDown, TelegramRateLimited, HighBookingFailureRate
+    - **database**: DatabaseConnectionErrors, DatabaseSlowQueries
+    - **redis**: RedisDown, RedisHighMemory
+    - **resources**: HighCPUUsage, HighMemoryUsage, ContainerRestarting
+    - **sync**: SyncTaskBacklogGrowing, SyncTaskFailures, GoogleSheetsAPIErrors
+  - Обновлён `monitoring/prometheus.yml`:
+    - Добавлен `rule_files: ["alerts.yml"]`
+    - Добавлен scrape job для `bronivik-jr-worker`
 
 ### 7.3 Миграции и обратимость
 

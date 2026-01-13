@@ -1,0 +1,246 @@
+# Prometheus Alerting Rules for Medical Booking Service
+# Alerts for reminders, API health, and general service monitoring
+
+groups:
+  # ===========================================================================
+  # Reminder System Alerts
+  # ===========================================================================
+  - name: reminders
+    rules:
+      - alert: ReminderFailureRateHigh
+        expr: |
+          (
+            sum(rate(reminders_sent_total{status="failed"}[1h])) /
+            sum(rate(reminders_sent_total[1h]))
+          ) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          service: bronivik-jr
+        annotations:
+          summary: "High reminder failure rate"
+          description: "More than 10% of reminders are failing over the last hour."
+          runbook_url: "https://docs.example.com/runbooks/reminder-failures"
+
+      - alert: ReminderBacklogGrowing
+        expr: reminders_queue_size > 100
+        for: 15m
+        labels:
+          severity: warning
+          service: bronivik-jr
+        annotations:
+          summary: "Reminder backlog is growing"
+          description: "{{ $value }} reminders are pending in the queue."
+
+      - alert: NoRemindersSentInExpectedWindow
+        expr: |
+          increase(reminders_sent_total[2h]) == 0
+          and on() hour() >= 12 and hour() <= 14
+        for: 30m
+        labels:
+          severity: critical
+          service: bronivik-jr
+        annotations:
+          summary: "No reminders sent during expected window"
+          description: "Expected reminders at 12:00 Moscow time, but none were sent in the last 2 hours."
+
+      - alert: ReminderWorkerDown
+        expr: up{job="bronivik-jr-worker"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          service: bronivik-jr
+        annotations:
+          summary: "Reminder worker is down"
+          description: "The reminder worker container is not responding to health checks."
+
+  # ===========================================================================
+  # API Health Alerts
+  # ===========================================================================
+  - name: api
+    rules:
+      - alert: APIHighLatency
+        expr: |
+          histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, handler)) > 1
+        for: 10m
+        labels:
+          severity: warning
+          service: bronivik-jr
+        annotations:
+          summary: "API latency is high"
+          description: "95th percentile latency for {{ $labels.handler }} is {{ $value }}s."
+
+      - alert: APIHighErrorRate
+        expr: |
+          (
+            sum(rate(http_requests_total{code=~"5.."}[5m])) /
+            sum(rate(http_requests_total[5m]))
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          service: bronivik-jr
+        annotations:
+          summary: "High API error rate"
+          description: "More than 5% of API requests are returning 5xx errors."
+
+      - alert: APIDown
+        expr: up{job="bronivik-jr-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: bronivik-jr
+        annotations:
+          summary: "API server is down"
+          description: "The API server is not responding to health checks."
+
+  # ===========================================================================
+  # Bot Health Alerts
+  # ===========================================================================
+  - name: bots
+    rules:
+      - alert: BotDown
+        expr: up{job=~"bronivik.*bot"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: "{{ $labels.job }}"
+        annotations:
+          summary: "Bot {{ $labels.job }} is down"
+          description: "The Telegram bot is not responding to health checks."
+
+      - alert: TelegramRateLimited
+        expr: increase(telegram_rate_limited_total[5m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+          service: "{{ $labels.job }}"
+        annotations:
+          summary: "Telegram rate limiting detected"
+          description: "Bot {{ $labels.job }} is being rate limited by Telegram API."
+
+      - alert: HighBookingFailureRate
+        expr: |
+          (
+            sum(rate(bookings_total{status="failed"}[1h])) /
+            sum(rate(bookings_total[1h]))
+          ) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High booking failure rate"
+          description: "More than 10% of booking attempts are failing."
+
+  # ===========================================================================
+  # Database Alerts
+  # ===========================================================================
+  - name: database
+    rules:
+      - alert: DatabaseConnectionErrors
+        expr: increase(db_errors_total[5m]) > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Database connection errors"
+          description: "Multiple database errors detected in {{ $labels.service }}."
+
+      - alert: DatabaseSlowQueries
+        expr: |
+          histogram_quantile(0.95, sum(rate(db_query_duration_seconds_bucket[5m])) by (le)) > 0.5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Slow database queries"
+          description: "95th percentile query latency is {{ $value }}s."
+
+  # ===========================================================================
+  # Redis Alerts
+  # ===========================================================================
+  - name: redis
+    rules:
+      - alert: RedisDown
+        expr: up{job="redis"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis is down"
+          description: "Redis cache is not responding."
+
+      - alert: RedisHighMemory
+        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis memory usage is high"
+          description: "Redis is using {{ $value | humanizePercentage }} of available memory."
+
+  # ===========================================================================
+  # System Resource Alerts
+  # ===========================================================================
+  - name: resources
+    rules:
+      - alert: HighCPUUsage
+        expr: |
+          sum(rate(container_cpu_usage_seconds_total{name=~"bronivik.*"}[5m])) by (name) > 0.8
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage in {{ $labels.name }}"
+          description: "Container {{ $labels.name }} is using more than 80% CPU."
+
+      - alert: HighMemoryUsage
+        expr: |
+          (container_memory_usage_bytes{name=~"bronivik.*"} / container_spec_memory_limit_bytes) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage in {{ $labels.name }}"
+          description: "Container {{ $labels.name }} is using more than 90% of memory limit."
+
+      - alert: ContainerRestarting
+        expr: increase(container_restart_count{name=~"bronivik.*"}[1h]) > 3
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Container {{ $labels.name }} is restarting frequently"
+          description: "Container has restarted {{ $value }} times in the last hour."
+
+  # ===========================================================================
+  # Sync/Worker Alerts
+  # ===========================================================================
+  - name: sync
+    rules:
+      - alert: SyncTaskBacklogGrowing
+        expr: sync_queue_pending_count > 50
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Sync task backlog is growing"
+          description: "{{ $value }} tasks are pending in the sync queue."
+
+      - alert: SyncTaskFailures
+        expr: increase(sync_tasks_failed_total[1h]) > 10
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Sync task failures detected"
+          description: "{{ $value }} sync tasks have failed in the last hour."
+
+      - alert: GoogleSheetsAPIErrors
+        expr: increase(google_sheets_errors_total[5m]) > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Google Sheets API errors"
+          description: "Multiple Google Sheets API errors detected."
