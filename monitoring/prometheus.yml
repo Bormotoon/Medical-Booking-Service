@@ -13,9 +13,9 @@ global:
 #         - targets:
 #             - alertmanager:9093
 
-# Rule files (optional)
-# rule_files:
-#   - "alerts/*.yml"
+# Rule files for alerting
+rule_files:
+  - "alerts.yml"
 
 scrape_configs:
   # Prometheus self-monitoring
@@ -42,6 +42,16 @@ scrape_configs:
         labels:
           service: 'bronivik-jr'
           component: 'bot'
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  # Bronivik Jr Worker metrics
+  - job_name: 'bronivik-jr-worker'
+    static_configs:
+      - targets: ['bronivik-jr-worker:8091']
+        labels:
+          service: 'bronivik-jr'
+          component: 'worker'
     metrics_path: '/metrics'
     scrape_interval: 30s
 
