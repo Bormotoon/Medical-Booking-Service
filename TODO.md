@@ -96,20 +96,26 @@
 ### 1.3 Система управления доступом
 
 #### 1.3.1 Чёрный список (blocklist)
-- [ ] **Создать таблицу `blocked_users`**
-  - Поля: `user_id`, `blocked_at`, `reason` (optional).
-- [ ] **Проверять пользователя при любом действии**
+- [x] **Создать таблицу `blocked_users`** ✅ (13.01.2026)
+  - Поля: `user_id`, `blocked_at`, `reason` (optional), `blocked_by`.
+  - Реализовано в обеих БД: bronivik_jr и bronivik_crm.
+- [x] **Проверять пользователя при любом действии** ✅ (13.01.2026)
   - Описание: Если `user_id` в чёрном списке — отклонять запрос с сообщением.
-  - Рекомендации:
-    - Middleware/decorator на уровне обработчика команд.
+  - Реализовано:
+    - `shared/access/service.go` — AccessService с Middleware().
+    - `shared/access/interfaces.go` — BlocklistRepository, AccessChecker.
+    - `bronivik_jr/internal/database/access.go` — реализация для Бота 1.
+    - `bronivik_crm/internal/db/access.go` — реализация для Бота 2.
 
 #### 1.3.2 Список менеджеров
-- [ ] **Создать таблицу `managers`**
-  - Поля: `user_id`, `chat_id`, `name`, `added_at`.
-- [ ] **Реализовать проверку прав**
+- [x] **Создать таблицу `managers`** ✅ (13.01.2026)
+  - Поля: `user_id`, `chat_id`, `name`, `added_at`, `added_by`.
+  - Реализовано в обеих БД.
+- [x] **Реализовать проверку прав** ✅ (13.01.2026)
   - Описание: Админ-команды доступны только пользователям из `managers`.
-  - Рекомендации:
-    - Декоратор `@manager_only` или middleware.
+  - Реализовано:
+    - `shared/access/service.go` — ManagerMiddleware().
+    - AccessDeniedError для обработки ошибок доступа.
 
 ---
 

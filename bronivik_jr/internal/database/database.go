@@ -183,6 +183,28 @@ func (db *DB) createTables() error {
 
 		// Индексы для user_settings
 		`CREATE INDEX IF NOT EXISTS idx_user_settings_user_id ON user_settings(user_id)`,
+
+		// Таблица заблокированных пользователей
+		`CREATE TABLE IF NOT EXISTS blocked_users (
+			user_id INTEGER PRIMARY KEY,
+			blocked_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			reason TEXT,
+			blocked_by INTEGER NOT NULL,
+			FOREIGN KEY (blocked_by) REFERENCES users(telegram_id)
+		)`,
+
+		// Таблица менеджеров
+		`CREATE TABLE IF NOT EXISTS managers (
+			user_id INTEGER PRIMARY KEY,
+			chat_id INTEGER NOT NULL,
+			name TEXT NOT NULL,
+			added_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			added_by INTEGER NOT NULL DEFAULT 0
+		)`,
+
+		// Индексы для access control
+		`CREATE INDEX IF NOT EXISTS idx_blocked_users_blocked_at ON blocked_users(blocked_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_managers_chat_id ON managers(chat_id)`,
 	}
 
 	for _, query := range queries {
