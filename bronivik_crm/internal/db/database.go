@@ -218,6 +218,28 @@ func createTables(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_hourly_bookings_user ON hourly_bookings(user_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_hourly_bookings_reminder ON hourly_bookings(reminder_sent, start_time)`,
 		`CREATE INDEX IF NOT EXISTS idx_user_settings_user_id ON user_settings(user_id)`,
+
+		// Blocked users (blocklist)
+		`CREATE TABLE IF NOT EXISTS blocked_users (
+			user_id INTEGER PRIMARY KEY,
+			blocked_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			reason TEXT,
+			blocked_by INTEGER NOT NULL,
+			FOREIGN KEY (blocked_by) REFERENCES users(id)
+		)`,
+
+		// Managers table
+		`CREATE TABLE IF NOT EXISTS managers (
+			user_id INTEGER PRIMARY KEY,
+			chat_id INTEGER NOT NULL,
+			name TEXT NOT NULL,
+			added_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			added_by INTEGER NOT NULL DEFAULT 0
+		)`,
+
+		// Indexes for access control
+		`CREATE INDEX IF NOT EXISTS idx_blocked_users_blocked_at ON blocked_users(blocked_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_managers_chat_id ON managers(chat_id)`,
 	}
 
 	for _, q := range queries {
