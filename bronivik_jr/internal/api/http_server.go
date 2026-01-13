@@ -54,6 +54,7 @@ func NewHTTPServer(
 	apiMux.HandleFunc("/api/v1/availability/bulk", srv.handleAvailabilityBulk)
 	apiMux.HandleFunc("/api/v1/availability/", srv.handleAvailability)
 	apiMux.HandleFunc("/api/v1/items", srv.handleItems)
+	apiMux.HandleFunc("/api/items/availability", srv.handleItemsAvailability)
 	apiMux.HandleFunc("/api/devices", srv.handleDevices)
 	apiMux.HandleFunc("/api/book-device", srv.handleBookDevice)
 	apiMux.HandleFunc("/api/book-device/", srv.handleCancelExternalBooking)
@@ -296,8 +297,8 @@ func (s *HTTPServer) handleItems(w http.ResponseWriter, r *http.Request) {
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, x-api-key, x-api-extra")
+		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,DELETE,OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-API-Key, X-API-Extra")
 
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
@@ -405,7 +406,7 @@ func (a *HTTPAuth) checkPermissions(client config.APIClientKey, r *http.Request)
 
 func requiredPermissionHTTP(r *http.Request) string {
 	path := r.URL.Path
-	if strings.HasPrefix(path, "/api/v1/availability") {
+	if strings.HasPrefix(path, "/api/v1/availability") || path == "/api/items/availability" {
 		return "read:availability"
 	}
 	if path == "/api/v1/items" {

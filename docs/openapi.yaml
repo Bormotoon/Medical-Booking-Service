@@ -168,6 +168,56 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
 
+  /api/items/availability:
+    post:
+      tags:
+        - Availability
+      summary: Проверка доступности по диапазону дат
+      description: |
+        Проверяет доступность оборудования в указанном диапазоне дат.
+        Возвращает детальную информацию о занятости для каждого дня.
+        
+        **Ограничения:**
+        - Максимальный диапазон: 90 дней
+        - `start_date` должен быть меньше или равен `end_date`
+      operationId: checkItemsAvailability
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ItemsAvailabilityRequest'
+            example:
+              start_date: "2026-01-15"
+              end_date: "2026-01-20"
+              item_ids: [1, 2, 3]
+      responses:
+        '200':
+          description: Успешный ответ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItemsAvailabilityResponse'
+              example:
+                items:
+                  - id: 1
+                    name: "УЗИ-1"
+                    availability:
+                      - date: "2026-01-15"
+                        available: true
+                      - date: "2026-01-16"
+                        available: false
+                        reason: "booked"
+                period:
+                  start: "2026-01-15"
+                  end: "2026-01-20"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
   /api/devices:
     get:
       tags:
@@ -396,6 +446,85 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/AvailabilityResponse'
+
+    ItemsAvailabilityRequest:
+      type: object
+      required:
+        - start_date
+        - end_date
+      properties:
+        start_date:
+          type: string
+          format: date
+          description: Начальная дата диапазона (YYYY-MM-DD)
+          example: "2026-01-15"
+        end_date:
+          type: string
+          format: date
+          description: Конечная дата диапазона (YYYY-MM-DD)
+          example: "2026-01-20"
+        item_ids:
+          type: array
+          items:
+            type: integer
+          description: Фильтр по ID оборудования (опционально)
+          example: [1, 2, 3]
+        cabinet_id:
+          type: integer
+          description: Фильтр по ID кабинета (опционально)
+        category:
+          type: string
+          description: Фильтр по категории (опционально)
+          example: "medical"
+
+    ItemsAvailabilityResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ItemAvailabilityDetail'
+        period:
+          type: object
+          properties:
+            start:
+              type: string
+              format: date
+            end:
+              type: string
+              format: date
+
+    ItemAvailabilityDetail:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        name:
+          type: string
+          example: "УЗИ-1"
+        availability:
+          type: array
+          items:
+            $ref: '#/components/schemas/DateAvailability'
+
+    DateAvailability:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+          example: "2026-01-15"
+        available:
+          type: boolean
+        reason:
+          type: string
+          description: Причина недоступности
+          enum:
+            - booked
+            - maintenance
+            - reserved
+          example: "booked"
 
     BookDeviceRequest:
       type: object
