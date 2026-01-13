@@ -63,9 +63,9 @@ func (db *DB) scheduleExists(ctx context.Context, cabinetID int64, dayOfWeek int
 
 // GetScheduleForDate returns effective schedule for a specific date.
 // First checks overrides, then falls back to regular weekly schedule.
-func (db *DB) GetScheduleForDate(ctx context.Context, cabinetID int64, date time.Time) (*model.CabinetSchedule, *model.CabinetScheduleOverride, error) {
+func (db *DB) GetScheduleForDate(ctx context.Context, cabinetID int64, date time.Time) (sched *model.CabinetSchedule, override *model.CabinetScheduleOverride, err error) {
 	// Check for override first
-	override, err := db.GetScheduleOverride(ctx, cabinetID, date)
+	override, err = db.GetScheduleOverride(ctx, cabinetID, date)
 	if err != nil && err != sql.ErrNoRows {
 		return nil, nil, err
 	}
@@ -76,7 +76,7 @@ func (db *DB) GetScheduleForDate(ctx context.Context, cabinetID int64, date time
 		dayOfWeek = 7 // Sunday = 7
 	}
 
-	sched, err := db.GetScheduleByDay(ctx, cabinetID, dayOfWeek)
+	sched, err = db.GetScheduleByDay(ctx, cabinetID, dayOfWeek)
 	if err != nil {
 		return nil, override, err
 	}

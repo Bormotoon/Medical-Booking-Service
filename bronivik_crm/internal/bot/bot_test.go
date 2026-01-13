@@ -48,7 +48,7 @@ func TestParseTimeLabel(t *testing.T) {
 
 func TestValidateBookingTime(t *testing.T) {
 	b := &Bot{
-		rules: BookingRules{
+		rules: &BookingRules{
 			MinAdvance: 1 * time.Hour,
 			MaxAdvance: 24 * time.Hour,
 		},

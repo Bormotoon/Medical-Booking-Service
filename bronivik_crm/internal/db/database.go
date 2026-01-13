@@ -212,11 +212,16 @@ func createTables(db *sql.DB) error {
 		// Indexes
 		`CREATE INDEX IF NOT EXISTS idx_cabinets_active ON cabinets(is_active)`,
 		`CREATE INDEX IF NOT EXISTS idx_schedules_cabinet ON cabinet_schedules(cabinet_id, day_of_week)`,
-		`CREATE INDEX IF NOT EXISTS idx_overrides_cabinet_date ON cabinet_schedule_overrides(cabinet_id, date)`,
-		`CREATE INDEX IF NOT EXISTS idx_hourly_bookings_times ON hourly_bookings(cabinet_id, start_time, end_time)`,
-		`CREATE INDEX IF NOT EXISTS idx_hourly_bookings_status ON hourly_bookings(status)`,
-		`CREATE INDEX IF NOT EXISTS idx_hourly_bookings_user ON hourly_bookings(user_id)`,
-		`CREATE INDEX IF NOT EXISTS idx_hourly_bookings_reminder ON hourly_bookings(reminder_sent, start_time)`,
+		`CREATE INDEX IF NOT EXISTS idx_overrides_cabinet_date ON 
+            cabinet_schedule_overrides(cabinet_id, date)`,
+		`CREATE INDEX IF NOT EXISTS idx_hourly_bookings_times ON 
+            hourly_bookings(cabinet_id, start_time, end_time)`,
+		`CREATE INDEX IF NOT EXISTS idx_hourly_bookings_status ON 
+            hourly_bookings(status)`,
+		`CREATE INDEX IF NOT EXISTS idx_hourly_bookings_user ON 
+            hourly_bookings(user_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_hourly_bookings_reminder ON 
+            hourly_bookings(reminder_sent, start_time)`,
 		`CREATE INDEX IF NOT EXISTS idx_user_settings_user_id ON user_settings(user_id)`,
 
 		// Blocked users (blocklist)
@@ -399,7 +404,10 @@ func (db *DB) ListActiveCabinets(ctx context.Context) ([]model.Cabinet, error) {
 
 // GetCabinet fetches a cabinet by id.
 func (db *DB) GetCabinet(ctx context.Context, id int64) (*model.Cabinet, error) {
-	row := db.QueryRowContext(ctx, `SELECT id, name, description, is_active, created_at, updated_at FROM cabinets WHERE id = ?`, id)
+	query := `
+		SELECT id, name, description, is_active, created_at, updated_at 
+		FROM cabinets WHERE id = ?`
+	row := db.QueryRowContext(ctx, query, id)
 	return scanCabinet(row)
 }
 
@@ -408,8 +416,11 @@ func (db *DB) UpdateCabinet(ctx context.Context, c *model.Cabinet) error {
 	if c == nil {
 		return fmt.Errorf("cabinet is nil")
 	}
-	_, err := db.ExecContext(ctx, `UPDATE cabinets SET name = ?, description = ?, is_active = ?, updated_at = ? WHERE id = ?`,
-		c.Name, c.Description, c.IsActive, time.Now(), c.ID)
+	query := `
+		UPDATE cabinets 
+		SET name = ?, description = ?, is_active = ?, updated_at = ? 
+		WHERE id = ?`
+	_, err := db.ExecContext(ctx, query, c.Name, c.Description, c.IsActive, time.Now(), c.ID)
 	return err
 }
 
@@ -594,12 +605,11 @@ func (db *DB) CancelUserBooking(ctx context.Context, bookingID, userID int64) er
 }
 
 // CountActiveUserBookings returns count of future, non-canceled bookings for a user.
-func (db *DB) CountActiveUserBookings(ctx context.Context, userID int64) (int, error) {
+func (db *DB) CountActiveUserBookings(ctx context.Context, userID int64) (count int, err error) {
 	row := db.QueryRowContext(ctx, `
 		SELECT COUNT(1) FROM hourly_bookings 
 		WHERE user_id = ? AND end_time >= ? 
 		AND status NOT IN ('canceled','rejected')`, userID, time.Now())
-	var count int
 	if err := row.Scan(&count); err != nil {
 		return 0, err
 	}
@@ -607,18 +617,18 @@ func (db *DB) CountActiveUserBookings(ctx context.Context, userID int64) (int, e
 }
 
 // CheckSlotAvailability verifies if a time slot is free for a cabinet on a date.
-func (db *DB) CheckSlotAvailability(ctx context.Context, cabinetID int64, date, start, end time.Time) (bool, error) {
+func (db *DB) CheckSlotAvailability(ctx context.Context, cabinetID int64, date, start, end time.Time) (available bool, err error) {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return false, err
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	ok, err := checkSlotAvailabilityTx(ctx, tx, cabinetID, date, start, end)
+	available, err = checkSlotAvailabilityTx(ctx, tx, cabinetID, date, start, end)
 	if err != nil {
 		return false, err
 	}
-	return ok, nil
+	return available, nil
 }
 
 // GetAvailableSlots returns all slots for the day based on schedule and bookings.
