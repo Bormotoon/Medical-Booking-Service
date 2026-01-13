@@ -11,12 +11,12 @@ type Booking struct {
 	Phone             string     `json:"phone"`
 	ItemID            int64      `json:"item_id"`
 	ItemName          string     `json:"item_name"`
-	Date              time.Time  `json:"date"`                           // start_time (kept as "date" for compatibility)
-	EndTime           *time.Time `json:"end_time,omitempty"`             // nullable: NULL means single-slot (end_time = Date)
-	Status            string     `json:"status"`                         // pending, confirmed, canceled, changed, completed
+	Date              time.Time  `json:"date"`               // start_time (kept as "date" for compatibility)
+	EndTime           *time.Time `json:"end_time,omitempty"` // nullable: NULL means single-slot (end_time = Date)
+	Status            string     `json:"status"`             // pending, confirmed, canceled, changed, completed
 	Comment           string     `json:"comment"`
 	ReminderSent      bool       `json:"reminder_sent"`
-	ExternalBookingID string     `json:"external_booking_id,omitempty"`  // ID from CRM bot
+	ExternalBookingID string     `json:"external_booking_id,omitempty"` // ID from CRM bot
 	CreatedAt         time.Time  `json:"created_at"`
 	UpdatedAt         time.Time  `json:"updated_at"`
 	Version           int64      `json:"version"`
@@ -42,11 +42,11 @@ func (b *Booking) OverlapsWith(other *Booking) bool {
 	// This booking's range
 	thisStart := b.Date
 	thisEnd := b.GetEffectiveEndTime()
-	
+
 	// Other booking's range
 	otherStart := other.Date
 	otherEnd := other.GetEffectiveEndTime()
-	
+
 	// Two intervals [A, B) and [C, D) overlap if A < D && C < B
 	// For inclusive end boundaries: A <= D && C <= B
 	// We use inclusive boundaries for date-based bookings
@@ -57,11 +57,11 @@ func (b *Booking) OverlapsWith(other *Booking) bool {
 func (b *Booking) ContainsDate(date time.Time) bool {
 	start := b.Date
 	end := b.GetEffectiveEndTime()
-	
+
 	// Normalize to date only (ignore time component)
 	dateOnly := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, date.Location())
 	startOnly := time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, start.Location())
 	endOnly := time.Date(end.Year(), end.Month(), end.Day(), 0, 0, 0, 0, end.Location())
-	
+
 	return !dateOnly.Before(startOnly) && !dateOnly.After(endOnly)
 }

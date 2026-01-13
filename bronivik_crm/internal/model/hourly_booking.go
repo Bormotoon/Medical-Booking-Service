@@ -58,6 +58,6 @@ func (b *HourlyBooking) ContainsDate(date time.Time) bool {
 	dateOnly := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, date.Location())
 	startDate := time.Date(b.StartTime.Year(), b.StartTime.Month(), b.StartTime.Day(), 0, 0, 0, 0, b.StartTime.Location())
 	endDate := time.Date(b.EndTime.Year(), b.EndTime.Month(), b.EndTime.Day(), 0, 0, 0, 0, b.EndTime.Location())
-	
+
 	return !dateOnly.Before(startDate) && !dateOnly.After(endDate)
 }

@@ -10,15 +10,15 @@ import (
 
 // CabinetConfig represents a single cabinet configuration.
 type CabinetConfig struct {
-	ID              int                      `yaml:"id"`
-	Name            string                   `yaml:"name"`
-	Number          string                   `yaml:"number"`
-	Address         string                   `yaml:"address"`
-	Description     string                   `yaml:"description"`
-	Floor           int                      `yaml:"floor"`
-	Capacity        int                      `yaml:"capacity"`
-	IsActive        bool                     `yaml:"is_active"`
-	DefaultSchedule *CabinetScheduleConfig   `yaml:"default_schedule,omitempty"`
+	ID              int                    `yaml:"id"`
+	Name            string                 `yaml:"name"`
+	Number          string                 `yaml:"number"`
+	Address         string                 `yaml:"address"`
+	Description     string                 `yaml:"description"`
+	Floor           int                    `yaml:"floor"`
+	Capacity        int                    `yaml:"capacity"`
+	IsActive        bool                   `yaml:"is_active"`
+	DefaultSchedule *CabinetScheduleConfig `yaml:"default_schedule,omitempty"`
 }
 
 // CabinetScheduleConfig represents schedule configuration.
