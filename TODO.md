@@ -714,50 +714,32 @@
   - Тесты аутентификации, health endpoints
 
 #### 5.2.2 Тесты cron-задач
-- [ ] **Тесты для cron job напоминаний**
-  - Описание: Проверка корректной выборки и обработки.
-  - Тест с фикстурами:
-    ```go
-    func TestCronReminderSelection(t *testing.T) {
-        db := setupTestDB(t)
-        defer db.Close()
-        
-        // Создаём тестовые данные
-        fixtures := []Reminder{
-            {ScheduledAt: time.Now().Add(-1*time.Hour), Status: "pending", Enabled: true},  // должен быть выбран
-            {ScheduledAt: time.Now().Add(1*time.Hour), Status: "pending", Enabled: true},   // ещё рано
-            {ScheduledAt: time.Now().Add(-1*time.Hour), Status: "sent", Enabled: true},     // уже отправлен
-            {ScheduledAt: time.Now().Add(-1*time.Hour), Status: "pending", Enabled: false}, // отключён
-        }
-        
-        for _, f := range fixtures {
-            _, err := db.CreateReminder(context.Background(), f)
-            require.NoError(t, err)
-        }
-        
-        // Запускаем выборку
-        service := NewReminderService(db, nil)
-        selected, err := service.GetPendingReminders(context.Background())
-        require.NoError(t, err)
-        
-        assert.Len(t, selected, 1)
-        assert.Equal(t, "pending", selected[0].Status)
-    }
-    ```
+- [x] **Тесты для cron job напоминаний** ✅ (13.01.2026)
+  - Создан `bronivik_jr/internal/bot/reminder_test.go`:
+    - TestTimeUntilNextHour — расчёт времени до следующего запуска
+    - TestShouldRemindStatus — фильтрация статусов для напоминаний
+    - TestFormatReminderMessage — форматирование сообщений
+    - TestReminderCronSchedule — проверка cron-расписания
+    - TestCronReminderSelection — выборка бронирований для напоминаний
+    - TestReminderDeduplicationLogic — логика дедупликации
+    - TestRateLimiterLogic — параметры rate limiter
 
 #### 5.2.3 Тесты API availability
-- [ ] **Тесты для POST /api/items/availability**
-  - Описание: Проверка корректности расчёта занятости.
-  - Тест-кейсы:
-    - Пустой период — все свободны
-    - Частичная занятость
-    - Полная занятость диапазоном
-    - Фильтрация по item_ids, cabinet_id
+- [x] **Тесты для POST /api/items/availability** ✅ (13.01.2026)
+  - Создан `bronivik_jr/internal/api/availability_api_test.go`:
+    - TestHandleItemsAvailability_Validation — валидация входных данных
+    - TestHandleItemsAvailability_MethodNotAllowed — проверка HTTP метода
+    - TestHandleItemsAvailability_EmptyPeriod — пустой период
+    - TestHandleItemsAvailability_FilterByItemIDs — фильтрация по ID
+    - TestHandleItemsAvailability_SingleDay — один день
+    - TestHandleItemsAvailability_MaxRange — максимальный диапазон 90 дней
+    - TestDateAvailability_Reasons — проверка причин недоступности
+    - TestAvailabilityRequest_JSONSerialization — сериализация JSON
 
 ### 5.3 E2E-тесты
 
 #### 5.3.1 Тесты диалогов бота
-- [ ] **E2E-тесты для ботов**
+- [ ] **E2E-тесты для ботов** (отложено)
   - Эмуляция диалога с пользователем (требует настройки test environment).
   - Варианты реализации:
     - A) Mock Telegram API
