@@ -133,6 +133,17 @@ func createTables(db *sql.DB) error {
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )`,
 
+		// User settings (reminders, etc.)
+		`CREATE TABLE IF NOT EXISTS user_settings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL UNIQUE,
+            reminders_enabled BOOLEAN NOT NULL DEFAULT 1,
+            reminder_hours_before INTEGER NOT NULL DEFAULT 24,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )`,
+
 		// Cabinets
 		`CREATE TABLE IF NOT EXISTS cabinets (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -150,7 +161,9 @@ func createTables(db *sql.DB) error {
             day_of_week INTEGER NOT NULL,
             start_time TEXT NOT NULL,
             end_time TEXT NOT NULL,
-            slot_duration INTEGER DEFAULT 60,
+            lunch_start TEXT,
+            lunch_end TEXT,
+            slot_duration INTEGER DEFAULT 30,
             is_active BOOLEAN DEFAULT 1,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -165,9 +178,13 @@ func createTables(db *sql.DB) error {
             is_closed BOOLEAN DEFAULT 0,
             start_time TEXT,
             end_time TEXT,
+            lunch_start TEXT,
+            lunch_end TEXT,
+            reason TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (cabinet_id) REFERENCES cabinets(id)
+            FOREIGN KEY (cabinet_id) REFERENCES cabinets(id),
+            UNIQUE(cabinet_id, date)
         )`,
 
 		// Hourly bookings
@@ -175,13 +192,17 @@ func createTables(db *sql.DB) error {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
             cabinet_id INTEGER NOT NULL,
-			item_name TEXT,
-			client_name TEXT,
-			client_phone TEXT,
+            item_id INTEGER,
+            item_name TEXT,
+            client_name TEXT,
+            client_phone TEXT,
             start_time DATETIME NOT NULL,
             end_time DATETIME NOT NULL,
             status TEXT NOT NULL DEFAULT 'pending',
             comment TEXT,
+            manager_comment TEXT,
+            reminder_sent BOOLEAN NOT NULL DEFAULT 0,
+            external_device_booking_id INTEGER,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (cabinet_id) REFERENCES cabinets(id),
@@ -194,6 +215,9 @@ func createTables(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_overrides_cabinet_date ON cabinet_schedule_overrides(cabinet_id, date)`,
 		`CREATE INDEX IF NOT EXISTS idx_hourly_bookings_times ON hourly_bookings(cabinet_id, start_time, end_time)`,
 		`CREATE INDEX IF NOT EXISTS idx_hourly_bookings_status ON hourly_bookings(status)`,
+		`CREATE INDEX IF NOT EXISTS idx_hourly_bookings_user ON hourly_bookings(user_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_hourly_bookings_reminder ON hourly_bookings(reminder_sent, start_time)`,
+		`CREATE INDEX IF NOT EXISTS idx_user_settings_user_id ON user_settings(user_id)`,
 	}
 
 	for _, q := range queries {
@@ -220,6 +244,10 @@ func ensureHourlyBookingColumns(db *sql.DB) error {
 		{name: "item_name", typeDecl: "TEXT"},
 		{name: "client_name", typeDecl: "TEXT"},
 		{name: "client_phone", typeDecl: "TEXT"},
+		{name: "item_id", typeDecl: "INTEGER"},
+		{name: "manager_comment", typeDecl: "TEXT"},
+		{name: "reminder_sent", typeDecl: "BOOLEAN NOT NULL DEFAULT 0"},
+		{name: "external_device_booking_id", typeDecl: "INTEGER"},
 	}
 
 	for _, c := range toAdd {
@@ -234,6 +262,46 @@ func ensureHourlyBookingColumns(db *sql.DB) error {
 			return fmt.Errorf("add column %s: %w", c.name, err)
 		}
 	}
+
+	// Ensure schedule columns
+	if err := ensureScheduleColumns(db); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func ensureScheduleColumns(db *sql.DB) error {
+	// Add lunch columns to cabinet_schedules
+	schedCols, err := tableColumns(db, "cabinet_schedules")
+	if err != nil {
+		return err
+	}
+	for _, col := range []string{"lunch_start", "lunch_end"} {
+		if !schedCols[col] {
+			if _, err := db.Exec(fmt.Sprintf("ALTER TABLE cabinet_schedules ADD COLUMN %s TEXT", col)); err != nil {
+				if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+					return fmt.Errorf("add column %s to cabinet_schedules: %w", col, err)
+				}
+			}
+		}
+	}
+
+	// Add columns to cabinet_schedule_overrides
+	ovrCols, err := tableColumns(db, "cabinet_schedule_overrides")
+	if err != nil {
+		return err
+	}
+	for _, col := range []string{"lunch_start", "lunch_end", "reason"} {
+		if !ovrCols[col] {
+			if _, err := db.Exec(fmt.Sprintf("ALTER TABLE cabinet_schedule_overrides ADD COLUMN %s TEXT", col)); err != nil {
+				if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+					return fmt.Errorf("add column %s to cabinet_schedule_overrides: %w", col, err)
+				}
+			}
+		}
+	}
+
 	return nil
 }
 
