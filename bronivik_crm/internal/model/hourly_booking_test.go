@@ -7,96 +7,96 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func datetime(month time.Month, day, hour, min int) time.Time {
-	return time.Date(2026, month, day, hour, min, 0, 0, time.UTC)
+func datetime(day, hour, min int) time.Time {
+	return time.Date(2026, 1, day, hour, min, 0, 0, time.UTC)
 }
 
 func TestHourlyBooking_Duration(t *testing.T) {
 	b := HourlyBooking{
-		StartTime: datetime(1, 15, 10, 0),
-		EndTime:   datetime(1, 15, 12, 30),
+		StartTime: datetime(15, 10, 0),
+		EndTime:   datetime(15, 12, 30),
 	}
 	assert.Equal(t, 2*time.Hour+30*time.Minute, b.Duration())
 }
 
 func TestHourlyBooking_SlotCount(t *testing.T) {
 	b := HourlyBooking{
-		StartTime: datetime(1, 15, 10, 0),
-		EndTime:   datetime(1, 15, 12, 0),
+		StartTime: datetime(15, 10, 0),
+		EndTime:   datetime(15, 12, 0),
 	}
 	assert.Equal(t, 4, b.SlotCount())
 }
 
 func TestHourlyBooking_IsRangeBooking(t *testing.T) {
 	sameDay := HourlyBooking{
-		StartTime: datetime(1, 15, 10, 0),
-		EndTime:   datetime(1, 15, 14, 0),
+		StartTime: datetime(15, 10, 0),
+		EndTime:   datetime(15, 14, 0),
 	}
 	assert.False(t, sameDay.IsRangeBooking())
 
 	multiDay := HourlyBooking{
-		StartTime: datetime(1, 15, 10, 0),
-		EndTime:   datetime(1, 16, 10, 0),
+		StartTime: datetime(15, 10, 0),
+		EndTime:   datetime(16, 10, 0),
 	}
 	assert.True(t, multiDay.IsRangeBooking())
 }
 
 func TestHourlyBooking_OverlapsWith(t *testing.T) {
 	existing := HourlyBooking{
-		StartTime: datetime(1, 15, 10, 0),
-		EndTime:   datetime(1, 15, 14, 0),
+		StartTime: datetime(15, 10, 0),
+		EndTime:   datetime(15, 14, 0),
 	}
 
 	// No overlap - before
 	before := HourlyBooking{
-		StartTime: datetime(1, 15, 8, 0),
-		EndTime:   datetime(1, 15, 10, 0),
+		StartTime: datetime(15, 8, 0),
+		EndTime:   datetime(15, 10, 0),
 	}
 	assert.False(t, existing.OverlapsWith(&before))
 
 	// No overlap - after
 	after := HourlyBooking{
-		StartTime: datetime(1, 15, 14, 0),
-		EndTime:   datetime(1, 15, 16, 0),
+		StartTime: datetime(15, 14, 0),
+		EndTime:   datetime(15, 16, 0),
 	}
 	assert.False(t, existing.OverlapsWith(&after))
 
 	// Overlap - starts during
 	during := HourlyBooking{
-		StartTime: datetime(1, 15, 12, 0),
-		EndTime:   datetime(1, 15, 16, 0),
+		StartTime: datetime(15, 12, 0),
+		EndTime:   datetime(15, 16, 0),
 	}
 	assert.True(t, existing.OverlapsWith(&during))
 
 	// Overlap - contained
 	contained := HourlyBooking{
-		StartTime: datetime(1, 15, 11, 0),
-		EndTime:   datetime(1, 15, 13, 0),
+		StartTime: datetime(15, 11, 0),
+		EndTime:   datetime(15, 13, 0),
 	}
 	assert.True(t, existing.OverlapsWith(&contained))
 }
 
 func TestHourlyBooking_ContainsTime(t *testing.T) {
 	b := HourlyBooking{
-		StartTime: datetime(1, 15, 10, 0),
-		EndTime:   datetime(1, 15, 14, 0),
+		StartTime: datetime(15, 10, 0),
+		EndTime:   datetime(15, 14, 0),
 	}
 
-	assert.True(t, b.ContainsTime(datetime(1, 15, 10, 0)))
-	assert.True(t, b.ContainsTime(datetime(1, 15, 12, 0)))
-	assert.False(t, b.ContainsTime(datetime(1, 15, 14, 0)))
-	assert.False(t, b.ContainsTime(datetime(1, 15, 9, 0)))
+	assert.True(t, b.ContainsTime(datetime(15, 10, 0)))
+	assert.True(t, b.ContainsTime(datetime(15, 12, 0)))
+	assert.False(t, b.ContainsTime(datetime(15, 14, 0)))
+	assert.False(t, b.ContainsTime(datetime(15, 9, 0)))
 }
 
 func TestHourlyBooking_ContainsDate(t *testing.T) {
 	multiDay := HourlyBooking{
-		StartTime: datetime(1, 15, 10, 0),
-		EndTime:   datetime(1, 17, 14, 0),
+		StartTime: datetime(15, 10, 0),
+		EndTime:   datetime(17, 14, 0),
 	}
 
-	assert.True(t, multiDay.ContainsDate(datetime(1, 15, 0, 0)))
-	assert.True(t, multiDay.ContainsDate(datetime(1, 16, 0, 0)))
-	assert.True(t, multiDay.ContainsDate(datetime(1, 17, 0, 0)))
-	assert.False(t, multiDay.ContainsDate(datetime(1, 14, 0, 0)))
-	assert.False(t, multiDay.ContainsDate(datetime(1, 18, 0, 0)))
+	assert.True(t, multiDay.ContainsDate(datetime(15, 0, 0)))
+	assert.True(t, multiDay.ContainsDate(datetime(16, 0, 0)))
+	assert.True(t, multiDay.ContainsDate(datetime(17, 0, 0)))
+	assert.False(t, multiDay.ContainsDate(datetime(14, 0, 0)))
+	assert.False(t, multiDay.ContainsDate(datetime(18, 0, 0)))
 }
