@@ -33,15 +33,15 @@ func DefaultConfig() *Config {
 
 // Service handles sending booking reminders.
 type Service struct {
-	config       *Config
-	bookings     BookingStore
-	settings     UserSettingsStore
-	notifier     Notifier
-	logger       Logger
-	stopCh       chan struct{}
-	wg           sync.WaitGroup
-	mu           sync.Mutex
-	running      bool
+	config   *Config
+	bookings BookingStore
+	settings UserSettingsStore
+	notifier Notifier
+	logger   Logger
+	stopCh   chan struct{}
+	wg       sync.WaitGroup
+	mu       sync.Mutex
+	running  bool
 }
 
 // NewService creates a new reminder service.
