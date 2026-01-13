@@ -28,7 +28,7 @@ type Bot struct {
 	managers   map[int64]struct{}
 	bot        *tgbotapi.BotAPI
 	state      *stateStore
-	rules      BookingRules
+	rules      *BookingRules
 	logger     *zerolog.Logger
 }
 
@@ -46,7 +46,7 @@ func New(
 	apiEnabled bool,
 	db *db.DB,
 	managers []int64,
-	rules BookingRules,
+	rules *BookingRules,
 	logger *zerolog.Logger,
 ) (*Bot, error) {
 	b, err := tgbotapi.NewBotAPI(token)
@@ -66,7 +66,16 @@ func New(
 	if rules.MaxActivePerUser < 0 {
 		rules.MaxActivePerUser = 0
 	}
-	return &Bot{api: apiClient, apiEnabled: apiEnabled, db: db, managers: mgrs, bot: b, state: newStateStore(), rules: rules, logger: logger}, nil
+	return &Bot{
+		api:        apiClient,
+		apiEnabled: apiEnabled,
+		db:         db,
+		managers:   mgrs,
+		bot:        b,
+		state:      newStateStore(),
+		rules:      rules,
+		logger:     logger,
+	}, nil
 }
 
 // Start begins polling updates and handles commands.

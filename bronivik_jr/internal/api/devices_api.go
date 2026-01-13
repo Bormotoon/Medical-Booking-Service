@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"bronivik/internal/metrics"
+	"bronivik/internal/models"
 )
 
 // DeviceResponse represents a device in API response.
@@ -65,7 +66,7 @@ func (s *HTTPServer) handleDevices(w http.ResponseWriter, r *http.Request) {
 	// Get all items from cache
 	items := s.db.GetItems()
 
-	var devices []DeviceResponse
+	devices := make([]DeviceResponse, 0, len(items))
 	for _, item := range items {
 		if !item.IsActive {
 			continue
@@ -146,7 +147,8 @@ func (s *HTTPServer) handleBookDevice(w http.ResponseWriter, r *http.Request) {
 	var deviceName string
 
 	if req.DeviceID > 0 {
-		item, err := s.db.GetItemByID(r.Context(), req.DeviceID)
+		var item *models.Item
+		item, err = s.db.GetItemByID(r.Context(), req.DeviceID)
 		if err != nil {
 			writeJSON(w, http.StatusNotFound, BookDeviceResponse{
 				Success: false,
@@ -157,7 +159,8 @@ func (s *HTTPServer) handleBookDevice(w http.ResponseWriter, r *http.Request) {
 		deviceID = item.ID
 		deviceName = item.Name
 	} else if req.DeviceName != "" {
-		item, err := s.db.GetItemByName(r.Context(), req.DeviceName)
+		var item *models.Item
+		item, err = s.db.GetItemByName(r.Context(), req.DeviceName)
 		if err != nil {
 			writeJSON(w, http.StatusNotFound, BookDeviceResponse{
 				Success: false,

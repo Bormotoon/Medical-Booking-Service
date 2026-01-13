@@ -84,7 +84,7 @@ func TestGetDevicesEndpoint(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest("GET", "/api/devices"+tt.queryParams, nil)
+			req, _ := http.NewRequest("GET", "/api/devices"+tt.queryParams, http.NoBody)
 			req.Header.Set("x-api-key", "test-key")
 
 			w := httptest.NewRecorder()
@@ -98,7 +98,9 @@ func TestGetDevicesEndpoint(t *testing.T) {
 			}
 
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(resp)
+			if err := json.NewEncoder(w).Encode(resp); err != nil {
+				t.Fatalf("failed to encode response: %v", err)
+			}
 
 			if w.Code != http.StatusOK {
 				t.Errorf("expected status %d, got %d", tt.expectedStatus, w.Code)
@@ -159,12 +161,12 @@ func TestBookDeviceEndpoint(t *testing.T) {
 			// Simulate response based on request validity
 			if tt.request.Date == "" || tt.request.ExternalID == "" {
 				w.WriteHeader(http.StatusBadRequest)
-				json.NewEncoder(w).Encode(map[string]interface{}{
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
 					"success": false,
 					"error":   "missing required fields",
 				})
 			} else {
-				json.NewEncoder(w).Encode(map[string]interface{}{
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
 					"success":    true,
 					"booking_id": 123,
 				})
@@ -175,7 +177,9 @@ func TestBookDeviceEndpoint(t *testing.T) {
 			}
 
 			var response map[string]interface{}
-			json.NewDecoder(w.Body).Decode(&response)
+			if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
+				t.Fatalf("failed to decode response: %v", err)
+			}
 
 			if tt.expectedError && response["success"] == true {
 				t.Error("expected error response")
@@ -207,7 +211,7 @@ func TestCancelBookingEndpoint(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest("DELETE", "/api/book-device/"+tt.externalID, nil)
+			req, _ := http.NewRequest("DELETE", "/api/book-device/"+tt.externalID, http.NoBody)
 			req.Header.Set("x-api-key", "test-key")
 
 			w := httptest.NewRecorder()
@@ -215,14 +219,14 @@ func TestCancelBookingEndpoint(t *testing.T) {
 			// Simulate response
 			if tt.externalID == "non-existent" {
 				w.WriteHeader(http.StatusNotFound)
-				json.NewEncoder(w).Encode(map[string]interface{}{
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
 					"success": false,
 					"error":   "booking not found",
 				})
 			} else {
-				json.NewEncoder(w).Encode(map[string]interface{}{
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
 					"success": true,
-					"message": "booking cancelled",
+					"message": "booking canceled",
 				})
 			}
 
@@ -260,7 +264,7 @@ func TestAPIAuthMiddleware(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest("GET", "/api/devices", nil)
+			req, _ := http.NewRequest("GET", "/api/devices", http.NoBody)
 			if tt.apiKey != "" {
 				req.Header.Set("x-api-key", tt.apiKey)
 			}
@@ -271,7 +275,7 @@ func TestAPIAuthMiddleware(t *testing.T) {
 			apiKey := req.Header.Get("x-api-key")
 			if apiKey == "" || !validKeys[apiKey] {
 				w.WriteHeader(http.StatusUnauthorized)
-				json.NewEncoder(w).Encode(map[string]interface{}{
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
 					"error": "unauthorized",
 					"code":  "unauthorized",
 				})
@@ -295,7 +299,7 @@ func TestHealthEndpoints(t *testing.T) {
 
 			// Simulate health check response
 			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"status":  "ok",
 				"version": "1.0.0",
 			})
@@ -305,7 +309,9 @@ func TestHealthEndpoints(t *testing.T) {
 			}
 
 			var response map[string]interface{}
-			json.NewDecoder(w.Body).Decode(&response)
+			if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
+				t.Fatalf("failed to decode response: %v", err)
+			}
 
 			if response["status"] != "ok" {
 				t.Errorf("expected status ok, got %v", response["status"])

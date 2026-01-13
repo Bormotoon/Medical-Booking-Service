@@ -202,7 +202,7 @@ func (db *DB) GetActiveItems(ctx context.Context) ([]*models.Item, error) {
 
 	var items []*models.Item
 	for _, item := range db.itemsCache {
-		if item.IsActive {
+		if item.IsActive && !item.PermanentReserved {
 			it := item
 			items = append(items, &it)
 		}
