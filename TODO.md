@@ -242,47 +242,15 @@
   - Логирование: количество удалённых записей
 
 #### 1.2.7 Метрики и логирование
-- [ ] **Добавить observability для напоминаний**
-  - Описание: Логировать и экспортировать метрики отправки.
-  - Prometheus метрики:
-    ```go
-    var (
-        remindersSentTotal = prometheus.NewCounterVec(
-            prometheus.CounterOpts{
-                Name: "reminders_sent_total",
-                Help: "Total number of reminders sent",
-            },
-            []string{"status", "reminder_type"},
-        )
-        remindersQueueSize = prometheus.NewGauge(
-            prometheus.GaugeOpts{
-                Name: "reminders_queue_size",
-                Help: "Current number of pending reminders",
-            },
-        )
-        reminderSendDuration = prometheus.NewHistogram(
-            prometheus.HistogramOpts{
-                Name:    "reminder_send_duration_seconds",
-                Help:    "Time to send a reminder",
-                Buckets: []float64{.01, .05, .1, .5, 1, 5},
-            },
-        )
-    )
-    ```
-  - Логирование (zerolog):
-    ```go
-    log.Info().
-        Int("total_selected", len(reminders)).
-        Int("sent", sentCount).
-        Int("skipped", skippedCount).
-        Int("failed", failedCount).
-        Dur("duration", time.Since(start)).
-        Msg("Daily reminders processed")
-    ```
-  - Файлы для создания/изменения:
-    - `shared/reminders/metrics.go` — определение метрик
-    - `bronivik_jr/internal/metrics/metrics.go` — регистрация
-    - `monitoring/prometheus.yml` — scrape config
+- [x] **Добавить observability для напоминаний** ✅ (13.01.2026)
+  - Реализовано в `shared/reminders/metrics.go`:
+    - `reminders_sent_total` (counter) — отправленные напоминания по статусу и типу
+    - `reminders_queue_size` (gauge) — размер очереди напоминаний
+    - `reminder_send_duration_seconds` (histogram) — время отправки
+    - `reminders_cleaned_up_total` (counter) — очищенные записи
+    - `reminder_retries_total` (counter) — количество retry
+    - `rate_limit_waits_total` (counter) — ожидания rate limit
+  - Helper методы: IncSent, SetQueueSize, ObserveSendDuration, IncCleanedUp, IncRetries, IncRateLimitWaits
 
 ---
 
@@ -656,9 +624,16 @@
   - EnsureDefaultSchedules() создаёт расписание для всех кабинетов.
 
 #### 4.5.2 Интеграция с Google Таблицами
-- [ ] **Настроить Google Sheets API**
-  - Описание: Выгрузка/синхронизация данных (детали уточняются).
-  - TODO: Требует настройки сервисного аккаунта.
+- [x] **Код интеграции с Google Sheets API** ✅ (13.01.2026)
+  - Реализовано:
+    - `bronivik_jr/internal/google/` — SheetsService
+    - `bronivik_jr/internal/bot/sync.go` — SyncBookingsToSheets
+    - `bronivik_jr/internal/bot/manager_sync.go` — SyncScheduleToSheets
+    - `bronivik_jr/internal/worker/sheets_worker.go` — фоновая синхронизация
+  - Конфигурация через переменные окружения:
+    - `GOOGLE_CREDENTIALS_FILE` — путь к credentials.json
+    - `GOOGLE_SPREADSHEET_ID` — ID таблицы
+  - **TODO конфигурации:** Требуется настройка сервисного аккаунта (см. docs/MANAGER_GUIDE.md)
 
 #### 4.5.3 Интеграция с Ботом 1
 - [x] **Настроить URL и авторизацию для API Бота 1** ✅ (13.01.2026)
