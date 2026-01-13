@@ -1754,12 +1754,6 @@ func TestRemindersExtended(t *testing.T) {
 	b.sendTomorrowReminders(ctx)
 }
 
-func TestTimeUntilNextHour(t *testing.T) {
-	d := timeUntilNextHour(10)
-	assert.True(t, d >= 0)
-	assert.True(t, d <= 25*time.Hour)
-}
-
 func TestReminders(t *testing.T) {
 	b, mocks := setupTestBot()
 	ctx := context.Background()

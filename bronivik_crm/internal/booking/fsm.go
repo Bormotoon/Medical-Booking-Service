@@ -13,12 +13,13 @@ type State string
 
 const (
 	StateIdle         State = "idle"
-	StateAskName      State = "ask_name"
-	StateAskDate      State = "ask_date"
 	StateAskCabinet   State = "ask_cabinet"
+	StateAskDate      State = "ask_date"
 	StateAskStartTime State = "ask_start_time"
 	StateAskDuration  State = "ask_duration"
 	StateAskDevice    State = "ask_device"
+	StateAskName      State = "ask_name"
+	StateAskPhone     State = "ask_phone"
 	StateConfirm      State = "confirm"
 	StateComplete     State = "complete"
 	StateCanceled     State = "canceled"
@@ -54,7 +55,7 @@ type Session struct {
 func NewSession(userID int64) *Session {
 	now := time.Now()
 	return &Session{
-		State: StateAskName,
+		State: StateAskCabinet,
 		Data: BookingData{
 			UserID:    userID,
 			CreatedAt: now,
@@ -173,14 +174,15 @@ type FSM struct {
 func NewFSM() *FSM {
 	return &FSM{
 		transitions: map[State][]State{
-			StateIdle:         {StateAskName},
-			StateAskName:      {StateAskDate, StateCanceled},
-			StateAskDate:      {StateAskCabinet, StateAskName, StateCanceled},
-			StateAskCabinet:   {StateAskStartTime, StateAskDate, StateCanceled},
-			StateAskStartTime: {StateAskDuration, StateAskCabinet, StateCanceled},
+			StateIdle:         {StateAskCabinet},
+			StateAskCabinet:   {StateAskDate, StateCanceled},
+			StateAskDate:      {StateAskStartTime, StateAskCabinet, StateCanceled},
+			StateAskStartTime: {StateAskDuration, StateAskDate, StateCanceled},
 			StateAskDuration:  {StateAskDevice, StateAskStartTime, StateCanceled},
-			StateAskDevice:    {StateConfirm, StateAskDuration, StateCanceled},
-			StateConfirm:      {StateComplete, StateAskDevice, StateCanceled},
+			StateAskDevice:    {StateAskName, StateAskDuration, StateCanceled},
+			StateAskName:      {StateAskPhone, StateAskDevice, StateCanceled},
+			StateAskPhone:     {StateConfirm, StateAskName, StateCanceled},
+			StateConfirm:      {StateComplete, StateAskPhone, StateCanceled},
 			StateComplete:     {StateIdle},
 			StateCanceled:     {StateIdle},
 		},
@@ -250,11 +252,13 @@ type Device struct {
 
 // Prompts for different states.
 var StatePrompts = map[State]string{
-	StateAskName:      "Введите ваше ФИО:",
+	StateAskCabinet:   "Выберите клинику/кабинет:",
 	StateAskDate:      "Выберите дату:",
 	StateAskStartTime: "Выберите время начала:",
 	StateAskDuration:  "Выберите длительность сеанса:",
 	StateAskDevice:    "Выберите аппарат:",
+	StateAskName:      "Введите ваше ФИО:",
+	StateAskPhone:     "Введите ваш номер телефона:",
 	StateConfirm:      "Проверьте данные бронирования.\n\n⚠️ Окончательное подтверждение зависит от звонка менеджера и доступности аппаратов.",
 	StateComplete:     "✅ Заявка успешно создана! Ожидайте звонка менеджера для подтверждения.",
 	StateCanceled:     "❌ Бронирование отменено.",
