@@ -8,13 +8,13 @@ import (
 )
 
 // Helper function to create a date
-func day(year int, month time.Month, d int) time.Time {
-	return time.Date(year, month, d, 0, 0, 0, 0, time.UTC)
+func day(d int) time.Time {
+	return time.Date(2026, 1, d, 0, 0, 0, 0, time.UTC)
 }
 
 // Helper function to create a pointer to time
-func dayPtr(month time.Month, d int) *time.Time {
-	t := day(2026, month, d)
+func dayPtr(d int) *time.Time {
+	t := day(d)
 	return &t
 }
 
@@ -27,18 +27,18 @@ func TestBooking_GetEffectiveEndTime(t *testing.T) {
 		{
 			name: "nil end_time returns date",
 			booking: Booking{
-				Date:    day(2026, 1, 15),
+				Date:    day(15),
 				EndTime: nil,
 			},
-			expected: day(2026, 1, 15),
+			expected: day(15),
 		},
 		{
 			name: "non-nil end_time returns end_time",
 			booking: Booking{
-				Date:    day(2026, 1, 15),
-				EndTime: dayPtr(1, 20),
+				Date:    day(15),
+				EndTime: dayPtr(20),
 			},
-			expected: day(2026, 1, 20),
+			expected: day(20),
 		},
 	}
 
@@ -59,7 +59,7 @@ func TestBooking_IsRangeBooking(t *testing.T) {
 		{
 			name: "nil end_time is not range",
 			booking: Booking{
-				Date:    day(2026, 1, 15),
+				Date:    day(15),
 				EndTime: nil,
 			},
 			expected: false,
@@ -67,16 +67,16 @@ func TestBooking_IsRangeBooking(t *testing.T) {
 		{
 			name: "end_time equals date is not range",
 			booking: Booking{
-				Date:    day(2026, 1, 15),
-				EndTime: dayPtr(1, 15),
+				Date:    day(15),
+				EndTime: dayPtr(15),
 			},
 			expected: false,
 		},
 		{
 			name: "end_time after date is range",
 			booking: Booking{
-				Date:    day(2026, 1, 15),
-				EndTime: dayPtr(1, 20),
+				Date:    day(15),
+				EndTime: dayPtr(20),
 			},
 			expected: true,
 		},
@@ -100,131 +100,131 @@ func TestBooking_OverlapsWith(t *testing.T) {
 		{
 			name: "no overlap - request before existing",
 			existing: Booking{
-				Date:    day(2026, 1, 15),
-				EndTime: dayPtr(1, 20),
+				Date:    day(15),
+				EndTime: dayPtr(20),
 			},
 			request: Booking{
-				Date:    day(2026, 1, 10),
-				EndTime: dayPtr(1, 14),
+				Date:    day(10),
+				EndTime: dayPtr(14),
 			},
 			overlap: false,
 		},
 		{
 			name: "no overlap - request after existing",
 			existing: Booking{
-				Date:    day(2026, 1, 15),
-				EndTime: dayPtr(1, 20),
+				Date:    day(15),
+				EndTime: dayPtr(20),
 			},
 			request: Booking{
-				Date:    day(2026, 1, 21),
-				EndTime: dayPtr(1, 25),
+				Date:    day(21),
+				EndTime: dayPtr(25),
 			},
 			overlap: false,
 		},
 		{
 			name: "overlap - request starts before, ends during",
 			existing: Booking{
-				Date:    day(2026, 1, 15),
-				EndTime: dayPtr(1, 20),
+				Date:    day(15),
+				EndTime: dayPtr(20),
 			},
 			request: Booking{
-				Date:    day(2026, 1, 13),
-				EndTime: dayPtr(1, 16),
+				Date:    day(13),
+				EndTime: dayPtr(16),
 			},
 			overlap: true,
 		},
 		{
 			name: "overlap - request starts during, ends after",
 			existing: Booking{
-				Date:    day(2026, 1, 15),
-				EndTime: dayPtr(1, 20),
+				Date:    day(15),
+				EndTime: dayPtr(20),
 			},
 			request: Booking{
-				Date:    day(2026, 1, 19),
-				EndTime: dayPtr(1, 25),
+				Date:    day(19),
+				EndTime: dayPtr(25),
 			},
 			overlap: true,
 		},
 		{
 			name: "overlap - request contained within existing",
 			existing: Booking{
-				Date:    day(2026, 1, 15),
-				EndTime: dayPtr(1, 20),
+				Date:    day(15),
+				EndTime: dayPtr(20),
 			},
 			request: Booking{
-				Date:    day(2026, 1, 16),
-				EndTime: dayPtr(1, 18),
+				Date:    day(16),
+				EndTime: dayPtr(18),
 			},
 			overlap: true,
 		},
 		{
 			name: "overlap - request contains existing",
 			existing: Booking{
-				Date:    day(2026, 1, 15),
-				EndTime: dayPtr(1, 20),
+				Date:    day(15),
+				EndTime: dayPtr(20),
 			},
 			request: Booking{
-				Date:    day(2026, 1, 10),
-				EndTime: dayPtr(1, 25),
+				Date:    day(10),
+				EndTime: dayPtr(25),
 			},
 			overlap: true,
 		},
 		{
 			name: "edge case - adjacent dates (no overlap with inclusive boundaries)",
 			existing: Booking{
-				Date:    day(2026, 1, 15),
-				EndTime: dayPtr(1, 20),
+				Date:    day(15),
+				EndTime: dayPtr(20),
 			},
 			request: Booking{
-				Date:    day(2026, 1, 20),
-				EndTime: dayPtr(1, 25),
+				Date:    day(20),
+				EndTime: dayPtr(25),
 			},
 			overlap: true, // 20th is included in both - overlap
 		},
 		{
 			name: "edge case - day after existing ends",
 			existing: Booking{
-				Date:    day(2026, 1, 15),
-				EndTime: dayPtr(1, 20),
+				Date:    day(15),
+				EndTime: dayPtr(20),
 			},
 			request: Booking{
-				Date:    day(2026, 1, 21),
-				EndTime: dayPtr(1, 25),
+				Date:    day(21),
+				EndTime: dayPtr(25),
 			},
 			overlap: false,
 		},
 		{
 			name: "null end_time treated as start_time - same day",
 			existing: Booking{
-				Date:    day(2026, 1, 15),
+				Date:    day(15),
 				EndTime: nil,
 			},
 			request: Booking{
-				Date:    day(2026, 1, 15),
-				EndTime: dayPtr(1, 15),
+				Date:    day(15),
+				EndTime: dayPtr(15),
 			},
 			overlap: true,
 		},
 		{
 			name: "null end_time - different days no overlap",
 			existing: Booking{
-				Date:    day(2026, 1, 15),
+				Date:    day(15),
 				EndTime: nil,
 			},
 			request: Booking{
-				Date:    day(2026, 1, 16),
-				EndTime: dayPtr(1, 20),
+				Date:    day(16),
+				EndTime: dayPtr(20),
 			},
 			overlap: false,
 		},
 		{
 			name: "both null end_times - same day",
 			existing: Booking{
-				Date:    day(2026, 1, 15),
+				Date:    day(15),
 				EndTime: nil,
 			},
 			request: Booking{
-				Date:    day(2026, 1, 15),
+				Date:    day(15),
 				EndTime: nil,
 			},
 			overlap: true,
@@ -232,11 +232,11 @@ func TestBooking_OverlapsWith(t *testing.T) {
 		{
 			name: "both null end_times - different days",
 			existing: Booking{
-				Date:    day(2026, 1, 15),
+				Date:    day(15),
 				EndTime: nil,
 			},
 			request: Booking{
-				Date:    day(2026, 1, 16),
+				Date:    day(16),
 				EndTime: nil,
 			},
 			overlap: false,
@@ -244,12 +244,12 @@ func TestBooking_OverlapsWith(t *testing.T) {
 		{
 			name: "exact same range",
 			existing: Booking{
-				Date:    day(2026, 1, 15),
-				EndTime: dayPtr(1, 20),
+				Date:    day(15),
+				EndTime: dayPtr(20),
 			},
 			request: Booking{
-				Date:    day(2026, 1, 15),
-				EndTime: dayPtr(1, 20),
+				Date:    day(15),
+				EndTime: dayPtr(20),
 			},
 			overlap: true,
 		},
@@ -277,64 +277,64 @@ func TestBooking_ContainsDate(t *testing.T) {
 		{
 			name: "single day booking - exact match",
 			booking: Booking{
-				Date:    day(2026, 1, 15),
+				Date:    day(15),
 				EndTime: nil,
 			},
-			date:     day(2026, 1, 15),
+			date:     day(15),
 			contains: true,
 		},
 		{
 			name: "single day booking - different day",
 			booking: Booking{
-				Date:    day(2026, 1, 15),
+				Date:    day(15),
 				EndTime: nil,
 			},
-			date:     day(2026, 1, 16),
+			date:     day(16),
 			contains: false,
 		},
 		{
 			name: "range booking - date at start",
 			booking: Booking{
-				Date:    day(2026, 1, 15),
-				EndTime: dayPtr(1, 20),
+				Date:    day(15),
+				EndTime: dayPtr(20),
 			},
-			date:     day(2026, 1, 15),
+			date:     day(15),
 			contains: true,
 		},
 		{
 			name: "range booking - date at end",
 			booking: Booking{
-				Date:    day(2026, 1, 15),
-				EndTime: dayPtr(1, 20),
+				Date:    day(15),
+				EndTime: dayPtr(20),
 			},
-			date:     day(2026, 1, 20),
+			date:     day(20),
 			contains: true,
 		},
 		{
 			name: "range booking - date in middle",
 			booking: Booking{
-				Date:    day(2026, 1, 15),
-				EndTime: dayPtr(1, 20),
+				Date:    day(15),
+				EndTime: dayPtr(20),
 			},
-			date:     day(2026, 1, 17),
+			date:     day(17),
 			contains: true,
 		},
 		{
 			name: "range booking - date before",
 			booking: Booking{
-				Date:    day(2026, 1, 15),
-				EndTime: dayPtr(1, 20),
+				Date:    day(15),
+				EndTime: dayPtr(20),
 			},
-			date:     day(2026, 1, 14),
+			date:     day(14),
 			contains: false,
 		},
 		{
 			name: "range booking - date after",
 			booking: Booking{
-				Date:    day(2026, 1, 15),
-				EndTime: dayPtr(1, 20),
+				Date:    day(15),
+				EndTime: dayPtr(20),
 			},
-			date:     day(2026, 1, 21),
+			date:     day(21),
 			contains: false,
 		},
 	}
