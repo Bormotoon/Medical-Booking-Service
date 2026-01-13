@@ -18,8 +18,8 @@ type Slot struct {
 
 // SlotInfo is a simplified representation for UI.
 type SlotInfo struct {
-	Start     string `json:"start"`     // "10:00"
-	End       string `json:"end"`       // "10:30"
+	Start     string `json:"start"` // "10:00"
+	End       string `json:"end"`   // "10:30"
 	Available bool   `json:"available"`
 }
 

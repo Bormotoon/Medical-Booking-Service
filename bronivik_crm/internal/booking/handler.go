@@ -10,9 +10,9 @@ import (
 
 // DefaultHandler implements Handler interface.
 type DefaultHandler struct {
-	fsm           *FSM
-	deviceClient  DeviceClient
-	slotChecker   SlotChecker
+	fsm          *FSM
+	deviceClient DeviceClient
+	slotChecker  SlotChecker
 }
 
 // SlotChecker provides slot availability information.

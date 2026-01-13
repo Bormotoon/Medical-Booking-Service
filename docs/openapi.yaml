@@ -1,0 +1,513 @@
+openapi: 3.1.0
+info:
+  title: Bronivik Jr API
+  description: |
+    REST API для системы бронирования медицинских аппаратов Bronivik Jr.
+    
+    ## Аутентификация
+    
+    API использует API-ключи для аутентификации. Передавайте ключи в заголовках:
+    - `x-api-key` - основной ключ доступа
+    - `x-api-extra` - дополнительный ключ (опционально)
+    
+    ## Лимиты
+    
+    - Rate limiting: 100 запросов в минуту на ключ
+    - Bulk запросы: максимум 50 элементов
+    
+  version: 1.0.0
+  contact:
+    name: API Support
+    email: support@bronivik.local
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:8080
+    description: Development server
+  - url: https://api.bronivik.local
+    description: Production server
+
+tags:
+  - name: Health
+    description: Проверка состояния сервиса
+  - name: Items
+    description: Управление оборудованием
+  - name: Availability
+    description: Проверка доступности
+  - name: Devices
+    description: API для интеграции с CRM
+  - name: Bookings
+    description: Управление бронированиями
+
+paths:
+  /healthz:
+    get:
+      tags:
+        - Health
+      summary: Health check
+      description: Проверка работоспособности сервиса
+      operationId: healthCheck
+      responses:
+        '200':
+          description: Сервис работает
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '503':
+          description: Сервис недоступен
+
+  /readyz:
+    get:
+      tags:
+        - Health
+      summary: Readiness check
+      description: Проверка готовности сервиса принимать запросы
+      operationId: readinessCheck
+      responses:
+        '200':
+          description: Сервис готов
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '503':
+          description: Сервис не готов
+
+  /api/v1/items:
+    get:
+      tags:
+        - Items
+      summary: Список оборудования
+      description: Возвращает полный список доступного оборудования
+      operationId: listItems
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: Успешный ответ
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Item'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/availability/{item_name}:
+    get:
+      tags:
+        - Availability
+      summary: Проверка доступности оборудования
+      description: Проверяет доступность конкретного оборудования на указанную дату
+      operationId: checkAvailability
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: item_name
+          in: path
+          required: true
+          description: Название оборудования
+          schema:
+            type: string
+          example: "УЗИ-1"
+        - name: date
+          in: query
+          required: true
+          description: Дата для проверки (YYYY-MM-DD)
+          schema:
+            type: string
+            format: date
+          example: "2024-12-25"
+      responses:
+        '200':
+          description: Успешный ответ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AvailabilityResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/availability/bulk:
+    post:
+      tags:
+        - Availability
+      summary: Массовая проверка доступности
+      description: Проверяет доступность нескольких единиц оборудования на указанные даты
+      operationId: bulkCheckAvailability
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkAvailabilityRequest'
+      responses:
+        '200':
+          description: Успешный ответ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkAvailabilityResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/devices:
+    get:
+      tags:
+        - Devices
+      summary: Список устройств для CRM
+      description: |
+        Возвращает список устройств с информацией о доступности.
+        Используется CRM ботом для отображения аппаратов при бронировании кабинетов.
+      operationId: listDevices
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: date
+          in: query
+          required: false
+          description: Дата для проверки доступности (YYYY-MM-DD)
+          schema:
+            type: string
+            format: date
+          example: "2024-12-25"
+      responses:
+        '200':
+          description: Успешный ответ
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  devices:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Device'
+                  date:
+                    type: string
+                    format: date
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/book-device:
+    post:
+      tags:
+        - Bookings
+      summary: Создать внешнее бронирование
+      description: |
+        Создает бронирование от имени CRM системы.
+        Используется когда клиент бронирует кабинет вместе с аппаратом.
+      operationId: bookDevice
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BookDeviceRequest'
+      responses:
+        '200':
+          description: Бронирование создано
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookDeviceResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: Аппарат уже забронирован
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/book-device/{external_id}:
+    delete:
+      tags:
+        - Bookings
+      summary: Отмена внешнего бронирования
+      description: Отменяет бронирование, созданное через API
+      operationId: cancelDeviceBooking
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: external_id
+          in: path
+          required: true
+          description: Внешний ID бронирования (из CRM)
+          schema:
+            type: string
+          example: "crm-booking-12345"
+      responses:
+        '200':
+          description: Бронирование отменено
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key
+      description: API ключ для аутентификации
+
+  schemas:
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded, unhealthy]
+        version:
+          type: string
+        uptime:
+          type: integer
+          description: Время работы в секундах
+
+    Item:
+      type: object
+      required:
+        - id
+        - name
+        - available
+      properties:
+        id:
+          type: integer
+          example: 1
+        name:
+          type: string
+          example: "УЗИ-1"
+        description:
+          type: string
+          example: "Ультразвуковой аппарат"
+        available:
+          type: boolean
+          description: Базовая доступность (не на ремонте)
+        permanent_reserved:
+          type: boolean
+          description: Постоянно зарезервирован
+
+    Device:
+      type: object
+      required:
+        - id
+        - name
+        - available
+      properties:
+        id:
+          type: integer
+          example: 1
+        name:
+          type: string
+          example: "УЗИ-1"
+        description:
+          type: string
+        available:
+          type: boolean
+          description: Доступен на указанную дату
+        available_count:
+          type: integer
+          description: Количество доступных единиц
+        total_count:
+          type: integer
+          description: Общее количество единиц
+
+    AvailabilityResponse:
+      type: object
+      required:
+        - item
+        - date
+        - available
+      properties:
+        item:
+          type: string
+          example: "УЗИ-1"
+        date:
+          type: string
+          format: date
+          example: "2024-12-25"
+        available:
+          type: boolean
+        booked_by:
+          type: string
+          description: Кем забронировано (если есть)
+        booking_id:
+          type: integer
+          description: ID бронирования (если есть)
+
+    BulkAvailabilityRequest:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          maxItems: 50
+          items:
+            type: object
+            required:
+              - name
+              - date
+            properties:
+              name:
+                type: string
+                example: "УЗИ-1"
+              date:
+                type: string
+                format: date
+                example: "2024-12-25"
+
+    BulkAvailabilityResponse:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AvailabilityResponse'
+
+    BookDeviceRequest:
+      type: object
+      required:
+        - device_id
+        - date
+        - external_id
+        - client_name
+      properties:
+        device_id:
+          type: integer
+          description: ID устройства
+          example: 1
+        device_name:
+          type: string
+          description: Название устройства (альтернатива device_id)
+          example: "УЗИ-1"
+        date:
+          type: string
+          format: date
+          description: Дата бронирования
+          example: "2024-12-25"
+        external_id:
+          type: string
+          description: Уникальный ID из CRM системы
+          example: "crm-booking-12345"
+        client_name:
+          type: string
+          description: ФИО клиента
+          example: "Иванов Иван Иванович"
+        client_phone:
+          type: string
+          description: Телефон клиента
+          example: "+79991234567"
+        notes:
+          type: string
+          description: Дополнительные заметки
+
+    BookDeviceResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        booking_id:
+          type: integer
+          description: ID бронирования в системе Bronivik Jr
+        external_id:
+          type: string
+          description: Внешний ID (эхо)
+        message:
+          type: string
+
+    Error:
+      type: object
+      required:
+        - error
+        - code
+      properties:
+        error:
+          type: string
+          description: Описание ошибки
+        code:
+          type: string
+          description: Код ошибки
+          enum:
+            - invalid_request
+            - unauthorized
+            - not_found
+            - conflict
+            - internal_error
+        details:
+          type: object
+          additionalProperties: true
+          description: Дополнительная информация
+
+  responses:
+    BadRequest:
+      description: Некорректный запрос
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "Invalid date format"
+            code: "invalid_request"
+
+    Unauthorized:
+      description: Не авторизован
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "Invalid or missing API key"
+            code: "unauthorized"
+
+    NotFound:
+      description: Ресурс не найден
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "Item not found"
+            code: "not_found"
+
+    InternalError:
+      description: Внутренняя ошибка сервера
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "Internal server error"
+            code: "internal_error"
