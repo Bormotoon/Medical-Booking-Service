@@ -9,56 +9,6 @@ import (
 	"bronivik/internal/models"
 )
 
-// GetItemByID returns item by its ID.
-func (db *DB) GetItemByID(ctx context.Context, id int64) (*models.Item, error) {
-	db.mu.RLock()
-	item, ok := db.itemsCache[id]
-	db.mu.RUnlock()
-	if ok {
-		return &item, nil
-	}
-
-	// Fallback to database
-	var i models.Item
-	err := db.QueryRowContext(ctx, `
-		SELECT id, name, description, total_quantity, sort_order, 
-		       is_active, permanent_reserved, created_at, updated_at
-		FROM items WHERE id = ?`, id).Scan(
-		&i.ID, &i.Name, &i.Description, &i.TotalQuantity, &i.SortOrder,
-		&i.IsActive, &i.PermanentReserved, &i.CreatedAt, &i.UpdatedAt,
-	)
-	if err != nil {
-		return nil, err
-	}
-	return &i, nil
-}
-
-// GetItemByName returns item by its name.
-func (db *DB) GetItemByName(ctx context.Context, name string) (*models.Item, error) {
-	db.mu.RLock()
-	for _, item := range db.itemsCache {
-		if item.Name == name {
-			db.mu.RUnlock()
-			return &item, nil
-		}
-	}
-	db.mu.RUnlock()
-
-	// Fallback to database
-	var i models.Item
-	err := db.QueryRowContext(ctx, `
-		SELECT id, name, description, total_quantity, sort_order, 
-		       is_active, permanent_reserved, created_at, updated_at
-		FROM items WHERE name = ?`, name).Scan(
-		&i.ID, &i.Name, &i.Description, &i.TotalQuantity, &i.SortOrder,
-		&i.IsActive, &i.PermanentReserved, &i.CreatedAt, &i.UpdatedAt,
-	)
-	if err != nil {
-		return nil, err
-	}
-	return &i, nil
-}
-
 // CreateExternalBooking creates a booking from bronivik_crm API.
 func (db *DB) CreateExternalBooking(
 	ctx context.Context,

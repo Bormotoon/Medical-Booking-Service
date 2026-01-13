@@ -974,6 +974,72 @@ func TouchUpdated(db *sql.DB, table string, id int64) error {
 	return err
 }
 
+// ListPendingBookings returns bookings with status 'pending'.
+func (db *DB) ListPendingBookings(ctx context.Context) ([]model.HourlyBooking, error) {
+	query := `
+		SELECT b.id, b.user_id, b.cabinet_id, b.item_name, b.client_name, b.client_phone, 
+		       b.start_time, b.end_time, b.status, b.comment, b.created_at, b.updated_at,
+               c.name as cabinet_name
+		FROM hourly_bookings b
+        JOIN cabinets c ON b.cabinet_id = c.id
+		WHERE b.status = 'pending'
+		ORDER BY b.start_time ASC`
+
+	rows, err := db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var res []model.HourlyBooking
+	for rows.Next() {
+		var b model.HourlyBooking
+		err := rows.Scan(
+			&b.ID, &b.UserID, &b.CabinetID, &b.ItemName, &b.ClientName,
+			&b.ClientPhone, &b.StartTime, &b.EndTime, &b.Status, &b.Comment,
+			&b.CreatedAt, &b.UpdatedAt, &b.CabinetName,
+		)
+		if err != nil {
+			return nil, err
+		}
+		res = append(res, b)
+	}
+	return res, rows.Err()
+}
+
+// ListBookingsByDate returns all non-canceled bookings for a specific date (YYYY-MM-DD).
+func (db *DB) ListBookingsByDate(ctx context.Context, dateStr string) ([]model.HourlyBooking, error) {
+	query := `
+		SELECT b.id, b.user_id, b.cabinet_id, b.item_name, b.client_name, b.client_phone, 
+		       b.start_time, b.end_time, b.status, b.comment, b.created_at, b.updated_at,
+               c.name as cabinet_name
+		FROM hourly_bookings b
+        JOIN cabinets c ON b.cabinet_id = c.id
+		WHERE date(b.start_time) = ? AND b.status != 'canceled'
+		ORDER BY b.start_time ASC`
+
+	rows, err := db.QueryContext(ctx, query, dateStr)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var res []model.HourlyBooking
+	for rows.Next() {
+		var b model.HourlyBooking
+		err := rows.Scan(
+			&b.ID, &b.UserID, &b.CabinetID, &b.ItemName, &b.ClientName,
+			&b.ClientPhone, &b.StartTime, &b.EndTime, &b.Status, &b.Comment,
+			&b.CreatedAt, &b.UpdatedAt, &b.CabinetName,
+		)
+		if err != nil {
+			return nil, err
+		}
+		res = append(res, b)
+	}
+	return res, rows.Err()
+}
+
 // Backup creates a hot backup of the database using VACUUM INTO.
 // The destination file must not exist.
 func (db *DB) Backup(dest string) error {
