@@ -146,7 +146,8 @@ func (s *HTTPServer) handleBookDevice(w http.ResponseWriter, r *http.Request) {
 	var deviceID int64
 	var deviceName string
 
-	if req.DeviceID > 0 {
+	switch {
+	case req.DeviceID > 0:
 		var item *models.Item
 		item, err = s.db.GetItemByID(r.Context(), req.DeviceID)
 		if err != nil {
@@ -158,7 +159,7 @@ func (s *HTTPServer) handleBookDevice(w http.ResponseWriter, r *http.Request) {
 		}
 		deviceID = item.ID
 		deviceName = item.Name
-	} else if req.DeviceName != "" {
+	case req.DeviceName != "":
 		var item *models.Item
 		item, err = s.db.GetItemByName(r.Context(), req.DeviceName)
 		if err != nil {
@@ -170,7 +171,7 @@ func (s *HTTPServer) handleBookDevice(w http.ResponseWriter, r *http.Request) {
 		}
 		deviceID = item.ID
 		deviceName = item.Name
-	} else {
+	default:
 		writeJSON(w, http.StatusBadRequest, BookDeviceResponse{
 			Success: false,
 			Error:   "device_id or device_name is required",

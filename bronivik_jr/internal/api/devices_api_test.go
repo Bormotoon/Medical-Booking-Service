@@ -28,7 +28,7 @@ func (m *MockDeviceRepository) GetDevices(date string, includeReserved bool) ([]
 	return m.devices, nil
 }
 
-func (m *MockDeviceRepository) CreateExternalBooking(_ ExternalBookingRequest) (int64, error) {
+func (m *MockDeviceRepository) CreateExternalBooking(_ *ExternalBookingRequest) (int64, error) {
 	if m.err != nil {
 		return 0, m.err
 	}

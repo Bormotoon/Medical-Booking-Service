@@ -21,7 +21,7 @@ func (db *DB) GetTableNames(ctx context.Context) ([]string, error) {
 }
 
 // GetTableData returns all rows from a table as maps.
-func (db *DB) GetTableData(ctx context.Context, tableName string) ([]map[string]interface{}, []string, error) {
+func (db *DB) GetTableData(ctx context.Context, tableName string) (result []map[string]interface{}, columns []string, err error) {
 	// Validate table name to prevent SQL injection
 	validTable := false
 	for _, t := range AuditTableNames {
@@ -40,15 +40,14 @@ func (db *DB) GetTableData(ctx context.Context, tableName string) ([]map[string]
 		return nil, nil, err
 	}
 
-	var columns []string
 	for rows.Next() {
 		var cid int
 		var name, typeName string
 		var notNull, pk int
 		var dfltValue sql.NullString
-		if err := rows.Scan(&cid, &name, &typeName, &notNull, &dfltValue, &pk); err != nil {
+		if errScan := rows.Scan(&cid, &name, &typeName, &notNull, &dfltValue, &pk); errScan != nil {
 			rows.Close()
-			return nil, nil, err
+			return nil, nil, errScan
 		}
 		columns = append(columns, name)
 	}
@@ -65,7 +64,6 @@ func (db *DB) GetTableData(ctx context.Context, tableName string) ([]map[string]
 	}
 	defer dataRows.Close()
 
-	var result []map[string]interface{}
 	for dataRows.Next() {
 		values := make([]interface{}, len(columns))
 		valuePtrs := make([]interface{}, len(columns))
@@ -73,8 +71,8 @@ func (db *DB) GetTableData(ctx context.Context, tableName string) ([]map[string]
 			valuePtrs[i] = &values[i]
 		}
 
-		if err := dataRows.Scan(valuePtrs...); err != nil {
-			return nil, nil, err
+		if errScan := dataRows.Scan(valuePtrs...); errScan != nil {
+			return nil, nil, errScan
 		}
 
 		row := make(map[string]interface{})
