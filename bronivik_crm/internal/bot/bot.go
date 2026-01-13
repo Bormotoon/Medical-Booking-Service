@@ -214,8 +214,8 @@ func (b *Bot) handleMessage(ctx context.Context, msg *tgbotapi.Message) {
 	switch st.Step {
 	case stepClientName:
 		st.Draft.ClientName = text
-		st.Step = stepClientPhone
-		b.reply(msg.Chat.ID, "Введите телефон клиента:")
+		st.Step = stepDate
+		b.sendCalendar(msg.Chat.ID)
 		return
 	case stepClientPhone:
 		phone, ok := normalizeAndValidatePhone(text)
@@ -246,15 +246,17 @@ func (b *Bot) handleCallback(ctx context.Context, cq *tgbotapi.CallbackQuery) {
 
 	switch {
 	case strings.HasPrefix(data, "cab:"):
-		b.handleCabCallback(ctx, chatID, st, data)
+		b.handleCabCallback(ctx, chatID, userID, st, data)
 	case strings.HasPrefix(data, "item:"):
-		b.handleItemCallback(chatID, st, data)
+		b.handleItemCallback(ctx, chatID, st, data)
 	case strings.HasPrefix(data, "date:"):
 		b.handleDateCallback(ctx, chatID, userID, st, data)
 	case strings.HasPrefix(data, "back:"):
 		b.handleDateSelection(chatID, st)
 	case strings.HasPrefix(data, "slot:"):
 		b.handleSlotCallback(ctx, chatID, userID, st, data)
+	case strings.HasPrefix(data, "dur:"):
+		b.handleDurationCallback(ctx, chatID, userID, st, data)
 	case data == "confirm":
 		b.handleConfirmCallback(ctx, chatID, userID, cq, st)
 	case data == "cancel":
@@ -264,7 +266,7 @@ func (b *Bot) handleCallback(ctx context.Context, cq *tgbotapi.CallbackQuery) {
 	}
 }
 
-func (b *Bot) handleCabCallback(ctx context.Context, chatID int64, st *userState, data string) {
+func (b *Bot) handleCabCallback(ctx context.Context, chatID, userID int64, st *userState, data string) {
 	idStr := strings.TrimPrefix(data, "cab:")
 	cabID, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
@@ -278,17 +280,18 @@ func (b *Bot) handleCabCallback(ctx context.Context, chatID int64, st *userState
 	}
 	st.Draft.CabinetID = cabID
 	st.Draft.CabinetName = cab.Name
-	st.Step = stepItem
-	b.sendItems(ctx, chatID)
+	st.Step = stepTime
+	b.sendTimeSlots(ctx, chatID, userID)
 }
 
-func (b *Bot) handleItemCallback(chatID int64, st *userState, data string) {
+func (b *Bot) handleItemCallback(ctx context.Context, chatID int64, st *userState, data string) {
 	name := strings.TrimPrefix(data, "item:")
 	if name == "none" {
 		name = ""
 	}
 	st.Draft.ItemName = name
-	b.handleDateSelection(chatID, st)
+	st.Step = stepClientPhone
+	b.reply(chatID, "Введите телефон клиента:")
 }
 
 func (b *Bot) handleDateSelection(chatID int64, st *userState) {
@@ -299,8 +302,8 @@ func (b *Bot) handleDateSelection(chatID int64, st *userState) {
 func (b *Bot) handleDateCallback(ctx context.Context, chatID, userID int64, st *userState, data string) {
 	dateStr := strings.TrimPrefix(data, "date:")
 	st.Draft.Date = dateStr
-	st.Step = stepTime
-	b.sendTimeSlots(ctx, chatID, userID)
+	st.Step = stepCabinet
+	b.sendCabinets(ctx, chatID)
 }
 
 func (b *Bot) handleSlotCallback(ctx context.Context, chatID, userID int64, st *userState, data string) {
@@ -314,7 +317,7 @@ func (b *Bot) handleSlotCallback(ctx context.Context, chatID, userID int64, st *
 		b.reply(chatID, "Некорректная дата")
 		return
 	}
-	start, end, err := parseTimeLabel(date, label)
+	start, _, err := parseTimeLabel(date, label)
 	if err != nil {
 		b.reply(chatID, "Некорректный слот")
 		return
@@ -324,35 +327,63 @@ func (b *Bot) handleSlotCallback(ctx context.Context, chatID, userID int64, st *
 		b.sendTimeSlots(ctx, chatID, userID)
 		return
 	}
-	ok, err := b.db.CheckSlotAvailability(ctx, st.Draft.CabinetID, date, start, end)
+
+	st.Draft.StartTime = start.Format("15:04")
+	st.Step = stepDuration
+	b.sendDurations(chatID)
+}
+
+func (b *Bot) handleDurationCallback(ctx context.Context, chatID, userID int64, st *userState, data string) {
+	durStr := strings.TrimPrefix(data, "dur:")
+	dur, err := strconv.Atoi(durStr)
 	if err != nil {
-		b.reply(chatID, "Не удалось проверить слот")
+		b.reply(chatID, "Некорректная длительность")
+		return
+	}
+
+	date, _ := time.Parse("2006-01-02", st.Draft.Date)
+	start, _ := time.Parse("15:04", st.Draft.StartTime)
+	startDT := time.Date(date.Year(), date.Month(), date.Day(), start.Hour(), start.Minute(), 0, 0, time.Local)
+	endDT := startDT.Add(time.Duration(dur) * time.Minute)
+
+	// Final availability check for the whole range
+	ok, err := b.db.CheckSlotAvailability(ctx, st.Draft.CabinetID, date, startDT, endDT)
+	if err != nil {
+		b.reply(chatID, "Не удалось проверить доступность")
 		return
 	}
 	if !ok {
-		b.reply(chatID, "Слот занят. Выберите другой.")
-		b.sendTimeSlots(ctx, chatID, userID)
+		b.reply(chatID, "Выбранный период времени занят. Выберите меньшую длительность или другое время.")
+		b.sendDurations(chatID)
 		return
 	}
-	if b.apiEnabled && b.api != nil && st.Draft.ItemName != "" {
-		apiCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-		defer cancel()
-		avail, err := b.api.GetAvailability(apiCtx, st.Draft.ItemName, st.Draft.Date)
-		if err != nil {
-			b.logger.Warn().Err(err).Msg("API sync unreachable")
-			st.APIUnreachable = true
-		} else if avail == nil || !avail.Available {
-			b.reply(chatID, "Аппарат недоступен на эту дату. Выберите другой аппарат или 'Без аппарата'.")
-			st.Step = stepItem
-			b.sendItems(ctx, chatID)
-			return
-		} else {
-			st.APIUnreachable = false
+
+	st.Draft.Duration = dur
+	st.Draft.TimeLabel = fmt.Sprintf("%s-%s", st.Draft.StartTime, endDT.Format("15:04"))
+	st.Step = stepItem
+	b.sendItems(ctx, chatID, st.Draft.Date)
+}
+
+func (b *Bot) sendDurations(chatID int64) {
+	durations := []int{30, 60, 90, 120, 150, 180}
+	rows := make([][]tgbotapi.InlineKeyboardButton, 0)
+	for _, d := range durations {
+		label := fmt.Sprintf("%d мин", d)
+		if d >= 60 {
+			if d%60 == 0 {
+				label = fmt.Sprintf("%d ч", d/60)
+			} else {
+				label = fmt.Sprintf("%d ч %d мин", d/60, d%60)
+			}
 		}
+		rows = append(rows, []tgbotapi.InlineKeyboardButton{
+			tgbotapi.NewInlineKeyboardButtonData(label, fmt.Sprintf("dur:%d", d)),
+		})
 	}
-	st.Draft.TimeLabel = label
-	st.Step = stepClientName
-	b.reply(chatID, "Введите ФИО клиента:")
+
+	msg := tgbotapi.NewMessage(chatID, "Выберите длительность приема:")
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
+	_, _ = b.bot.Send(msg)
 }
 
 func (b *Bot) handleConfirmCallback(ctx context.Context, chatID, userID int64, cq *tgbotapi.CallbackQuery, st *userState) {
@@ -370,7 +401,7 @@ func (b *Bot) handleConfirmCallback(ctx context.Context, chatID, userID int64, c
 		if errors.Is(err, db.ErrItemNotAvailable) {
 			b.reply(chatID, "Аппарат недоступен на эту дату. Выберите другой аппарат или 'Без аппарата'.")
 			st.Step = stepItem
-			b.sendItems(ctx, chatID)
+			b.sendItems(ctx, chatID, st.Draft.Date)
 			return
 		}
 		if errors.Is(err, db.ErrSlotMisaligned) {
@@ -682,25 +713,11 @@ func (b *Bot) startBookingFlow(ctx context.Context, msg *tgbotapi.Message) {
 	}
 	b.state.reset(msg.From.ID)
 	st := b.state.get(msg.From.ID)
-	st.Step = stepCabinet
-
-	cabs, err := b.db.ListActiveCabinets(ctx)
-	if err != nil || len(cabs) == 0 {
-		b.reply(msg.Chat.ID, "Нет доступных кабинетов")
-		return
-	}
-	rows := make([][]tgbotapi.InlineKeyboardButton, 0, len(cabs))
-	for _, c := range cabs {
-		rows = append(rows, []tgbotapi.InlineKeyboardButton{
-			tgbotapi.NewInlineKeyboardButtonData(c.Name, fmt.Sprintf("cab:%d", c.ID)),
-		})
-	}
-	out := tgbotapi.NewMessage(msg.Chat.ID, "Выберите кабинет:")
-	out.ReplyMarkup = tgbotapi.InlineKeyboardMarkup{InlineKeyboard: rows}
-	_, _ = b.bot.Send(out)
+	st.Step = stepClientName
+	b.reply(msg.Chat.ID, "Введите ФИО клиента:")
 }
 
-func (b *Bot) sendItems(ctx context.Context, chatID int64) {
+func (b *Bot) sendItems(ctx context.Context, chatID int64, dateStr string) {
 	rows := [][]tgbotapi.InlineKeyboardButton{
 		{tgbotapi.NewInlineKeyboardButtonData(itemNone, "item:none")},
 	}
@@ -709,20 +726,49 @@ func (b *Bot) sendItems(ctx context.Context, chatID int64) {
 		if apiCtx == nil {
 			apiCtx = context.Background()
 		}
-		apiCtx, cancel := context.WithTimeout(apiCtx, 3*time.Second)
+		apiCtx, cancel := context.WithTimeout(apiCtx, 5*time.Second) // Increased timeout for multiple calls
 		defer cancel()
+
 		items, err := b.api.ListItems(apiCtx)
 		if err == nil {
+			date, _ := time.Parse("2006-01-02", dateStr)
+			nextDate := date.AddDate(0, 0, 1)
+			nextDateStr := nextDate.Format("2006-01-02")
+
 			for _, it := range items {
+				avail1, err1 := b.api.GetAvailability(apiCtx, it.Name, dateStr)
+				avail2, err2 := b.api.GetAvailability(apiCtx, it.Name, nextDateStr)
+
+				status := ""
+				if err1 == nil && avail1 != nil {
+					if avail1.Available {
+						status += "✅ Сегодня"
+					} else {
+						status += "❌ Сегодня"
+					}
+				}
+				if err2 == nil && avail2 != nil {
+					if avail2.Available {
+						status += " | ✅ Завтра"
+					} else {
+						status += " | ❌ Завтра"
+					}
+				}
+
+				label := it.Name
+				if status != "" {
+					label = fmt.Sprintf("%s (%s)", it.Name, status)
+				}
+
 				rows = append(rows, []tgbotapi.InlineKeyboardButton{
-					tgbotapi.NewInlineKeyboardButtonData(it.Name, fmt.Sprintf("item:%s", it.Name)),
+					tgbotapi.NewInlineKeyboardButtonData(label, fmt.Sprintf("item:%s", it.Name)),
 				})
 			}
 		} else {
 			b.logger.Warn().Err(err).Msg("failed to list items from API")
 		}
 	}
-	out := tgbotapi.NewMessage(chatID, "Выберите аппарат (или без аппарата):")
+	out := tgbotapi.NewMessage(chatID, "Выберите аппарат (показана доступность на сегодня и завтра):")
 	if b.apiEnabled && b.api != nil && len(rows) <= 1 {
 		out.Text = "⚠️ Внешняя система недоступна, список аппаратов может быть неполным.\n\n" + out.Text
 	}
@@ -755,12 +801,49 @@ func (b *Bot) sendTimeSlots(ctx context.Context, chatID, userID int64) {
 		return
 	}
 
+	anyAvailable := false
 	ui := make([]TimeSlot, 0, len(slots))
 	for _, s := range slots {
+		if s.Available {
+			anyAvailable = true
+		}
 		label := fmt.Sprintf("%s-%s", s.StartTime, s.EndTime)
 		ui = append(ui, TimeSlot{Label: label, CallbackData: fmt.Sprintf("slot:%s", label), Available: s.Available})
 	}
-	out := tgbotapi.NewMessage(chatID, "Выберите время:")
+
+	header := "Выберите время:"
+	if !anyAvailable {
+		nextDate := date.AddDate(0, 0, 1)
+		nextSlots, _ := b.db.GetAvailableSlots(ctx, st.Draft.CabinetID, nextDate)
+
+		var sb strings.Builder
+		sb.WriteString("⚠️ Кабинет полностью занят на выбранную дату.\n\n")
+		sb.WriteString(fmt.Sprintf("Расписание на сегодня (%s):\n", st.Draft.Date))
+		for _, s := range slots {
+			status := "✅"
+			if !s.Available {
+				status = "❌"
+			}
+			sb.WriteString(fmt.Sprintf("%s %s-%s\n", status, s.StartTime, s.EndTime))
+		}
+
+		sb.WriteString(fmt.Sprintf("\nРасписание на завтра (%s):\n", nextDate.Format("02.01.2006")))
+		if len(nextSlots) == 0 {
+			sb.WriteString("Нет данных или выходной.")
+		} else {
+			for _, s := range nextSlots {
+				status := "✅"
+				if !s.Available {
+					status = "❌"
+				}
+				sb.WriteString(fmt.Sprintf("%s %s-%s\n", status, s.StartTime, s.EndTime))
+			}
+		}
+		b.reply(chatID, sb.String())
+		header = "Все равно выберите время (для записи в очередь или другое):"
+	}
+
+	out := tgbotapi.NewMessage(chatID, header)
 	out.ReplyMarkup = GenerateTimeSlotsKeyboard(ui, st.Draft.Date)
 	_, _ = b.bot.Send(out)
 }

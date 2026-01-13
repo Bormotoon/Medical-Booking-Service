@@ -6,10 +6,11 @@ type bookingStep string
 
 const (
 	stepNone        bookingStep = "none"
-	stepCabinet     bookingStep = "cabinet"
-	stepItem        bookingStep = "item"
 	stepDate        bookingStep = "date"
+	stepCabinet     bookingStep = "cabinet"
 	stepTime        bookingStep = "time"
+	stepDuration    bookingStep = "duration"
+	stepItem        bookingStep = "item"
 	stepClientName  bookingStep = "client_name"
 	stepClientPhone bookingStep = "client_phone"
 	stepConfirm     bookingStep = "confirm"
@@ -20,7 +21,9 @@ type BookingDraft struct {
 	CabinetName string
 	ItemName    string
 	Date        string // YYYY-MM-DD
-	TimeLabel   string // HH:MM-HH:MM
+	TimeLabel   string // HH:MM-HH:MM (calculated from start+duration)
+	StartTime   string // HH:MM
+	Duration    int    // minutes
 	ClientName  string
 	ClientPhone string
 }
