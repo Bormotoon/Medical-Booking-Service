@@ -218,7 +218,7 @@ func (b *Bot) handleCabCallback(ctx context.Context, chatID int64, st *userState
 	st.Draft.CabinetID = cabID
 	st.Draft.CabinetName = cab.Name
 	st.Step = stepItem
-	b.sendItems(chatID)
+	b.sendItems(ctx, chatID)
 }
 
 func (b *Bot) handleItemCallback(chatID int64, st *userState, data string) {
@@ -274,14 +274,16 @@ func (b *Bot) handleSlotCallback(ctx context.Context, chatID, userID int64, st *
 		return
 	}
 	if b.apiEnabled && b.api != nil && st.Draft.ItemName != "" {
-		avail, err := b.api.GetAvailability(ctx, st.Draft.ItemName, st.Draft.Date)
+		apiCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
+		avail, err := b.api.GetAvailability(apiCtx, st.Draft.ItemName, st.Draft.Date)
 		if err != nil {
 			b.logger.Warn().Err(err).Msg("API sync unreachable")
 			st.APIUnreachable = true
 		} else if avail == nil || !avail.Available {
 			b.reply(chatID, "Аппарат недоступен на эту дату. Выберите другой аппарат или 'Без аппарата'.")
 			st.Step = stepItem
-			b.sendItems(chatID)
+			b.sendItems(ctx, chatID)
 			return
 		} else {
 			st.APIUnreachable = false
@@ -307,7 +309,7 @@ func (b *Bot) handleConfirmCallback(ctx context.Context, chatID, userID int64, c
 		if errors.Is(err, db.ErrItemNotAvailable) {
 			b.reply(chatID, "Аппарат недоступен на эту дату. Выберите другой аппарат или 'Без аппарата'.")
 			st.Step = stepItem
-			b.sendItems(chatID)
+			b.sendItems(ctx, chatID)
 			return
 		}
 		if errors.Is(err, db.ErrSlotMisaligned) {
@@ -527,12 +529,19 @@ func (b *Bot) startBookingFlow(ctx context.Context, msg *tgbotapi.Message) {
 	_, _ = b.bot.Send(out)
 }
 
-func (b *Bot) sendItems(chatID int64) {
+func (b *Bot) sendItems(ctx context.Context, chatID int64) {
 	rows := [][]tgbotapi.InlineKeyboardButton{
 		{tgbotapi.NewInlineKeyboardButtonData(itemNone, "item:none")},
 	}
 	if b.apiEnabled && b.api != nil {
-		items, err := b.api.ListItems(context.Background())
+		apiCtx := ctx
+		cancel := func() {}
+		if apiCtx == nil {
+			apiCtx = context.Background()
+		}
+		apiCtx, cancel = context.WithTimeout(apiCtx, 3*time.Second)
+		defer cancel()
+		items, err := b.api.ListItems(apiCtx)
 		if err == nil {
 			for _, it := range items {
 				rows = append(rows, []tgbotapi.InlineKeyboardButton{
@@ -596,7 +605,7 @@ func (b *Bot) sendConfirm(chatID, userID int64) {
 		st.Draft.CabinetName, item, st.Draft.Date, st.Draft.TimeLabel, st.Draft.ClientName, st.Draft.ClientPhone)
 
 	if st.APIUnreachable {
-		text = "⚠️ ВНИМАНИЕ: Внешняя система синхронизации не отвечает. Расписание может быть изменено или быть неактуальным.\n\n" + text
+		text = "⚠️ ВНИМАНИЕ: Внешняя система (аппараты) не отвечает. Выбранный аппарат не подтверждён автоматически — менеджер уточнит и подтвердит запись.\n\n" + text
 	}
 
 	rows := [][]tgbotapi.InlineKeyboardButton{
