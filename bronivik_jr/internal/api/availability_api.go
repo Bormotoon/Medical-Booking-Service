@@ -33,6 +33,7 @@ type DateAvailability struct {
 type ItemAvailability struct {
 	ID           int64              `json:"id"`
 	Name         string             `json:"name"`
+	CabinetID    *int64             `json:"cabinet_id,omitempty"`
 	Availability []DateAvailability `json:"availability"`
 }
 
@@ -105,6 +106,13 @@ func (s *HTTPServer) handleItemsAvailability(w http.ResponseWriter, r *http.Requ
 			continue
 		}
 
+		// Filter by cabinet if provided
+		if req.CabinetID != nil {
+			if item.CabinetID == nil || *item.CabinetID != *req.CabinetID {
+				continue
+			}
+		}
+
 		// Filter by item IDs if specified
 		if len(req.ItemIDs) > 0 {
 			found := false
@@ -161,6 +169,7 @@ func (s *HTTPServer) handleItemsAvailability(w http.ResponseWriter, r *http.Requ
 		filteredItems = append(filteredItems, ItemAvailability{
 			ID:           item.ID,
 			Name:         item.Name,
+			CabinetID:    item.CabinetID,
 			Availability: availability,
 		})
 	}

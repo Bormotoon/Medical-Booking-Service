@@ -3,10 +3,12 @@ items:
     name: "Infini, УФА"
     description: ""
     total_quantity: 1
+    cabinet_id: 1
   - id: 2
     name: "УФ бордовый"
     description: ""
     total_quantity: 1
+    cabinet_id: 1
   - id: 3
     name: "Vivac4"
     description: ""

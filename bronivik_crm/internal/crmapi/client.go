@@ -33,6 +33,7 @@ type Item struct {
 	ID            int64  `json:"id"`
 	Name          string `json:"name"`
 	TotalQuantity int    `json:"total_quantity"`
+	CabinetID     *int64 `json:"cabinet_id,omitempty"`
 }
 
 // NewBronivikClient constructs a client with baseURL, API key and extra header.
@@ -186,6 +187,7 @@ type Device struct {
 	Name              string `json:"name"`
 	Description       string `json:"description,omitempty"`
 	Available         bool   `json:"available"`
+	CabinetID         *int64 `json:"cabinet_id,omitempty"`
 	PermanentReserved bool   `json:"permanent_reserved"`
 }
 

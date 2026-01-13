@@ -64,6 +64,7 @@ CREATE TABLE items (
     name TEXT UNIQUE NOT NULL,
     description TEXT,
     total_quantity INTEGER NOT NULL DEFAULT 1,
+    cabinet_id INTEGER NULL,               -- опциональная привязка к кабинету (Bot 2)
     sort_order INTEGER NOT NULL DEFAULT 0,
     is_active BOOLEAN NOT NULL DEFAULT 1,
     permanent_reserved BOOLEAN NOT NULL DEFAULT 0,  -- для "вечной аренды"
@@ -74,6 +75,7 @@ CREATE TABLE items (
 CREATE INDEX idx_items_sort ON items(sort_order, id);
 CREATE INDEX idx_items_active ON items(is_active);
 CREATE INDEX idx_items_permanent ON items(permanent_reserved);
+CREATE INDEX idx_items_cabinet ON items(cabinet_id);
 ```
 
 ### Таблица `bookings`

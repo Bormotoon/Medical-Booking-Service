@@ -87,6 +87,7 @@ func (db *DB) createTables() error {
 			name TEXT UNIQUE NOT NULL,
 			description TEXT,
 			total_quantity INTEGER NOT NULL DEFAULT 1,
+			cabinet_id INTEGER,
 			sort_order INTEGER NOT NULL DEFAULT 0,
 			is_active BOOLEAN NOT NULL DEFAULT 1,
 			permanent_reserved BOOLEAN NOT NULL DEFAULT 0,
@@ -146,6 +147,7 @@ func (db *DB) createTables() error {
 
 		// Индексы для items
 		`CREATE INDEX IF NOT EXISTS idx_items_sort ON items(sort_order, id)`,
+		`CREATE INDEX IF NOT EXISTS idx_items_cabinet ON items(cabinet_id)`,
 
 		// Уникальный индекс для предотвращения двойного бронирования (если количество = 1)
 		// Примечание: это работает только если TotalQuantity всегда 1.
@@ -240,6 +242,7 @@ func (db *DB) ensureNewColumns() error {
 		`ALTER TABLE bookings ADD COLUMN reminder_sent BOOLEAN NOT NULL DEFAULT 0`,
 		`ALTER TABLE bookings ADD COLUMN external_booking_id TEXT`,
 		`ALTER TABLE items ADD COLUMN permanent_reserved BOOLEAN NOT NULL DEFAULT 0`,
+		`ALTER TABLE items ADD COLUMN cabinet_id INTEGER`,
 	}
 
 	for _, m := range migrations {

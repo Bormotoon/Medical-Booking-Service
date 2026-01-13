@@ -368,6 +368,9 @@ components:
         permanent_reserved:
           type: boolean
           description: Постоянно зарезервирован
+        cabinet_id:
+          type: integer
+          description: ID кабинета, к которому закреплен аппарат (если указан)
 
     Device:
       type: object
@@ -507,6 +510,9 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/DateAvailability'
+        cabinet_id:
+          type: integer
+          description: ID кабинета, если устройство привязано к кабинету
 
     DateAvailability:
       type: object

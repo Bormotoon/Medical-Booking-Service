@@ -18,6 +18,33 @@ import (
 	"github.com/rs/zerolog"
 )
 
+type telegramClient interface {
+	Send(tgbotapi.Chattable) (tgbotapi.Message, error)
+	Request(tgbotapi.Chattable) (*tgbotapi.APIResponse, error)
+	GetUpdatesChan(tgbotapi.UpdateConfig) tgbotapi.UpdatesChannel
+	SelfUser() tgbotapi.User
+}
+
+type realTelegramClient struct {
+	api *tgbotapi.BotAPI
+}
+
+func (c *realTelegramClient) Send(msg tgbotapi.Chattable) (tgbotapi.Message, error) {
+	return c.api.Send(msg)
+}
+
+func (c *realTelegramClient) Request(msg tgbotapi.Chattable) (*tgbotapi.APIResponse, error) {
+	return c.api.Request(msg)
+}
+
+func (c *realTelegramClient) GetUpdatesChan(cfg tgbotapi.UpdateConfig) tgbotapi.UpdatesChannel {
+	return c.api.GetUpdatesChan(cfg)
+}
+
+func (c *realTelegramClient) SelfUser() tgbotapi.User {
+	return c.api.Self
+}
+
 const itemNone = "Без аппарата"
 
 // Bot is a thin Telegram bot wrapper for CRM flow.
@@ -26,7 +53,7 @@ type Bot struct {
 	apiEnabled bool
 	db         *db.DB
 	managers   map[int64]struct{}
-	bot        *tgbotapi.BotAPI
+	tg         telegramClient
 	state      *stateStore
 	rules      *BookingRules
 	logger     *zerolog.Logger
@@ -49,9 +76,37 @@ func New(
 	rules *BookingRules,
 	logger *zerolog.Logger,
 ) (*Bot, error) {
-	b, err := tgbotapi.NewBotAPI(token)
+	api, err := tgbotapi.NewBotAPI(token)
 	if err != nil {
 		return nil, err
+	}
+	return newBot(&realTelegramClient{api: api}, apiClient, apiEnabled, db, managers, rules, logger)
+}
+
+// NewWithTelegramClient allows injecting a mocked Telegram client for tests.
+func NewWithTelegramClient(
+	tg telegramClient,
+	apiClient *crmapi.BronivikClient,
+	apiEnabled bool,
+	db *db.DB,
+	managers []int64,
+	rules *BookingRules,
+	logger *zerolog.Logger,
+) (*Bot, error) {
+	return newBot(tg, apiClient, apiEnabled, db, managers, rules, logger)
+}
+
+func newBot(
+	tg telegramClient,
+	apiClient *crmapi.BronivikClient,
+	apiEnabled bool,
+	db *db.DB,
+	managers []int64,
+	rules *BookingRules,
+	logger *zerolog.Logger,
+) (*Bot, error) {
+	if tg == nil {
+		return nil, fmt.Errorf("telegram client is nil")
 	}
 	mgrs := make(map[int64]struct{})
 	for _, id := range managers {
@@ -71,7 +126,7 @@ func New(
 		apiEnabled: apiEnabled,
 		db:         db,
 		managers:   mgrs,
-		bot:        b,
+		tg:         tg,
 		state:      newStateStore(),
 		rules:      rules,
 		logger:     logger,
@@ -109,14 +164,14 @@ func (b *Bot) sendMainMenu(chatID int64, userID int64) {
 	} else {
 		msg.ReplyMarkup = mainMenu
 	}
-	_, _ = b.bot.Send(msg)
+	_, _ = b.tg.Send(msg)
 }
 
 func (b *Bot) Start(ctx context.Context) {
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
-	updates := b.bot.GetUpdatesChan(u)
-	b.logger.Info().Str("username", b.bot.Self.UserName).Msg("CRM bot authorized")
+	updates := b.tg.GetUpdatesChan(u)
+	b.logger.Info().Str("username", b.tg.SelfUser().UserName).Msg("CRM bot authorized")
 
 	for {
 		select {
@@ -383,7 +438,7 @@ func (b *Bot) sendDurations(chatID int64) {
 
 	msg := tgbotapi.NewMessage(chatID, "Выберите длительность приема:")
 	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
-	_, _ = b.bot.Send(msg)
+	_, _ = b.tg.Send(msg)
 }
 
 func (b *Bot) handleConfirmCallback(ctx context.Context, chatID, userID int64, cq *tgbotapi.CallbackQuery, st *userState) {
@@ -584,7 +639,7 @@ func (b *Bot) handleCancelBooking(ctx context.Context, msg *tgbotapi.Message) {
 
 func (b *Bot) reply(chatID int64, text string) {
 	msg := tgbotapi.NewMessage(chatID, text)
-	_, _ = b.bot.Send(msg)
+	_, _ = b.tg.Send(msg)
 }
 
 func (b *Bot) handlePendingBookings(ctx context.Context, chatID int64) {
@@ -670,7 +725,7 @@ func (b *Bot) sendManagerDecisionMessage(chatID int64, bookingID int64, text str
 			tgbotapi.NewInlineKeyboardButtonData("❌ Отклонить", fmt.Sprintf("mgr:reject:%d", bookingID)),
 		),
 	)
-	_, _ = b.bot.Send(msg)
+	_, _ = b.tg.Send(msg)
 }
 
 func (b *Bot) sendCabinets(ctx context.Context, chatID int64) {
@@ -694,7 +749,7 @@ func (b *Bot) sendCabinets(ctx context.Context, chatID int64) {
 
 	msg := tgbotapi.NewMessage(chatID, "Выберите кабинет:")
 	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
-	_, _ = b.bot.Send(msg)
+	_, _ = b.tg.Send(msg)
 }
 
 func (b *Bot) isManager(id int64) bool {
@@ -703,7 +758,7 @@ func (b *Bot) isManager(id int64) bool {
 }
 
 func (b *Bot) answerCallback(id string) error {
-	_, err := b.bot.Request(tgbotapi.NewCallback(id, ""))
+	_, err := b.tg.Request(tgbotapi.NewCallback(id, ""))
 	return err
 }
 
@@ -773,7 +828,7 @@ func (b *Bot) sendItems(ctx context.Context, chatID int64, dateStr string) {
 		out.Text = "⚠️ Внешняя система недоступна, список аппаратов может быть неполным.\n\n" + out.Text
 	}
 	out.ReplyMarkup = tgbotapi.InlineKeyboardMarkup{InlineKeyboard: rows}
-	_, _ = b.bot.Send(out)
+	_, _ = b.tg.Send(out)
 }
 
 func (b *Bot) sendCalendar(chatID int64) {
@@ -781,7 +836,7 @@ func (b *Bot) sendCalendar(chatID int64) {
 	markup := GenerateCalendarKeyboard(now.Year(), int(now.Month()), nil)
 	out := tgbotapi.NewMessage(chatID, "Выберите дату:")
 	out.ReplyMarkup = markup
-	_, _ = b.bot.Send(out)
+	_, _ = b.tg.Send(out)
 }
 
 func (b *Bot) sendTimeSlots(ctx context.Context, chatID, userID int64) {
@@ -845,7 +900,7 @@ func (b *Bot) sendTimeSlots(ctx context.Context, chatID, userID int64) {
 
 	out := tgbotapi.NewMessage(chatID, header)
 	out.ReplyMarkup = GenerateTimeSlotsKeyboard(ui, st.Draft.Date)
-	_, _ = b.bot.Send(out)
+	_, _ = b.tg.Send(out)
 }
 
 func (b *Bot) sendConfirm(chatID, userID int64) {
@@ -869,7 +924,7 @@ func (b *Bot) sendConfirm(chatID, userID int64) {
 	}
 	out := tgbotapi.NewMessage(chatID, text)
 	out.ReplyMarkup = tgbotapi.InlineKeyboardMarkup{InlineKeyboard: rows}
-	_, _ = b.bot.Send(out)
+	_, _ = b.tg.Send(out)
 }
 
 func (b *Bot) finalizeBooking(ctx context.Context, cq *tgbotapi.CallbackQuery, st *userState) error {
@@ -1013,7 +1068,7 @@ func (b *Bot) notifyManagersNewBooking(id int64, cabinet, item, date, timeLabel,
 	for mgrID := range b.managers {
 		msg := tgbotapi.NewMessage(mgrID, text)
 		msg.ReplyMarkup = tgbotapi.InlineKeyboardMarkup{InlineKeyboard: rows}
-		_, _ = b.bot.Send(msg)
+		_, _ = b.tg.Send(msg)
 	}
 }
 
@@ -1028,5 +1083,5 @@ func (b *Bot) notifyBookingStatus(ctx context.Context, bookingID int64, status s
 		return
 	}
 	msg := tgbotapi.NewMessage(telegramID, fmt.Sprintf("Статус заявки #%d: %s", bookingID, status))
-	_, _ = b.bot.Send(msg)
+	_, _ = b.tg.Send(msg)
 }

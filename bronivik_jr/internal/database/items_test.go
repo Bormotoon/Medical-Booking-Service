@@ -21,6 +21,7 @@ func TestItemCRUD(t *testing.T) {
 		Name:          "Item 1",
 		Description:   "Desc 1",
 		TotalQuantity: 5,
+		CabinetID:     func(v int64) *int64 { return &v }(1),
 		SortOrder:     10,
 		IsActive:      true,
 	}
@@ -34,6 +35,8 @@ func TestItemCRUD(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, item.Description, found.Description)
 	assert.Equal(t, item.TotalQuantity, found.TotalQuantity)
+	assert.NotNil(t, found.CabinetID)
+	assert.Equal(t, int64(1), *found.CabinetID)
 
 	// Update
 	found.TotalQuantity = 10
