@@ -89,11 +89,12 @@ CREATE TABLE bookings (
     phone TEXT NOT NULL,
     item_id INTEGER NOT NULL,
     item_name TEXT NOT NULL,
-    date DATETIME NOT NULL,
+    date DATETIME NOT NULL,              -- start_time (для совместимости оставлено как date)
+    end_time DATETIME NULL,              -- для диапазонных бронирований (NULL = start_time)
     status TEXT NOT NULL DEFAULT 'pending',
     comment TEXT,
     reminder_sent BOOLEAN NOT NULL DEFAULT 0,
-    external_booking_id TEXT,  -- ID из CRM бота
+    external_booking_id TEXT,            -- ID из CRM бота
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     version INTEGER NOT NULL DEFAULT 1,
@@ -108,7 +109,13 @@ CREATE INDEX idx_bookings_user_id ON bookings(user_id);
 CREATE INDEX idx_bookings_item_date_status ON bookings(item_id, date, status);
 CREATE INDEX idx_bookings_reminder ON bookings(reminder_sent, date);
 CREATE INDEX idx_bookings_external ON bookings(external_booking_id);
+CREATE INDEX idx_bookings_time_range ON bookings(date, end_time);
+CREATE INDEX idx_bookings_item_time ON bookings(item_id, date, end_time);
 ```
+
+> **Примечание**: Поле `date` соответствует `start_time`. Поле `end_time` опционально:
+> - `end_time IS NULL` → одноразовая заявка (end_time трактуется как date)
+> - `end_time IS NOT NULL` → диапазонная заявка ("вечная аренда")
 
 ### Таблица `sync_queue`
 
@@ -271,6 +278,52 @@ CREATE INDEX idx_hourly_bookings_date ON hourly_bookings(date(start_time));
 
 ---
 
+## Таблица напоминаний (общая для обоих ботов)
+
+### Таблица `reminders`
+
+Расширенная система напоминаний.
+
+```sql
+CREATE TABLE reminders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    booking_id INTEGER NOT NULL,
+    reminder_type TEXT NOT NULL,           -- '24h_before', 'day_of_booking', 'custom'
+    scheduled_at DATETIME NOT NULL,        -- планируемое время отправки
+    sent_at DATETIME,                      -- фактическое время отправки
+    status TEXT NOT NULL DEFAULT 'pending', -- pending, scheduled, processing, sent, failed, cancelled
+    enabled BOOLEAN NOT NULL DEFAULT 1,
+    retry_count INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    
+    UNIQUE(user_id, booking_id, reminder_type)
+);
+
+CREATE INDEX idx_reminders_pending ON reminders(scheduled_at, status, enabled) 
+    WHERE status = 'pending' AND enabled = 1;
+CREATE INDEX idx_reminders_user ON reminders(user_id);
+CREATE INDEX idx_reminders_booking ON reminders(booking_id);
+CREATE INDEX idx_reminders_cleanup ON reminders(status, sent_at);
+```
+
+> **Типы напоминаний:**
+> - `24h_before` — за 24 часа до начала бронирования
+> - `day_of_booking` — в день бронирования (12:00 МСК)
+> - `custom` — пользовательское время
+
+> **Статусы:**
+> - `pending` — ожидает отправки
+> - `scheduled` — запланировано к отправке в текущем цикле
+> - `processing` — в процессе отправки (блокировка для дедупликации)
+> - `sent` — успешно отправлено
+> - `failed` — ошибка отправки после всех повторов
+> - `cancelled` — отменено (бронирование удалено/отменено)
+
+---
+
 ## Статусы заявок
 
 | Статус | Описание | Бот 1 | Бот 2 |
@@ -330,6 +383,44 @@ ALTER TABLE cabinet_schedules ADD COLUMN lunch_start TEXT;
 ALTER TABLE cabinet_schedules ADD COLUMN lunch_end TEXT;
 ALTER TABLE cabinet_schedule_overrides ADD COLUMN lunch_start TEXT;
 ALTER TABLE cabinet_schedule_overrides ADD COLUMN lunch_end TEXT;
+```
+
+### Добавление end_time для диапазонных бронирований
+
+```sql
+-- bronivik_jr: добавляем поддержку диапазонов
+ALTER TABLE bookings ADD COLUMN end_time DATETIME NULL;
+CREATE INDEX IF NOT EXISTS idx_bookings_time_range ON bookings(date, end_time);
+CREATE INDEX IF NOT EXISTS idx_bookings_item_time ON bookings(item_id, date, end_time);
+
+-- Backfill: оставляем NULL для существующих записей
+-- В коде: NULL означает end_time = date (одноразовая заявка)
+```
+
+### Создание таблицы reminders
+
+```sql
+-- Для обоих ботов (при необходимости разместить в shared/ или в каждом боте)
+CREATE TABLE IF NOT EXISTS reminders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    booking_id INTEGER NOT NULL,
+    reminder_type TEXT NOT NULL,
+    scheduled_at DATETIME NOT NULL,
+    sent_at DATETIME,
+    status TEXT NOT NULL DEFAULT 'pending',
+    enabled BOOLEAN NOT NULL DEFAULT 1,
+    retry_count INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, booking_id, reminder_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_reminders_pending ON reminders(scheduled_at, status, enabled);
+CREATE INDEX IF NOT EXISTS idx_reminders_user ON reminders(user_id);
+CREATE INDEX IF NOT EXISTS idx_reminders_booking ON reminders(booking_id);
+CREATE INDEX IF NOT EXISTS idx_reminders_cleanup ON reminders(status, sent_at);
 ```
 
 ---
