@@ -39,6 +39,11 @@ type Config struct {
 		CacheTTLSeconds int    `yaml:"cache_ttl_seconds"`
 	} `yaml:"api"`
 
+	Logging struct {
+		Level  string `yaml:"level"`
+		Format string `yaml:"format"`
+	} `yaml:"logging"`
+
 	Monitoring struct {
 		HealthCheckPort   int  `yaml:"health_check_port"`
 		PrometheusEnabled bool `yaml:"prometheus_enabled"`
