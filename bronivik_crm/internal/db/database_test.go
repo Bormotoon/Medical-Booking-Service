@@ -205,7 +205,7 @@ func TestLegacyTablesMigrationToNamespacedTables(t *testing.T) {
 	assertCount := func(table string, expected int) {
 		t.Helper()
 		var count int
-		if scanErr := crmDB.DB.QueryRow("SELECT COUNT(*) FROM "+table).Scan(&count); scanErr != nil {
+		if scanErr := crmDB.DB.QueryRow("SELECT COUNT(*) FROM " + table).Scan(&count); scanErr != nil {
 			t.Fatalf("count rows in %s: %v", table, scanErr)
 		}
 		if count != expected {

@@ -43,7 +43,7 @@ func (db *DB) CreateExternalBooking(
 	err = tx.QueryRowContext(ctx, db.rebind(`
 		SELECT COUNT(*) FROM bookings 
 		WHERE item_id = ? AND date(date) = date(?) AND status = 'approved'`,
-		), itemID, date,
+	), itemID, date,
 	).Scan(&bookedCount)
 	if err != nil {
 		return 0, fmt.Errorf("check availability: %w", err)

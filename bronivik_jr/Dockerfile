@@ -4,7 +4,17 @@ WORKDIR /app
 
 # Устанавливаем зависимости для сборки
 #RUN #apk add --no-cache git ca-certificates
-RUN apk add --no-cache git ca-certificates gcc musl-dev
+RUN set -eux; \
+    printf '%s\n' \
+      'https://dl-cdn.alpinelinux.org/alpine/v3.22/main' \
+      'https://dl-cdn.alpinelinux.org/alpine/v3.22/community' > /etc/apk/repositories; \
+    ok=0; \
+    for i in 1 2 3; do \
+      if apk add --no-cache git ca-certificates gcc musl-dev; then ok=1; break; fi; \
+      echo "apk install failed, retry $i/3"; \
+      sleep $((i * 3)); \
+    done; \
+    [ "$ok" -eq 1 ]
 
 # Копируем go.mod и go.sum
 COPY go.mod go.sum ./
@@ -21,7 +31,17 @@ RUN CGO_ENABLED=1 GOOS=linux go build -a -installsuffix cgo -o /go/bin/api ./cmd
 FROM alpine:latest
 
 #RUN #apk --no-cache add ca-certificates tzdata
-RUN apk --no-cache add ca-certificates tzdata sqlite-libs
+RUN set -eux; \
+    printf '%s\n' \
+      'https://dl-cdn.alpinelinux.org/alpine/v3.22/main' \
+      'https://dl-cdn.alpinelinux.org/alpine/v3.22/community' > /etc/apk/repositories; \
+    ok=0; \
+    for i in 1 2 3; do \
+      if apk add --no-cache ca-certificates tzdata sqlite-libs; then ok=1; break; fi; \
+      echo "apk install failed, retry $i/3"; \
+      sleep $((i * 3)); \
+    done; \
+    [ "$ok" -eq 1 ]
 
 WORKDIR /app/
 

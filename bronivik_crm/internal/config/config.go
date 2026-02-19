@@ -17,7 +17,7 @@ type Config struct {
 	} `yaml:"telegram"`
 
 	Database struct {
-		Path string `yaml:"path"`
+		Path     string `yaml:"path"`
 		Postgres struct {
 			Host string `yaml:"host"`
 			Port int    `yaml:"port"`

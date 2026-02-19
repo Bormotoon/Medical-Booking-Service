@@ -64,13 +64,13 @@ func newDB(driver, path, dsn string, logger *zerolog.Logger) (*DB, error) {
 			return nil, fmt.Errorf("failed to open postgres database: %w", err)
 		}
 	} else {
-	// Создаем директорию для БД, если её нет
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, fmt.Errorf("failed to create database directory: %w", err)
-	}
+		// Создаем директорию для БД, если её нет
+		dir := filepath.Dir(path)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return nil, fmt.Errorf("failed to create database directory: %w", err)
+		}
 
-	// Добавляем параметры для SQLite: WAL mode, busy timeout
+		// Добавляем параметры для SQLite: WAL mode, busy timeout
 		sqliteDSN := path + "?_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000"
 		db, err = sql.Open("sqlite3", sqliteDSN)
 		if err != nil {

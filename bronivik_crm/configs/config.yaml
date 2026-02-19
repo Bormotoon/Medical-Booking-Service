@@ -4,7 +4,7 @@ app:
   version: "1.0.0"
 
 telegram:
-  bot_token: "YOUR_BOT_TOKEN_HERE"
+  bot_token: ${CRM_BOT_TOKEN}
   webhook_url: ""
   debug: false
 
@@ -32,7 +32,7 @@ redis:
 
 api:
   enabled: true
-  base_url: "http://grpc-api:8080"  # bronivik_jr HTTP API base inside docker-compose network
+  base_url: ${BOT1_API_URL}
   api_key: ${CRM_API_KEY}
   api_extra: ${CRM_API_EXTRA}
   cache_ttl_seconds: 300
