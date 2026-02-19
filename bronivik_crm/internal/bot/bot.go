@@ -47,6 +47,8 @@ func (c *realTelegramClient) SelfUser() tgbotapi.User {
 
 const itemNone = "Без аппарата"
 
+const helpText = "Доступные команды: /book, /my_bookings, /help"
+
 // Bot is a thin Telegram bot wrapper for CRM flow.
 type Bot struct {
 	api        *crmapi.BronivikClient
@@ -227,7 +229,7 @@ func (b *Bot) handleMessage(ctx context.Context, msg *tgbotapi.Message) {
 		b.handleMyBookings(ctx, msg)
 		return
 	case text == "ℹ️ Помощь":
-		b.reply(msg.Chat.ID, "Доступные команды: /book, /my_bookings, /help")
+		b.reply(msg.Chat.ID, helpText)
 		return
 	case text == "📥 Заявки" && b.isManager(msg.From.ID):
 		b.handlePendingBookings(ctx, msg.Chat.ID)
@@ -251,7 +253,7 @@ func (b *Bot) handleMessage(ctx context.Context, msg *tgbotapi.Message) {
 			b.sendMainMenu(msg.Chat.ID, msg.From.ID)
 			return
 		case strings.HasPrefix(text, "/help"):
-			b.reply(msg.Chat.ID, "Доступные команды: /book, /my_bookings, /help")
+			b.reply(msg.Chat.ID, helpText)
 			return
 		case text == "/admin" && b.isManager(msg.From.ID):
 			b.sendAdminPanel(msg.Chat.ID)

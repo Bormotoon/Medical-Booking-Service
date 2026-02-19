@@ -68,7 +68,7 @@ func (b *Bot) handleEditItemCommand(ctx context.Context, update *tgbotapi.Update
 		return
 	}
 
-	b.logger.Debug().Msgf("handleEditItemCommand: end edited item %v was msg.parts %v", current.Name, parts)
+	b.logger.Debug().Str("name", current.Name).Int64("qty", current.TotalQuantity).Msg("handleEditItemCommand: end")
 
 	b.sendMessage(update.Message.Chat.ID, fmt.Sprintf("✅ Аппарат '%s' обновлён (кол-во: %d)", current.Name, current.TotalQuantity))
 }
