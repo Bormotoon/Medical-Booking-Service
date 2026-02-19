@@ -25,7 +25,7 @@ func (db *DB) CheckAvailability(ctx context.Context, itemID int64, date time.Tim
 }
 
 func (db *DB) GetBookedCount(ctx context.Context, itemID int64, date time.Time) (int, error) {
-	query := `SELECT COUNT(*) FROM bookings WHERE item_id = ? AND date = ? AND status NOT IN (?, ?)`
+	query := `SELECT COUNT(*) FROM bookings WHERE item_id = ? AND date(date) = date(?) AND status NOT IN (?, ?)`
 	var count int
 	err := db.QueryRowContext(ctx, query, itemID, date.Format("2006-01-02"), models.StatusCanceled, "rejected").Scan(&count)
 	if err != nil {
@@ -76,7 +76,7 @@ func (db *DB) CreateBookingWithLock(ctx context.Context, booking *models.Booking
 
 	// 1. Check availability inside transaction
 	var bookedCount int
-	queryCount := `SELECT COUNT(*) FROM bookings WHERE item_id = ? AND date = ? AND status NOT IN (?, ?)`
+	queryCount := `SELECT COUNT(*) FROM bookings WHERE item_id = ? AND date(date) = date(?) AND status NOT IN (?, ?)`
 	err = tx.QueryRowContext(ctx, db.rebind(queryCount), booking.ItemID,
 		booking.Date.Format("2006-01-02"), models.StatusCanceled, "rejected").Scan(&bookedCount)
 	if err != nil {
@@ -208,7 +208,7 @@ func (db *DB) GetAvailabilityForPeriod(ctx context.Context, itemID int64, startD
 	// Используем date() для нормализации даты в SQLite
 	query := `SELECT date(date) as d, COUNT(*) as booked_count 
               FROM bookings 
-              WHERE item_id = ? AND date BETWEEN ? AND ? AND status NOT IN (?, ?)
+	              WHERE item_id = ? AND date(date) BETWEEN date(?) AND date(?) AND status NOT IN (?, ?)
               GROUP BY d`
 
 	rows, err := db.QueryContext(ctx, query, itemID,

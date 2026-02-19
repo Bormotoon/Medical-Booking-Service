@@ -126,6 +126,58 @@ func TestCheckAvailability(t *testing.T) {
 	assert.False(t, available)
 }
 
+func TestGetBookedCountCountsTimestampDates(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+
+	ctx := context.Background()
+
+	item := &models.Item{
+		Name:          "Timestamped Item",
+		TotalQuantity: 1,
+		IsActive:      true,
+	}
+	err := db.CreateItem(ctx, item)
+	require.NoError(t, err)
+
+	items, err := db.GetActiveItems(ctx)
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	itemID := items[0].ID
+
+	date := time.Date(2026, 2, 21, 0, 0, 0, 0, time.UTC)
+	timestampDate := date.Add(13 * time.Hour)
+	now := time.Now()
+
+	_, err = db.ExecContext(ctx, `
+		INSERT INTO bookings (
+			user_id, user_name, user_nickname, phone, item_id, item_name,
+			date, status, external_booking_id, created_at, updated_at, version
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		0,
+		"External Client",
+		"",
+		"+70000000000",
+		itemID,
+		item.Name,
+		timestampDate,
+		"approved",
+		"legacy-ts-1",
+		now,
+		now,
+		1,
+	)
+	require.NoError(t, err)
+
+	bookedCount, err := db.GetBookedCount(ctx, itemID, date)
+	require.NoError(t, err)
+	assert.Equal(t, 1, bookedCount)
+
+	available, err := db.CheckAvailability(ctx, itemID, date)
+	require.NoError(t, err)
+	assert.False(t, available)
+}
+
 func TestOptimisticLocking(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()

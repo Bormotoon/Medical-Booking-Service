@@ -184,8 +184,8 @@ func initDatabase(cfg *config.Config, items []models.Item, logger *zerolog.Logge
 
 func initGoogleSheets(ctx context.Context, cfg *config.Config, logger *zerolog.Logger) (*google.SheetsService, error) {
 	if cfg.Google.GoogleCredentialsFile == "" || cfg.Google.UsersSpreadSheetID == "" || cfg.Google.BookingSpreadSheetID == "" {
-		logger.Error().Msg("Нехватает переменных для подключения к Гуглу")
-		return nil, os.ErrInvalid
+		logger.Warn().Msg("Google Sheets is not configured; continuing without sheets integration")
+		return nil, nil
 	}
 
 	sheetsSvc, err := google.NewSimpleSheetsService(
@@ -195,12 +195,12 @@ func initGoogleSheets(ctx context.Context, cfg *config.Config, logger *zerolog.L
 	)
 	if err != nil {
 		logger.Warn().Err(err).Msg("Failed to initialize Google Sheets service")
-		return nil, err
+		return nil, nil
 	}
 
 	if err := sheetsSvc.TestConnection(ctx); err != nil {
-		logger.Error().Err(err).Msg("Google Sheets connection test failed")
-		return nil, err
+		logger.Warn().Err(err).Msg("Google Sheets connection test failed; continuing without sheets integration")
+		return nil, nil
 	}
 
 	logger.Info().Msg("Google Sheets service initialized successfully")

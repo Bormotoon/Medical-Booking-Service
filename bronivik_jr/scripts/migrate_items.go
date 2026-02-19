@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -69,7 +70,7 @@ func run() error {
 			updated++
 			continue
 		}
-		if err != sql.ErrNoRows {
+		if !errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("get %s: %w", it.Name, err)
 		}
 		if err = db.CreateItem(ctx, &it); err != nil {

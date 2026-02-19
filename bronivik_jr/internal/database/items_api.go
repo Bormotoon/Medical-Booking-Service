@@ -76,7 +76,7 @@ func (db *DB) CreateExternalBooking(
 		clientPhone,
 		itemID,
 		itemName,
-		date,
+		date.Format("2006-01-02"),
 		"approved", // Auto-approve external bookings
 		externalBookingID,
 		now,
