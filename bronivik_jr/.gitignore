@@ -1,1 +1,13 @@
 .tools/
+# Build artifacts
+migrate_items
+# Persistence
+data/
+*.db
+*.db-shm
+*.db-wal
+# Logs
+logs/
+*.log
+# OS
+.DS_Store
