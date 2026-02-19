@@ -121,7 +121,15 @@ func loadItems(logger *zerolog.Logger) ([]models.Item, error) {
 }
 
 func initDatabase(cfg *config.Config, items []models.Item, logger *zerolog.Logger) (*database.DB, error) {
-	db, err := database.NewDB(cfg.Database.Path, logger)
+	var (
+		db  *database.DB
+		err error
+	)
+	if cfg.UsePostgres() {
+		db, err = database.NewDBWithDriver(cfg.DatabaseDriver(), cfg.Database.Path, cfg.PostgresDSN(), logger)
+	} else {
+		db, err = database.NewDB(cfg.Database.Path, logger)
+	}
 	if err != nil {
 		logger.Error().Err(err).Str("db_path", cfg.Database.Path).Msg("init database")
 		return nil, err

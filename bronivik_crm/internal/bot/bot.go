@@ -47,6 +47,8 @@ func (c *realTelegramClient) SelfUser() tgbotapi.User {
 
 const itemNone = "Без аппарата"
 
+const helpText = "Доступные команды: /book, /my_bookings, /help"
+
 // Bot is a thin Telegram bot wrapper for CRM flow.
 type Bot struct {
 	api        *crmapi.BronivikClient
@@ -212,32 +214,48 @@ func (b *Bot) handleMessage(ctx context.Context, msg *tgbotapi.Message) {
 	}
 	text := strings.TrimSpace(msg.Text)
 
-	// All commands take priority and interrupt any active flow
+	l := zerolog.Ctx(ctx)
+	l.Debug().
+		Int64("user_id", msg.From.ID).
+		Str("text", text).
+		Msg("handleMessage: start")
+
+	// Handle keyboard button presses (non-command text)
+	switch {
+	case text == "🗓 Записаться":
+		b.startBookingFlow(ctx, msg)
+		return
+	case text == "📌 Мои записи":
+		b.handleMyBookings(ctx, msg)
+		return
+	case text == "ℹ️ Помощь":
+		b.reply(msg.Chat.ID, helpText)
+		return
+	case text == "📥 Заявки" && b.isManager(msg.From.ID):
+		b.handlePendingBookings(ctx, msg.Chat.ID)
+		return
+	case text == "➕ Создать запись" && b.isManager(msg.From.ID):
+		b.startManualBookingFlow(ctx, msg)
+		return
+	case text == "📅 Расписание" && b.isManager(msg.From.ID):
+		b.handleTodaySchedule(ctx, msg.Chat.ID)
+		return
+	case text == "⚙️ Админка" && b.isManager(msg.From.ID):
+		b.sendAdminPanel(msg.Chat.ID)
+		return
+	}
+
+	// Slash commands take priority and interrupt any active flow
 	if strings.HasPrefix(text, "/") {
 		switch {
 		case strings.HasPrefix(text, "/start"):
 			b.state.reset(msg.From.ID)
 			b.sendMainMenu(msg.Chat.ID, msg.From.ID)
 			return
-		case text == "🗓 Записаться":
-			b.startBookingFlow(ctx, msg)
+		case strings.HasPrefix(text, "/help"):
+			b.reply(msg.Chat.ID, helpText)
 			return
-		case text == "📌 Мои записи":
-			b.handleMyBookings(ctx, msg)
-			return
-		case text == "ℹ️ Помощь" || strings.HasPrefix(text, "/help"):
-			b.reply(msg.Chat.ID, "Доступные команды: /book, /my_bookings, /help")
-			return
-		case text == "📥 Заявки" && b.isManager(msg.From.ID):
-			b.handlePendingBookings(ctx, msg.Chat.ID)
-			return
-		case text == "➕ Создать запись" && b.isManager(msg.From.ID):
-			b.startManualBookingFlow(ctx, msg)
-			return
-		case text == "📅 Расписание" && b.isManager(msg.From.ID):
-			b.handleTodaySchedule(ctx, msg.Chat.ID)
-			return
-		case (text == "⚙️ Админка" || text == "/admin") && b.isManager(msg.From.ID):
+		case text == "/admin" && b.isManager(msg.From.ID):
 			b.sendAdminPanel(msg.Chat.ID)
 			return
 		case strings.HasPrefix(text, "/book"):
@@ -261,8 +279,6 @@ func (b *Bot) handleMessage(ctx context.Context, msg *tgbotapi.Message) {
 				return
 			}
 		}
-		// If unknown command, we could either ignore it or handle as text if needed.
-		// For now, treat unknown commands as potential cancellations of steps.
 	}
 
 	st := b.state.get(msg.From.ID)
@@ -296,6 +312,10 @@ func (b *Bot) handleCallback(ctx context.Context, cq *tgbotapi.CallbackQuery) {
 		return
 	}
 	data := cq.Data
+
+	l := zerolog.Ctx(ctx)
+	l.Debug().Int64("user_id", cq.From.ID).Str("data", data).Msg("handleCallback: start")
+
 	_ = b.answerCallback(cq.ID)
 	if data == "noop" {
 		return
@@ -526,6 +546,7 @@ func (b *Bot) handleManagerDecision(ctx context.Context, chatID, userID int64, d
 	if !b.isManager(userID) {
 		return
 	}
+	b.logger.Debug().Int64("user_id", userID).Str("data", data).Msg("handleManagerDecision: start")
 	switch {
 	case strings.HasPrefix(data, "mgr:approve:"):
 		idStr := strings.TrimPrefix(data, "mgr:approve:")
@@ -599,6 +620,7 @@ func (b *Bot) handleMyBookings(ctx context.Context, msg *tgbotapi.Message) {
 	if msg == nil || msg.From == nil {
 		return
 	}
+	b.logger.Debug().Int64("user_id", msg.From.ID).Msg("handleMyBookings: start")
 	u, err := b.db.GetOrCreateUserByTelegramID(ctx, msg.From.ID, msg.From.UserName, msg.From.FirstName, msg.From.LastName, "")
 	if err != nil {
 		b.reply(msg.Chat.ID, "Не удалось загрузить пользователя")
@@ -645,6 +667,7 @@ func (b *Bot) handleCancelBooking(ctx context.Context, msg *tgbotapi.Message) {
 	if msg == nil || msg.From == nil {
 		return
 	}
+	b.logger.Debug().Int64("user_id", msg.From.ID).Str("text", msg.Text).Msg("handleCancelBooking: start")
 	parts := strings.Fields(msg.Text)
 	if len(parts) < 2 {
 		b.reply(msg.Chat.ID, "Формат: /cancel_booking <id>")
@@ -685,6 +708,7 @@ func (b *Bot) reply(chatID int64, text string) {
 }
 
 func (b *Bot) handlePendingBookings(ctx context.Context, chatID int64) {
+	b.logger.Debug().Int64("chat_id", chatID).Msg("handlePendingBookings: start")
 	bookings, err := b.db.ListPendingBookings(ctx)
 	if err != nil {
 		b.reply(chatID, "Ошибка получения заявок")
@@ -710,6 +734,7 @@ func (b *Bot) startManualBookingFlow(ctx context.Context, msg *tgbotapi.Message)
 }
 
 func (b *Bot) handleTodaySchedule(ctx context.Context, chatID int64) {
+	b.logger.Debug().Int64("chat_id", chatID).Msg("handleTodaySchedule: start")
 	now := time.Now().Format("2006-01-02")
 	bookings, err := b.db.ListBookingsByDate(ctx, now)
 	if err != nil {
@@ -808,6 +833,7 @@ func (b *Bot) startBookingFlow(ctx context.Context, msg *tgbotapi.Message) {
 	if msg == nil {
 		return
 	}
+	b.logger.Debug().Int64("user_id", msg.From.ID).Msg("startBookingFlow: start")
 	b.state.reset(msg.From.ID)
 	st := b.state.get(msg.From.ID)
 	st.Step = stepCabinet

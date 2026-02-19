@@ -6,7 +6,7 @@
 
 Часть комплексной системы [Medical Booking Service](../README.md), которая также включает [Bronivik CRM](../bronivik_crm/README.md) для почасового бронирования кабинетов.
 
-Система интегрирована с Google Sheets, SQLite (WAL) и Redis.
+Система интегрирована с Google Sheets, SQLite/PostgreSQL и Redis.
 
 ---
 
@@ -16,7 +16,7 @@
 
 - **Telegram Bot**: Интерфейс для пользователей и менеджеров оборудования.
 - **REST API & gRPC**: Точки интеграции для внешних сервисов (в т.ч. CRM бота).
-- **SQLite (WAL)**: Основное хранилище данных (брони, пользователи, оборудование).
+- **SQLite (WAL) / PostgreSQL**: Основное хранилище данных (брони, пользователи, оборудование).
 - **Google Sheets Worker**: Асинхронная очередь задач для синхронизации броней с таблицами Google.
 - **Event Bus**: Внутренняя шина событий для разделения бизнес-логики и побочных эффектов.
 - **Redis**: Кэширование состояний пользователей и защита от спама (Rate Limiting).
@@ -25,14 +25,14 @@
 
 - **Telegram Bot**: Интерфейс для почасового бронирования физических кабинетов.
 - **Интеграция**: При бронировании кабинета бот автоматически проверяет доступность выбранного аппарата через API Bronivik Jr.
-- **SQLite**: Локальная база данных для расписания кабинетов и почасовых броней.
+- **SQLite / PostgreSQL**: Локальная база данных для расписания кабинетов и почасовых броней.
 
 ---
 
 ## Требования
 
 - Go 1.24+
-- SQLite3
+- SQLite3 или PostgreSQL 14+
 - Redis 7+ (опционально, но рекомендуется)
 - Google Cloud Service Account (для синхронизации с Google Sheets)
 
@@ -54,6 +54,13 @@ telegram:
 
 database:
   path: "./data/bookings.db"
+  postgres:
+    host: ${POSTGRES_HOST}
+    port: ${POSTGRES_PORT}
+    user: ${POSTGRES_USER}
+    password: ${POSTGRES_PASSWORD}
+    dbname: ${POSTGRES_DB}
+    sslmode: ${POSTGRES_SSLMODE}
 
 google:
   credentials_file: ${GOOGLE_CREDENTIALS_FILE}
@@ -182,7 +189,8 @@ make lint          # Запуск линтера (golangci-lint)
 
 ### Базы данных
 
-Система использует SQLite в режиме **WAL (Write-Ahead Logging)**, что позволяет боту и API одновременно работать с базой без блокировок.
+Система поддерживает SQLite и PostgreSQL. Для SQLite используется режим **WAL (Write-Ahead Logging)**.
+Для PostgreSQL встроенный файловый backup-цикл отключается — используйте `pg_dump` или managed-backup вашей СУБД.
 
 ## Лицензия
 

@@ -40,7 +40,7 @@ func (db *DB) CreateBooking(ctx context.Context, booking *models.Booking) error 
 				date, status, comment, created_at, updated_at, version
 			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	now := time.Now()
-	result, err := db.ExecContext(ctx, query,
+	id, err := db.insertAndReturnID(ctx, query,
 		booking.UserID,
 		booking.UserName,
 		booking.UserNickname,
@@ -56,11 +56,6 @@ func (db *DB) CreateBooking(ctx context.Context, booking *models.Booking) error 
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create booking: %w", err)
-	}
-
-	id, err := result.LastInsertId()
-	if err != nil {
-		return fmt.Errorf("failed to get last insert id: %w", err)
 	}
 	booking.ID = id
 	booking.CreatedAt = now
@@ -82,7 +77,7 @@ func (db *DB) CreateBookingWithLock(ctx context.Context, booking *models.Booking
 	// 1. Check availability inside transaction
 	var bookedCount int
 	queryCount := `SELECT COUNT(*) FROM bookings WHERE item_id = ? AND date = ? AND status NOT IN (?, ?)`
-	err = tx.QueryRowContext(ctx, queryCount, booking.ItemID,
+	err = tx.QueryRowContext(ctx, db.rebind(queryCount), booking.ItemID,
 		booking.Date.Format("2006-01-02"), models.StatusCanceled, "rejected").Scan(&bookedCount)
 	if err != nil {
 		return fmt.Errorf("failed to check availability in tx: %w", err)
@@ -105,7 +100,7 @@ func (db *DB) CreateBookingWithLock(ctx context.Context, booking *models.Booking
 				date, status, comment, created_at, updated_at, version
 			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	now := time.Now()
-	result, err := tx.ExecContext(ctx, queryInsert,
+	id, err := db.insertAndReturnIDTx(ctx, tx, queryInsert,
 		booking.UserID,
 		booking.UserName,
 		booking.UserNickname,
@@ -121,11 +116,6 @@ func (db *DB) CreateBookingWithLock(ctx context.Context, booking *models.Booking
 	)
 	if err != nil {
 		return fmt.Errorf("failed to insert booking in tx: %w", err)
-	}
-
-	id, err := result.LastInsertId()
-	if err != nil {
-		return fmt.Errorf("failed to get last insert id in tx: %w", err)
 	}
 	booking.ID = id
 	booking.CreatedAt = now

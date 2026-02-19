@@ -12,7 +12,7 @@ func (db *DB) CreateSyncTask(ctx context.Context, task *models.SyncTask) error {
 	query := `INSERT INTO sync_queue (task_type, booking_id, payload, status, retry_count, last_error, created_at, next_retry_at)
               VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
 	now := time.Now()
-	result, err := db.ExecContext(ctx, query,
+	id, err := db.insertAndReturnID(ctx, query,
 		task.TaskType,
 		task.BookingID,
 		task.Payload,
@@ -24,11 +24,6 @@ func (db *DB) CreateSyncTask(ctx context.Context, task *models.SyncTask) error {
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create sync task: %w", err)
-	}
-
-	id, err := result.LastInsertId()
-	if err != nil {
-		return fmt.Errorf("failed to get last insert id: %w", err)
 	}
 	task.ID = id
 	task.CreatedAt = now

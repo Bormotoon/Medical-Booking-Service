@@ -48,8 +48,9 @@ func (db *DB) SyncItems(ctx context.Context, configItems []models.Item) error {
 		var existingID int64
 		err := db.QueryRowContext(ctx, "SELECT id FROM items WHERE name = ?", cfgItem.Name).Scan(&existingID)
 		if err == sql.ErrNoRows {
-			// Create new item
+			// Create new item — config items are active by default
 			item := *cfgItem
+			item.IsActive = true
 			if err = db.CreateItem(ctx, &item); err != nil {
 				return fmt.Errorf("failed to sync item %s: %w", cfgItem.Name, err)
 			}
@@ -100,7 +101,7 @@ func (db *DB) CreateItem(ctx context.Context, item *models.Item) error {
               is_active, permanent_reserved, cabinet_id, created_at, updated_at)
 	              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	now := time.Now()
-	result, err := db.ExecContext(ctx, query,
+	id, err := db.insertAndReturnID(ctx, query,
 		item.Name,
 		item.Description,
 		item.TotalQuantity,
@@ -113,11 +114,6 @@ func (db *DB) CreateItem(ctx context.Context, item *models.Item) error {
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create item: %w", err)
-	}
-
-	id, err := result.LastInsertId()
-	if err != nil {
-		return fmt.Errorf("failed to get last insert id: %w", err)
 	}
 	item.ID = id
 	item.CreatedAt = now

@@ -16,6 +16,8 @@ func (b *Bot) handleCallbackQuery(ctx context.Context, update *tgbotapi.Update) 
 	data := callback.Data
 	userID := callback.From.ID
 
+	b.logger.Debug().Int64("user_id", userID).Str("data", data).Msg("handleCallbackQuery: start")
+
 	if b.metrics != nil {
 		b.metrics.MessagesProcessed.Inc()
 	}

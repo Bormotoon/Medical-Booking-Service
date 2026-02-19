@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"bronivik/internal/models"
 
@@ -184,11 +185,43 @@ func (c *Config) Validate() error {
 		return errors.New("telegram bot token is required")
 	}
 
-	if c.Database.Path == "" {
+	if !c.UsePostgres() && c.Database.Path == "" {
 		return errors.New("database path is required")
 	}
 
+	if c.UsePostgres() {
+		if c.Database.Postgres.Host == "" || c.Database.Postgres.User == "" || c.Database.Postgres.DBName == "" {
+			return errors.New("postgres config is incomplete: host, user and dbname are required")
+		}
+	}
+
 	return ValidateItems(c.Items)
+}
+
+func (c *Config) UsePostgres() bool {
+	p := c.Database.Postgres
+	return strings.TrimSpace(p.Host) != "" && strings.TrimSpace(p.User) != "" && strings.TrimSpace(p.DBName) != ""
+}
+
+func (c *Config) DatabaseDriver() string {
+	if c.UsePostgres() {
+		return "postgres"
+	}
+	return "sqlite3"
+}
+
+func (c *Config) PostgresDSN() string {
+	p := c.Database.Postgres
+	sslmode := p.SSLMode
+	if sslmode == "" {
+		sslmode = "disable"
+	}
+	port := p.Port
+	if port == 0 {
+		port = 5432
+	}
+	return fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
+		p.Host, port, p.User, p.Password, p.DBName, sslmode)
 }
 
 func ValidateItems(items []models.Item) error {

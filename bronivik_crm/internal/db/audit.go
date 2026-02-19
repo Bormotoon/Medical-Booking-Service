@@ -35,23 +35,44 @@ func (db *DB) GetTableData(ctx context.Context, tableName string) (data []map[st
 		return nil, nil, fmt.Errorf("invalid table name: %s", tableName)
 	}
 
+	physicalTable := qualifyCRMTableName(tableName)
+
 	// Get column names
 	var rows *sql.Rows
-	rows, err = db.QueryContext(ctx, fmt.Sprintf("PRAGMA table_info(%s)", tableName))
+	if db.isPostgres() {
+		rows, err = db.QueryContext(ctx, `
+			SELECT column_name
+			FROM information_schema.columns
+			WHERE table_schema = current_schema() AND table_name = ?
+			ORDER BY ordinal_position`, physicalTable)
+	} else {
+		rows, err = db.QueryContext(ctx, fmt.Sprintf("PRAGMA table_info(%s)", physicalTable))
+	}
 	if err != nil {
 		return nil, nil, err
 	}
 
-	for rows.Next() {
-		var cid int
-		var name, typeName string
-		var notNull, pk int
-		var dfltValue sql.NullString
-		if err = rows.Scan(&cid, &name, &typeName, &notNull, &dfltValue, &pk); err != nil {
-			rows.Close()
-			return nil, nil, err
+	if db.isPostgres() {
+		for rows.Next() {
+			var name string
+			if err = rows.Scan(&name); err != nil {
+				rows.Close()
+				return nil, nil, err
+			}
+			columns = append(columns, name)
 		}
-		columns = append(columns, name)
+	} else {
+		for rows.Next() {
+			var cid int
+			var name, typeName string
+			var notNull, pk int
+			var dfltValue sql.NullString
+			if err = rows.Scan(&cid, &name, &typeName, &notNull, &dfltValue, &pk); err != nil {
+				rows.Close()
+				return nil, nil, err
+			}
+			columns = append(columns, name)
+		}
 	}
 	rows.Close()
 
@@ -61,7 +82,7 @@ func (db *DB) GetTableData(ctx context.Context, tableName string) (data []map[st
 
 	// Get data
 	var dataRows *sql.Rows
-	dataRows, err = db.QueryContext(ctx, fmt.Sprintf("SELECT * FROM %s", tableName))
+	dataRows, err = db.QueryContext(ctx, fmt.Sprintf("SELECT * FROM %s", physicalTable))
 	if err != nil {
 		return nil, nil, err
 	}

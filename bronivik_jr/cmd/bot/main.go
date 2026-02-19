@@ -94,7 +94,7 @@ func run() error {
 	}
 
 	if cfg.Backup.Enabled {
-		backupService := database.NewBackupService(cfg.Database.Path, cfg.Backup, &logger)
+		backupService := database.NewBackupServiceWithDriver(cfg.DatabaseDriver(), cfg.Database.Path, cfg.Backup, &logger)
 		go backupService.Start(ctx)
 	}
 
@@ -148,9 +148,11 @@ func prepareDirectories(cfg *config.Config, logger *zerolog.Logger) error {
 	if cfg == nil {
 		return os.ErrInvalid
 	}
-	if err := os.MkdirAll(filepath.Dir(cfg.Database.Path), 0o755); err != nil {
-		logger.Error().Err(err).Msg("Ошибка создания директории для базы данных")
-		return err
+	if !cfg.UsePostgres() {
+		if err := os.MkdirAll(filepath.Dir(cfg.Database.Path), 0o755); err != nil {
+			logger.Error().Err(err).Msg("Ошибка создания директории для базы данных")
+			return err
+		}
 	}
 	if err := os.MkdirAll(cfg.Exports.Path, 0o755); err != nil {
 		logger.Error().Err(err).Msg("Ошибка создания директории для экспорта")
@@ -160,7 +162,15 @@ func prepareDirectories(cfg *config.Config, logger *zerolog.Logger) error {
 }
 
 func initDatabase(cfg *config.Config, items []models.Item, logger *zerolog.Logger) (*database.DB, error) {
-	db, err := database.NewDB(cfg.Database.Path, logger)
+	var (
+		db  *database.DB
+		err error
+	)
+	if cfg.UsePostgres() {
+		db, err = database.NewDBWithDriver(cfg.DatabaseDriver(), cfg.Database.Path, cfg.PostgresDSN(), logger)
+	} else {
+		db, err = database.NewDB(cfg.Database.Path, logger)
+	}
 	if err != nil {
 		logger.Error().Err(err).Msg("Ошибка инициализации базы данных")
 		return nil, err

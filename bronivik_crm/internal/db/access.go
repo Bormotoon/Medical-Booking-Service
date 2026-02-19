@@ -54,9 +54,18 @@ func (db *DB) GetBlockedUser(ctx context.Context, userID int64) (*BlockedUser, e
 
 // BlockUser adds a user to the blocklist.
 func (db *DB) BlockUser(ctx context.Context, userID int64, reason string, blockedBy int64) error {
+	query := `INSERT OR REPLACE INTO blocked_users (user_id, blocked_at, reason, blocked_by)
+		VALUES (?, ?, ?, ?)`
+	if db.isPostgres() {
+		query = `INSERT INTO blocked_users (user_id, blocked_at, reason, blocked_by)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT (user_id) DO UPDATE SET
+			blocked_at = EXCLUDED.blocked_at,
+			reason = EXCLUDED.reason,
+			blocked_by = EXCLUDED.blocked_by`
+	}
 	_, err := db.ExecContext(ctx,
-		`INSERT OR REPLACE INTO blocked_users (user_id, blocked_at, reason, blocked_by)
-		VALUES (?, ?, ?, ?)`,
+		query,
 		userID, time.Now(), reason, blockedBy,
 	)
 	return err
@@ -123,9 +132,19 @@ func (db *DB) GetManager(ctx context.Context, userID int64) (*Manager, error) {
 
 // AddManager adds a new manager.
 func (db *DB) AddManager(ctx context.Context, userID, chatID int64, name string, addedBy int64) error {
+	query := `INSERT OR REPLACE INTO managers (user_id, chat_id, name, added_at, added_by)
+		VALUES (?, ?, ?, ?, ?)`
+	if db.isPostgres() {
+		query = `INSERT INTO managers (user_id, chat_id, name, added_at, added_by)
+		VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT (user_id) DO UPDATE SET
+			chat_id = EXCLUDED.chat_id,
+			name = EXCLUDED.name,
+			added_at = EXCLUDED.added_at,
+			added_by = EXCLUDED.added_by`
+	}
 	_, err := db.ExecContext(ctx,
-		`INSERT OR REPLACE INTO managers (user_id, chat_id, name, added_at, added_by)
-		VALUES (?, ?, ?, ?, ?)`,
+		query,
 		userID, chatID, name, time.Now(), addedBy,
 	)
 	return err

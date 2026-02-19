@@ -12,6 +12,8 @@ import (
 )
 
 func (b *Bot) handleAddItemCommand(ctx context.Context, update *tgbotapi.Update) {
+	b.logger.Debug().Str("text", update.Message.Text).Msg("handleAddItemCommand: start")
+
 	parts := strings.Fields(update.Message.Text)
 	if len(parts) < 3 {
 		b.sendMessage(update.Message.Chat.ID, "Использование: /add_item <название> <количество>")
@@ -31,12 +33,16 @@ func (b *Bot) handleAddItemCommand(ctx context.Context, update *tgbotapi.Update)
 		return
 	}
 
+	b.logger.Debug().Str("name", item.Name).Int64("qty", item.TotalQuantity).Msg("handleAddItemCommand: end")
+
 	b.sendMessage(update.Message.Chat.ID,
 		fmt.Sprintf("✅ Аппарат '%s' добавлен (кол-во: %d, порядок: %d)",
 			item.Name, item.TotalQuantity, item.SortOrder))
 }
 
 func (b *Bot) handleEditItemCommand(ctx context.Context, update *tgbotapi.Update) {
+	b.logger.Debug().Str("text", update.Message.Text).Msg("handleEditItemCommand: start")
+
 	parts := strings.Fields(update.Message.Text)
 	if len(parts) < 3 {
 		b.sendMessage(update.Message.Chat.ID, "Использование: /edit_item <название> <новое_количество>")
@@ -62,10 +68,14 @@ func (b *Bot) handleEditItemCommand(ctx context.Context, update *tgbotapi.Update
 		return
 	}
 
+	b.logger.Debug().Str("name", current.Name).Int64("qty", current.TotalQuantity).Msg("handleEditItemCommand: end")
+
 	b.sendMessage(update.Message.Chat.ID, fmt.Sprintf("✅ Аппарат '%s' обновлён (кол-во: %d)", current.Name, current.TotalQuantity))
 }
 
 func (b *Bot) handleListItemsCommand(ctx context.Context, update *tgbotapi.Update) {
+	b.logger.Debug().Msg("handleListItemsCommand: start")
+
 	items, err := b.itemService.GetActiveItems(ctx)
 	if err != nil {
 		b.sendMessage(update.Message.Chat.ID, fmt.Sprintf("Ошибка загрузки списка: %v", err))
@@ -83,10 +93,14 @@ func (b *Bot) handleListItemsCommand(ctx context.Context, update *tgbotapi.Updat
 		sb.WriteString(fmt.Sprintf("• %s — qty: %d, order: %d\n", it.Name, it.TotalQuantity, it.SortOrder))
 	}
 
+	b.logger.Debug().Int("count", len(items)).Msg("handleListItemsCommand: end")
+
 	b.sendMessage(update.Message.Chat.ID, sb.String())
 }
 
 func (b *Bot) handleDisableItemCommand(ctx context.Context, update *tgbotapi.Update) {
+	b.logger.Debug().Str("text", update.Message.Text).Msg("handleDisableItemCommand: start")
+
 	parts := strings.Fields(update.Message.Text)
 	if len(parts) < 2 {
 		b.sendMessage(update.Message.Chat.ID, "Использование: /disable_item <название>")
@@ -105,10 +119,14 @@ func (b *Bot) handleDisableItemCommand(ctx context.Context, update *tgbotapi.Upd
 		return
 	}
 
+	b.logger.Debug().Str("name", item.Name).Int64("id", item.ID).Msg("handleDisableItemCommand: end")
+
 	b.sendMessage(update.Message.Chat.ID, fmt.Sprintf("🛑 Аппарат '%s' деактивирован", item.Name))
 }
 
 func (b *Bot) handleSetItemOrderCommand(ctx context.Context, update *tgbotapi.Update) {
+	b.logger.Debug().Str("text", update.Message.Text).Msg("handleSetItemOrderCommand: start")
+
 	parts := strings.Fields(update.Message.Text)
 	if len(parts) < 3 {
 		b.sendMessage(update.Message.Chat.ID, "Использование: /set_item_order <название> <порядок>")
@@ -133,10 +151,13 @@ func (b *Bot) handleSetItemOrderCommand(ctx context.Context, update *tgbotapi.Up
 		return
 	}
 
+	b.logger.Debug().Str("name", item.Name).Int64("order", order).Msg("handleSetItemOrderCommand: end")
+
 	b.sendMessage(update.Message.Chat.ID, fmt.Sprintf("↕️ Порядок '%s' установлен на %d", item.Name, order))
 }
 
 func (b *Bot) handleMoveItemCommand(ctx context.Context, update *tgbotapi.Update, delta int64) {
+	b.logger.Debug().Str("text", update.Message.Text).Int64("delta", delta).Msg("handleMoveItemCommand: start")
 	parts := strings.Fields(update.Message.Text)
 	if len(parts) < 2 {
 		b.sendMessage(update.Message.Chat.ID, "Использование: /move_item_up|/move_item_down <название>")

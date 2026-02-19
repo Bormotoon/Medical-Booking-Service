@@ -28,7 +28,7 @@ func (db *DB) CreateExternalBooking(
 	// Check if external booking ID already exists
 	var existingID int64
 	err = tx.QueryRowContext(ctx,
-		"SELECT id FROM bookings WHERE external_booking_id = ?",
+		db.rebind("SELECT id FROM bookings WHERE external_booking_id = ?"),
 		externalBookingID,
 	).Scan(&existingID)
 	if err == nil {
@@ -40,10 +40,10 @@ func (db *DB) CreateExternalBooking(
 
 	// Check availability
 	var bookedCount int64
-	err = tx.QueryRowContext(ctx, `
+	err = tx.QueryRowContext(ctx, db.rebind(`
 		SELECT COUNT(*) FROM bookings 
 		WHERE item_id = ? AND date(date) = date(?) AND status = 'approved'`,
-		itemID, date,
+		), itemID, date,
 	).Scan(&bookedCount)
 	if err != nil {
 		return 0, fmt.Errorf("check availability: %w", err)
@@ -52,7 +52,7 @@ func (db *DB) CreateExternalBooking(
 	// Get item quantity
 	var totalQty int64
 	err = tx.QueryRowContext(ctx,
-		"SELECT total_quantity FROM items WHERE id = ?",
+		db.rebind("SELECT total_quantity FROM items WHERE id = ?"),
 		itemID,
 	).Scan(&totalQty)
 	if err != nil {
@@ -65,7 +65,7 @@ func (db *DB) CreateExternalBooking(
 
 	// Create booking
 	now := time.Now()
-	result, err := tx.ExecContext(ctx, `
+	bookingID, err := db.insertAndReturnIDTx(ctx, tx, `
 		INSERT INTO bookings (
 			user_id, user_name, user_nickname, phone, item_id, item_name,
 			date, status, external_booking_id, created_at, updated_at, version
@@ -85,11 +85,6 @@ func (db *DB) CreateExternalBooking(
 	)
 	if err != nil {
 		return 0, fmt.Errorf("insert booking: %w", err)
-	}
-
-	bookingID, err := result.LastInsertId()
-	if err != nil {
-		return 0, fmt.Errorf("get last id: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {

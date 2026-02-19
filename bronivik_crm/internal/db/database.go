@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"bronivik/bronivik_crm/internal/crmapi"
 	"bronivik/bronivik_crm/internal/model"
 
+	_ "github.com/jackc/pgx/v5/stdlib"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -27,9 +29,25 @@ var (
 	ErrSlotMisaligned   = errors.New("slot not aligned with schedule")
 )
 
+const crmTablePrefix = "crm_"
+
+var crmTableNameMap = map[string]string{
+	"users":                      crmTablePrefix + "users",
+	"user_settings":              crmTablePrefix + "user_settings",
+	"cabinets":                   crmTablePrefix + "cabinets",
+	"cabinet_schedules":          crmTablePrefix + "cabinet_schedules",
+	"cabinet_schedule_overrides": crmTablePrefix + "cabinet_schedule_overrides",
+	"hourly_bookings":            crmTablePrefix + "hourly_bookings",
+	"blocked_users":              crmTablePrefix + "blocked_users",
+	"managers":                   crmTablePrefix + "managers",
+}
+
+var crmTableQualifierRegexp = regexp.MustCompile(`\b(users|user_settings|cabinets|cabinet_schedules|cabinet_schedule_overrides|hourly_bookings|blocked_users|managers)\b`)
+
 // DB wraps sql.DB for the CRM bot.
 type DB struct {
 	*sql.DB
+	driver string
 }
 
 // --- Users CRUD ---
@@ -47,7 +65,7 @@ func (db *DB) GetOrCreateUserByTelegramID(
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	u, err := getUserByTelegramIDTx(ctx, tx, telegramID)
+	u, err := getUserByTelegramIDTx(ctx, tx, telegramID, db.isPostgres())
 	if err != nil && err != sql.ErrNoRows {
 		return nil, err
 	}
@@ -58,13 +76,8 @@ func (db *DB) GetOrCreateUserByTelegramID(
 			telegram_id, username, first_name, last_name, phone, 
 			is_manager, is_blacklisted, created_at, updated_at
 		) VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?)`
-		var res sql.Result
-		res, err = tx.ExecContext(ctx, query, telegramID, username, firstName, lastName, phone, now, now)
-		if err != nil {
-			return nil, err
-		}
 		var id int64
-		id, err = res.LastInsertId()
+		id, err = db.insertAndReturnIDTx(ctx, tx, query, telegramID, username, firstName, lastName, phone, now, now)
 		if err != nil {
 			return nil, err
 		}
@@ -75,14 +88,14 @@ func (db *DB) GetOrCreateUserByTelegramID(
 	} else {
 		// best-effort update of profile fields; phone only if provided
 		if phone != "" {
-			_, _ = tx.ExecContext(ctx, `
+			_, _ = tx.ExecContext(ctx, db.rebind(`
 					UPDATE users SET username = ?, first_name = ?, last_name = ?, phone = ?, updated_at = ? 
-					WHERE id = ?`, username, firstName, lastName, phone, now, u.ID)
+					WHERE id = ?`), username, firstName, lastName, phone, now, u.ID)
 			u.Phone = phone
 		} else {
-			_, _ = tx.ExecContext(ctx, `
+			_, _ = tx.ExecContext(ctx, db.rebind(`
 					UPDATE users SET username = ?, first_name = ?, last_name = ?, updated_at = ? 
-					WHERE id = ?`, username, firstName, lastName, now, u.ID)
+					WHERE id = ?`), username, firstName, lastName, now, u.ID)
 		}
 		u.Username = username
 		u.FirstName = firstName
@@ -96,30 +109,328 @@ func (db *DB) GetOrCreateUserByTelegramID(
 	return u, nil
 }
 
-func getUserByTelegramIDTx(ctx context.Context, tx *sql.Tx, telegramID int64) (*model.User, error) {
-	row := tx.QueryRowContext(ctx, `
+func getUserByTelegramIDTx(ctx context.Context, tx *sql.Tx, telegramID int64, isPostgres bool) (*model.User, error) {
+	query := `
 		SELECT id, telegram_id, username, first_name, last_name, 
 		       phone, is_manager, is_blacklisted, created_at, updated_at
-		FROM users WHERE telegram_id = ? LIMIT 1`, telegramID)
+		FROM users WHERE telegram_id = ? LIMIT 1`
+	if isPostgres {
+		query = rebindForTx(query)
+	} else {
+		query = qualifyCRMQueryTables(query)
+	}
+	row := tx.QueryRowContext(ctx, query, telegramID)
 	return scanUser(row)
 }
 
 // NewDB opens database at path and runs migrations.
 func NewDB(path string) (*DB, error) {
-	db, err := sql.Open("sqlite3", path)
+	return NewDBWithDriver("sqlite3", path, "")
+}
+
+func NewDBWithDriver(driver, path, dsn string) (*DB, error) {
+	if driver == "" {
+		driver = "sqlite3"
+	}
+
+	var (
+		db  *sql.DB
+		err error
+	)
+	if driver == "postgres" {
+		db, err = sql.Open("pgx", dsn)
+	} else {
+		db, err = sql.Open("sqlite3", path)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
 	}
-	if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
-		return nil, fmt.Errorf("enable foreign keys: %w", err)
+	if driver == "sqlite3" {
+		if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
+			return nil, fmt.Errorf("enable foreign keys: %w", err)
+		}
 	}
-	if err := createTables(db); err != nil {
+	if err := createTables(db, driver); err != nil {
 		return nil, err
 	}
-	return &DB{db}, nil
+	if err := migrateLegacyTablesToNamespaced(db, driver); err != nil {
+		return nil, err
+	}
+	return &DB{DB: db, driver: driver}, nil
 }
 
-func createTables(db *sql.DB) error {
+func (db *DB) isPostgres() bool {
+	return db.driver == "postgres"
+}
+
+var crmPlaceholderRegexp = regexp.MustCompile(`\?`)
+
+func qualifyCRMTableName(table string) string {
+	if strings.HasPrefix(table, crmTablePrefix) {
+		return table
+	}
+	if qualified, ok := crmTableNameMap[table]; ok {
+		return qualified
+	}
+	return table
+}
+
+func qualifyCRMQueryTables(query string) string {
+	return crmTableQualifierRegexp.ReplaceAllStringFunc(query, func(name string) string {
+		return qualifyCRMTableName(name)
+	})
+}
+
+func quoteIdent(name string) string {
+	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
+}
+
+func rebindForTx(query string) string {
+	query = qualifyCRMQueryTables(query)
+	if !strings.Contains(query, "?") {
+		return query
+	}
+	idx := 0
+	return crmPlaceholderRegexp.ReplaceAllStringFunc(query, func(_ string) string {
+		idx++
+		return "$" + strconv.Itoa(idx)
+	})
+}
+
+func (db *DB) rebind(query string) string {
+	query = qualifyCRMQueryTables(query)
+	if !db.isPostgres() || !strings.Contains(query, "?") {
+		return query
+	}
+	idx := 0
+	return crmPlaceholderRegexp.ReplaceAllStringFunc(query, func(_ string) string {
+		idx++
+		return "$" + strconv.Itoa(idx)
+	})
+}
+
+func (db *DB) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	return db.DB.ExecContext(ctx, db.rebind(query), args...)
+}
+
+func (db *DB) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	return db.DB.QueryContext(ctx, db.rebind(query), args...)
+}
+
+func (db *DB) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
+	return db.DB.QueryRowContext(ctx, db.rebind(query), args...)
+}
+
+func (db *DB) insertAndReturnID(ctx context.Context, query string, args ...any) (int64, error) {
+	if db.isPostgres() {
+		var id int64
+		if err := db.QueryRowContext(ctx, strings.TrimSpace(query)+" RETURNING id", args...).Scan(&id); err != nil {
+			return 0, err
+		}
+		return id, nil
+	}
+	res, err := db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func (db *DB) insertAndReturnIDTx(ctx context.Context, tx *sql.Tx, query string, args ...any) (int64, error) {
+	if db.isPostgres() {
+		var id int64
+		if err := tx.QueryRowContext(ctx, db.rebind(strings.TrimSpace(query)+" RETURNING id"), args...).Scan(&id); err != nil {
+			return 0, err
+		}
+		return id, nil
+	}
+	res, err := tx.ExecContext(ctx, qualifyCRMQueryTables(query), args...)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func migrateLegacyTablesToNamespaced(db *sql.DB, driver string) error {
+	tables := []struct {
+		name string
+		pk   string
+	}{
+		{name: "users", pk: "id"},
+		{name: "cabinets", pk: "id"},
+		{name: "user_settings", pk: "id"},
+		{name: "cabinet_schedules", pk: "id"},
+		{name: "cabinet_schedule_overrides", pk: "id"},
+		{name: "hourly_bookings", pk: "id"},
+		{name: "blocked_users", pk: "user_id"},
+		{name: "managers", pk: "user_id"},
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin namespace migration tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	for _, table := range tables {
+		sourceTable := table.name
+		targetTable := qualifyCRMTableName(table.name)
+		if sourceTable == targetTable {
+			continue
+		}
+
+		sourceExists, err := tableExistsTx(tx, driver, sourceTable)
+		if err != nil {
+			return fmt.Errorf("check source table %s: %w", sourceTable, err)
+		}
+		if !sourceExists {
+			continue
+		}
+
+		targetExists, err := tableExistsTx(tx, driver, targetTable)
+		if err != nil {
+			return fmt.Errorf("check target table %s: %w", targetTable, err)
+		}
+		if !targetExists {
+			continue
+		}
+
+		sourceCols, err := rawTableColumnsTx(tx, driver, sourceTable)
+		if err != nil {
+			return fmt.Errorf("read source columns %s: %w", sourceTable, err)
+		}
+		targetCols, err := rawTableColumnsTx(tx, driver, targetTable)
+		if err != nil {
+			return fmt.Errorf("read target columns %s: %w", targetTable, err)
+		}
+
+		targetSet := make(map[string]struct{}, len(targetCols))
+		for _, c := range targetCols {
+			targetSet[c] = struct{}{}
+		}
+
+		commonCols := make([]string, 0, len(sourceCols))
+		hasPK := false
+		for _, c := range sourceCols {
+			if _, ok := targetSet[c]; !ok {
+				continue
+			}
+			if c == table.pk {
+				hasPK = true
+			}
+			commonCols = append(commonCols, c)
+		}
+		if !hasPK || len(commonCols) == 0 {
+			continue
+		}
+
+		quotedCols := make([]string, 0, len(commonCols))
+		selectedCols := make([]string, 0, len(commonCols))
+		for _, c := range commonCols {
+			q := quoteIdent(c)
+			quotedCols = append(quotedCols, q)
+			selectedCols = append(selectedCols, "s."+q)
+		}
+
+		stmt := fmt.Sprintf(
+			"INSERT INTO %s (%s) SELECT %s FROM %s s WHERE NOT EXISTS (SELECT 1 FROM %s t WHERE t.%s = s.%s)",
+			quoteIdent(targetTable),
+			strings.Join(quotedCols, ", "),
+			strings.Join(selectedCols, ", "),
+			quoteIdent(sourceTable),
+			quoteIdent(targetTable),
+			quoteIdent(table.pk),
+			quoteIdent(table.pk),
+		)
+		if _, err := tx.Exec(stmt); err != nil {
+			return fmt.Errorf("migrate %s -> %s: %w", sourceTable, targetTable, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit namespace migration tx: %w", err)
+	}
+
+	return nil
+}
+
+func tableExistsTx(tx *sql.Tx, driver, table string) (bool, error) {
+	if driver == "postgres" {
+		var exists bool
+		err := tx.QueryRow(`
+			SELECT EXISTS (
+				SELECT 1
+				FROM information_schema.tables
+				WHERE table_schema = current_schema() AND table_name = $1
+			)
+		`, table).Scan(&exists)
+		if err != nil {
+			return false, err
+		}
+		return exists, nil
+	}
+
+	var name string
+	err := tx.QueryRow(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`, table).Scan(&name)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func rawTableColumnsTx(tx *sql.Tx, driver, table string) ([]string, error) {
+	if driver == "postgres" {
+		rows, err := tx.Query(`
+			SELECT column_name
+			FROM information_schema.columns
+			WHERE table_schema = current_schema() AND table_name = $1
+			ORDER BY ordinal_position
+		`, table)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+
+		cols := make([]string, 0, 16)
+		for rows.Next() {
+			var name string
+			if err := rows.Scan(&name); err != nil {
+				return nil, err
+			}
+			cols = append(cols, name)
+		}
+		return cols, rows.Err()
+	}
+
+	rows, err := tx.Query(fmt.Sprintf("PRAGMA table_info(%s)", quoteIdent(table)))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	cols := make([]string, 0, 16)
+	for rows.Next() {
+		var (
+			cid      int
+			name     string
+			typeDecl string
+			notnull  int
+			dflt     sql.NullString
+			pk       int
+		)
+		if err := rows.Scan(&cid, &name, &typeDecl, &notnull, &dflt, &pk); err != nil {
+			return nil, err
+		}
+		cols = append(cols, name)
+	}
+
+	return cols, rows.Err()
+}
+
+func createTables(db *sql.DB, driver string) error {
 	queries := []string{
 		// Users (simplified; extend as needed)
 		`CREATE TABLE IF NOT EXISTS users (
@@ -249,20 +560,127 @@ func createTables(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_managers_chat_id ON managers(chat_id)`,
 	}
 
+	if driver == "postgres" {
+		queries = []string{
+			`CREATE TABLE IF NOT EXISTS users (
+				id BIGSERIAL PRIMARY KEY,
+				telegram_id BIGINT UNIQUE NOT NULL,
+				username TEXT,
+				first_name TEXT,
+				last_name TEXT,
+				phone TEXT,
+				is_manager BOOLEAN NOT NULL DEFAULT FALSE,
+				is_blacklisted BOOLEAN NOT NULL DEFAULT FALSE,
+				created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+				updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+			)`,
+			`CREATE TABLE IF NOT EXISTS user_settings (
+				id BIGSERIAL PRIMARY KEY,
+				user_id BIGINT NOT NULL UNIQUE,
+				reminders_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+				reminder_hours_before BIGINT NOT NULL DEFAULT 24,
+				created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+				updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+				FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+			)`,
+			`CREATE TABLE IF NOT EXISTS cabinets (
+				id BIGSERIAL PRIMARY KEY,
+				name TEXT UNIQUE NOT NULL,
+				description TEXT,
+				is_active BOOLEAN DEFAULT TRUE,
+				created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+				updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+			)`,
+			`CREATE TABLE IF NOT EXISTS cabinet_schedules (
+				id BIGSERIAL PRIMARY KEY,
+				cabinet_id BIGINT NOT NULL,
+				day_of_week BIGINT NOT NULL,
+				start_time TEXT NOT NULL,
+				end_time TEXT NOT NULL,
+				lunch_start TEXT,
+				lunch_end TEXT,
+				slot_duration BIGINT DEFAULT 30,
+				is_active BOOLEAN DEFAULT TRUE,
+				created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+				updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+				FOREIGN KEY (cabinet_id) REFERENCES cabinets(id)
+			)`,
+			`CREATE TABLE IF NOT EXISTS cabinet_schedule_overrides (
+				id BIGSERIAL PRIMARY KEY,
+				cabinet_id BIGINT NOT NULL,
+				date DATE NOT NULL,
+				is_closed BOOLEAN DEFAULT FALSE,
+				start_time TEXT,
+				end_time TEXT,
+				lunch_start TEXT,
+				lunch_end TEXT,
+				reason TEXT,
+				created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+				updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+				FOREIGN KEY (cabinet_id) REFERENCES cabinets(id),
+				UNIQUE(cabinet_id, date)
+			)`,
+			`CREATE TABLE IF NOT EXISTS hourly_bookings (
+				id BIGSERIAL PRIMARY KEY,
+				user_id BIGINT NOT NULL,
+				cabinet_id BIGINT NOT NULL,
+				item_id BIGINT,
+				item_name TEXT,
+				client_name TEXT,
+				client_phone TEXT,
+				start_time TIMESTAMPTZ NOT NULL,
+				end_time TIMESTAMPTZ NOT NULL,
+				status TEXT NOT NULL DEFAULT 'pending',
+				comment TEXT,
+				manager_comment TEXT,
+				reminder_sent BOOLEAN NOT NULL DEFAULT FALSE,
+				external_device_booking_id BIGINT,
+				created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+				updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+				FOREIGN KEY (cabinet_id) REFERENCES cabinets(id),
+				FOREIGN KEY (user_id) REFERENCES users(id)
+			)`,
+			`CREATE INDEX IF NOT EXISTS idx_cabinets_active ON cabinets(is_active)`,
+			`CREATE INDEX IF NOT EXISTS idx_schedules_cabinet ON cabinet_schedules(cabinet_id, day_of_week)`,
+			`CREATE INDEX IF NOT EXISTS idx_overrides_cabinet_date ON cabinet_schedule_overrides(cabinet_id, date)`,
+			`CREATE INDEX IF NOT EXISTS idx_hourly_bookings_times ON hourly_bookings(cabinet_id, start_time, end_time)`,
+			`CREATE INDEX IF NOT EXISTS idx_hourly_bookings_status ON hourly_bookings(status)`,
+			`CREATE INDEX IF NOT EXISTS idx_hourly_bookings_user ON hourly_bookings(user_id)`,
+			`CREATE INDEX IF NOT EXISTS idx_hourly_bookings_reminder ON hourly_bookings(reminder_sent, start_time)`,
+			`CREATE INDEX IF NOT EXISTS idx_user_settings_user_id ON user_settings(user_id)`,
+			`CREATE TABLE IF NOT EXISTS blocked_users (
+				user_id BIGINT PRIMARY KEY,
+				blocked_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				reason TEXT,
+				blocked_by BIGINT NOT NULL,
+				FOREIGN KEY (blocked_by) REFERENCES users(id)
+			)`,
+			`CREATE TABLE IF NOT EXISTS managers (
+				user_id BIGINT PRIMARY KEY,
+				chat_id BIGINT NOT NULL,
+				name TEXT NOT NULL,
+				added_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				added_by BIGINT NOT NULL DEFAULT 0
+			)`,
+			`CREATE INDEX IF NOT EXISTS idx_blocked_users_blocked_at ON blocked_users(blocked_at)`,
+			`CREATE INDEX IF NOT EXISTS idx_managers_chat_id ON managers(chat_id)`,
+		}
+	}
+
 	for _, q := range queries {
-		if _, err := db.Exec(q); err != nil {
+		if _, err := db.Exec(qualifyCRMQueryTables(q)); err != nil {
 			return fmt.Errorf("exec migration %s: %w", trimSQL(q), err)
 		}
 	}
 
-	if err := ensureHourlyBookingColumns(db); err != nil {
+	if err := ensureHourlyBookingColumns(db, driver); err != nil {
 		return err
 	}
 	return nil
 }
 
-func ensureHourlyBookingColumns(db *sql.DB) error {
-	cols, err := tableColumns(db, "hourly_bookings")
+func ensureHourlyBookingColumns(db *sql.DB, driver string) error {
+	cols, err := tableColumns(db, driver, "hourly_bookings")
 	if err != nil {
 		return err
 	}
@@ -283,9 +701,9 @@ func ensureHourlyBookingColumns(db *sql.DB) error {
 		if cols[c.name] {
 			continue
 		}
-		if _, err := db.Exec(fmt.Sprintf("ALTER TABLE hourly_bookings ADD COLUMN %s %s", c.name, c.typeDecl)); err != nil {
-			// SQLite returns error if column already exists (race / old db)
-			if strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+		if _, err := db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", qualifyCRMTableName("hourly_bookings"), c.name, c.typeDecl)); err != nil {
+			msg := strings.ToLower(err.Error())
+			if strings.Contains(msg, "duplicate column") || strings.Contains(msg, "already exists") {
 				continue
 			}
 			return fmt.Errorf("add column %s: %w", c.name, err)
@@ -293,22 +711,22 @@ func ensureHourlyBookingColumns(db *sql.DB) error {
 	}
 
 	// Ensure schedule columns
-	if err := ensureScheduleColumns(db); err != nil {
+	if err := ensureScheduleColumns(db, driver); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func ensureScheduleColumns(db *sql.DB) error {
+func ensureScheduleColumns(db *sql.DB, driver string) error {
 	// Add lunch columns to cabinet_schedules
-	schedCols, err := tableColumns(db, "cabinet_schedules")
+	schedCols, err := tableColumns(db, driver, "cabinet_schedules")
 	if err != nil {
 		return err
 	}
 	for _, col := range []string{"lunch_start", "lunch_end"} {
 		if !schedCols[col] {
-			if _, e := db.Exec(fmt.Sprintf("ALTER TABLE cabinet_schedules ADD COLUMN %s TEXT", col)); e != nil {
+			if _, e := db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s TEXT", qualifyCRMTableName("cabinet_schedules"), col)); e != nil {
 				if !strings.Contains(strings.ToLower(e.Error()), "duplicate column") {
 					return fmt.Errorf("add column %s to cabinet_schedules: %w", col, e)
 				}
@@ -317,13 +735,13 @@ func ensureScheduleColumns(db *sql.DB) error {
 	}
 
 	// Add columns to cabinet_schedule_overrides
-	ovrCols, err := tableColumns(db, "cabinet_schedule_overrides")
+	ovrCols, err := tableColumns(db, driver, "cabinet_schedule_overrides")
 	if err != nil {
 		return err
 	}
 	for _, col := range []string{"lunch_start", "lunch_end", "reason"} {
 		if !ovrCols[col] {
-			if _, e := db.Exec(fmt.Sprintf("ALTER TABLE cabinet_schedule_overrides ADD COLUMN %s TEXT", col)); e != nil {
+			if _, e := db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s TEXT", qualifyCRMTableName("cabinet_schedule_overrides"), col)); e != nil {
 				if !strings.Contains(strings.ToLower(e.Error()), "duplicate column") {
 					return fmt.Errorf("add column %s to cabinet_schedule_overrides: %w", col, e)
 				}
@@ -334,7 +752,28 @@ func ensureScheduleColumns(db *sql.DB) error {
 	return nil
 }
 
-func tableColumns(db *sql.DB, table string) (map[string]bool, error) {
+func tableColumns(db *sql.DB, driver, table string) (map[string]bool, error) {
+	table = qualifyCRMTableName(table)
+	if driver == "postgres" {
+		rows, err := db.Query(`
+			SELECT column_name
+			FROM information_schema.columns
+			WHERE table_schema = current_schema() AND table_name = $1`, table)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		cols := make(map[string]bool)
+		for rows.Next() {
+			var name string
+			if err := rows.Scan(&name); err != nil {
+				return nil, err
+			}
+			cols[name] = true
+		}
+		return cols, rows.Err()
+	}
+
 	rows, err := db.Query(fmt.Sprintf("PRAGMA table_info(%s)", table))
 	if err != nil {
 		return nil, err
@@ -367,12 +806,8 @@ func (db *DB) CreateCabinet(ctx context.Context, c *model.Cabinet) error {
 		return fmt.Errorf("cabinet is nil")
 	}
 	now := time.Now()
-	res, err := db.ExecContext(ctx, `INSERT INTO cabinets (name, description, is_active, created_at, updated_at)
+	id, err := db.insertAndReturnID(ctx, `INSERT INTO cabinets (name, description, is_active, created_at, updated_at)
         VALUES (?, ?, 1, ?, ?)`, c.Name, c.Description, now, now)
-	if err != nil {
-		return err
-	}
-	id, err := res.LastInsertId()
 	if err != nil {
 		return err
 	}
@@ -444,11 +879,7 @@ func (db *DB) CreateSchedule(ctx context.Context, s *model.CabinetSchedule) erro
 		cabinet_id, day_of_week, start_time, end_time, 
 		slot_duration, is_active, created_at, updated_at
 	) VALUES (?, ?, ?, ?, ?, 1, ?, ?)`
-	res, err := db.ExecContext(ctx, query, s.CabinetID, s.DayOfWeek, s.StartTime, s.EndTime, s.SlotDuration, now, now)
-	if err != nil {
-		return err
-	}
-	id, err := res.LastInsertId()
+	id, err := db.insertAndReturnID(ctx, query, s.CabinetID, s.DayOfWeek, s.StartTime, s.EndTime, s.SlotDuration, now, now)
 	if err != nil {
 		return err
 	}
@@ -467,17 +898,13 @@ func (db *DB) CreateHourlyBooking(ctx context.Context, b *model.HourlyBooking) e
 		return fmt.Errorf("booking is nil")
 	}
 	now := time.Now()
-	res, err := db.ExecContext(ctx, `
+	id, err := db.insertAndReturnID(ctx, `
 		INSERT INTO hourly_bookings (
 			user_id, cabinet_id, item_name, client_name, client_phone, 
 			start_time, end_time, status, comment, created_at, updated_at
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		b.UserID, b.CabinetID, b.ItemName, b.ClientName, b.ClientPhone,
 		b.StartTime, b.EndTime, b.Status, b.Comment, now, now)
-	if err != nil {
-		return err
-	}
-	id, err := res.LastInsertId()
 	if err != nil {
 		return err
 	}
@@ -579,9 +1006,9 @@ func (db *DB) CancelUserBooking(ctx context.Context, bookingID, userID int64) er
 	var ownerID int64
 	var status string
 	var start time.Time
-	err = tx.QueryRowContext(ctx, `
+	err = tx.QueryRowContext(ctx, db.rebind(`
 		SELECT user_id, status, start_time 
-		FROM hourly_bookings WHERE id = ?`, bookingID).Scan(&ownerID, &status, &start)
+		FROM hourly_bookings WHERE id = ?`), bookingID).Scan(&ownerID, &status, &start)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return ErrBookingNotFound
@@ -599,9 +1026,9 @@ func (db *DB) CancelUserBooking(ctx context.Context, bookingID, userID int64) er
 		return ErrBookingFinalized
 	}
 
-	if _, err := tx.ExecContext(ctx, `
+	if _, err := tx.ExecContext(ctx, db.rebind(`
 		UPDATE hourly_bookings SET status = 'canceled', updated_at = ? 
-		WHERE id = ?`, now, bookingID); err != nil {
+		WHERE id = ?`), now, bookingID); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -710,7 +1137,7 @@ func (db *DB) CreateHourlyBookingWithChecks(ctx context.Context, booking *model.
 	}
 
 	now := time.Now()
-	res, err := tx.ExecContext(ctx, `
+	id, err := db.insertAndReturnIDTx(ctx, tx, `
 		INSERT INTO hourly_bookings (
 			user_id, cabinet_id, item_name, client_name, client_phone, 
 			start_time, end_time, status, comment, created_at, updated_at
@@ -718,10 +1145,6 @@ func (db *DB) CreateHourlyBookingWithChecks(ctx context.Context, booking *model.
 		booking.UserID, booking.CabinetID, booking.ItemName, booking.ClientName,
 		booking.ClientPhone, booking.StartTime, booking.EndTime, booking.Status,
 		booking.Comment, now, now)
-	if err != nil {
-		return err
-	}
-	id, err := res.LastInsertId()
 	if err != nil {
 		return err
 	}
@@ -745,10 +1168,10 @@ func checkSlotAvailabilityTx(ctx context.Context, tx *sql.Tx, cabinetID int64, d
 	}
 
 	var count int
-	if err := tx.QueryRowContext(ctx, `
+	if err := tx.QueryRowContext(ctx, rebindForTx(`
 		SELECT COUNT(1) FROM hourly_bookings
         WHERE cabinet_id = ? AND start_time < ? AND end_time > ? 
-		AND status NOT IN ('canceled','rejected')`, cabinetID, end, start).Scan(&count); err != nil {
+		AND status NOT IN ('canceled','rejected')`), cabinetID, end, start).Scan(&count); err != nil {
 		return false, err
 	}
 	return count == 0, nil
@@ -766,8 +1189,8 @@ func resolveScheduleWindowTx(
 	}
 
 	var sched model.CabinetSchedule
-	row := tx.QueryRowContext(ctx, `SELECT id, cabinet_id, day_of_week, start_time, end_time, slot_duration, is_active, created_at, updated_at
-        FROM cabinet_schedules WHERE cabinet_id = ? AND day_of_week = ? AND is_active = 1 LIMIT 1`, cabinetID, day)
+	row := tx.QueryRowContext(ctx, rebindForTx(`SELECT id, cabinet_id, day_of_week, start_time, end_time, slot_duration, is_active, created_at, updated_at
+        FROM cabinet_schedules WHERE cabinet_id = ? AND day_of_week = ? AND is_active = 1 LIMIT 1`), cabinetID, day)
 	if err = row.Scan(
 		&sched.ID, &sched.CabinetID, &sched.DayOfWeek, &sched.StartTime,
 		&sched.EndTime, &sched.SlotDuration, &sched.IsActive, &sched.CreatedAt,
@@ -853,10 +1276,10 @@ func validateSlotAlignmentTx(ctx context.Context, tx *sql.Tx, cabinetID int64, s
 }
 
 func loadOverrideTx(ctx context.Context, tx *sql.Tx, cabinetID int64, date time.Time) (start, end string, closed bool, err error) {
-	row := tx.QueryRowContext(ctx, `
+	row := tx.QueryRowContext(ctx, rebindForTx(`
 		SELECT start_time, end_time, is_closed 
 		FROM cabinet_schedule_overrides 
-		WHERE cabinet_id = ? AND date(date) = date(?) LIMIT 1`, cabinetID, date)
+		WHERE cabinet_id = ? AND date(date) = date(?) LIMIT 1`), cabinetID, date)
 	if err = row.Scan(&start, &end, &closed); err != nil {
 		if err == sql.ErrNoRows {
 			return "", "", false, nil
@@ -1058,6 +1481,9 @@ func (db *DB) ListBookingsByDate(ctx context.Context, dateStr string) ([]model.H
 // Backup creates a hot backup of the database using VACUUM INTO.
 // The destination file must not exist.
 func (db *DB) Backup(dest string) error {
+	if db.isPostgres() {
+		return fmt.Errorf("backup is not supported for postgres in-app mode")
+	}
 	_, err := db.Exec("VACUUM INTO ?", dest)
 	return err
 }

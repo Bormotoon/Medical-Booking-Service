@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/signal"
@@ -22,20 +23,49 @@ import (
 )
 
 func main() {
-	// Initialize logger
-	output := zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}
-	logger := zerolog.New(output).With().Timestamp().Logger()
-
 	cfg, err := config.Load(os.Getenv("CRM_CONFIG_PATH"))
 	if err != nil {
-		logger.Fatal().Err(err).Msg("failed to load config")
+		// Temporary logger for fatal config error
+		l := zerolog.New(os.Stdout).With().Timestamp().Logger()
+		l.Fatal().Err(err).Msg("failed to load config")
 	}
+
+	// Initialize logger with configurable level and format (matching bronivik_jr style)
+	logLevel := zerolog.InfoLevel
+	if lvl := os.Getenv("LOG_LEVEL"); lvl != "" {
+		if parsed, parseErr := zerolog.ParseLevel(lvl); parseErr == nil {
+			logLevel = parsed
+		}
+	}
+	if cfg.Logging.Level != "" {
+		if parsed, parseErr := zerolog.ParseLevel(cfg.Logging.Level); parseErr == nil {
+			logLevel = parsed
+		}
+	}
+
+	var logOutput io.Writer = os.Stdout
+	if cfg.Logging.Format == "console" {
+		logOutput = zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}
+	}
+
+	zerolog.TimeFieldFormat = time.RFC3339Nano
+	logger := zerolog.New(logOutput).
+		Level(logLevel).
+		With().
+		Timestamp().
+		Str("component", "crm-bot").
+		Logger()
 
 	if cfg.Telegram.BotToken == "" || cfg.Telegram.BotToken == "YOUR_BOT_TOKEN_HERE" {
 		logger.Fatal().Msg("set telegram.bot_token in config")
 	}
 
-	database, err := db.NewDB(cfg.Database.Path)
+	var database *db.DB
+	if cfg.UsePostgres() {
+		database, err = db.NewDBWithDriver(cfg.DatabaseDriver(), cfg.Database.Path, cfg.PostgresDSN())
+	} else {
+		database, err = db.NewDB(cfg.Database.Path)
+	}
 	if err != nil {
 		logger.Fatal().Err(err).Msg("open db error")
 	}
@@ -94,8 +124,10 @@ func main() {
 		go startMetricsServer(ctx, cfg.Monitoring.PrometheusPort, &logger)
 	}
 
-	if cfg.Backup.Enabled {
+	if cfg.Backup.Enabled && !cfg.UsePostgres() {
 		go startBackupLoop(ctx, database, cfg, &logger)
+	} else if cfg.Backup.Enabled && cfg.UsePostgres() {
+		logger.Warn().Msg("CRM backup loop disabled for postgres in-app mode; use pg_dump/managed backups")
 	}
 
 	logger.Info().Msg("CRM bot started")

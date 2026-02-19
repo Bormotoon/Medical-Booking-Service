@@ -21,6 +21,8 @@ func (b *Bot) handleManagerCommand(ctx context.Context, update *tgbotapi.Update)
 	text := update.Message.Text
 	state := b.getUserState(ctx, userID)
 
+	b.logger.Debug().Int64("user_id", userID).Str("text", text).Msg("handleManagerCommand: start")
+
 	// Команды без учета состояния
 	if b.handleManagerBasicCommands(ctx, update, text, userID) {
 		return true

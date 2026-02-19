@@ -3,6 +3,8 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -16,6 +18,14 @@ type Config struct {
 
 	Database struct {
 		Path string `yaml:"path"`
+		Postgres struct {
+			Host string `yaml:"host"`
+			Port int    `yaml:"port"`
+			User string `yaml:"user"`
+			Pass string `yaml:"password"`
+			DB   string `yaml:"dbname"`
+			SSL  string `yaml:"sslmode"`
+		} `yaml:"postgres"`
 	} `yaml:"database"`
 
 	Backup struct {
@@ -38,6 +48,11 @@ type Config struct {
 		APIExtra        string `yaml:"api_extra"`
 		CacheTTLSeconds int    `yaml:"cache_ttl_seconds"`
 	} `yaml:"api"`
+
+	Logging struct {
+		Level  string `yaml:"level"`
+		Format string `yaml:"format"`
+	} `yaml:"logging"`
 
 	Monitoring struct {
 		HealthCheckPort   int  `yaml:"health_check_port"`
@@ -103,6 +118,36 @@ func (c *Config) BookingMaxAdvance() time.Duration {
 		return 30 * 24 * time.Hour
 	}
 	return time.Duration(c.Booking.MaxAdvanceDays) * 24 * time.Hour
+}
+
+func (c *Config) UsePostgres() bool {
+	p := c.Database.Postgres
+	return strings.TrimSpace(p.Host) != "" && strings.TrimSpace(p.User) != "" && strings.TrimSpace(p.DB) != ""
+}
+
+func (c *Config) DatabaseDriver() string {
+	if c.UsePostgres() {
+		return "postgres"
+	}
+	return "sqlite3"
+}
+
+func (c *Config) PostgresDSN() string {
+	p := c.Database.Postgres
+	port := p.Port
+	if port == 0 {
+		port = 5432
+	}
+	ssl := p.SSL
+	if ssl == "" {
+		ssl = "disable"
+	}
+	return "host=" + p.Host +
+		" port=" + strconv.Itoa(port) +
+		" user=" + p.User +
+		" password=" + p.Pass +
+		" dbname=" + p.DB +
+		" sslmode=" + ssl
 }
 
 // LoadCabinets loads cabinets configuration from the configured path.

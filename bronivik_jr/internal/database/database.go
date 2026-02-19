@@ -7,12 +7,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"bronivik/internal/models"
 
+	_ "github.com/jackc/pgx/v5/stdlib"
 	_ "github.com/mattn/go-sqlite3" // sqlite3 driver
 	"github.com/rs/zerolog"
 )
@@ -24,6 +27,7 @@ type DB struct {
 	cacheTime  time.Time
 	mu         sync.RWMutex
 	logger     *zerolog.Logger
+	driver     string
 }
 
 var (
@@ -35,6 +39,31 @@ var (
 
 // NewDB initializes a new database connection and creates tables if they don't exist.
 func NewDB(path string, logger *zerolog.Logger) (*DB, error) {
+	return newDB("sqlite3", path, "", logger)
+}
+
+// NewDBWithDriver initializes database with an explicit driver.
+// Supported drivers: sqlite3, postgres.
+func NewDBWithDriver(driver, path, dsn string, logger *zerolog.Logger) (*DB, error) {
+	return newDB(driver, path, dsn, logger)
+}
+
+func newDB(driver, path, dsn string, logger *zerolog.Logger) (*DB, error) {
+	if driver == "" {
+		driver = "sqlite3"
+	}
+
+	var (
+		db  *sql.DB
+		err error
+	)
+
+	if driver == "postgres" {
+		db, err = sql.Open("pgx", dsn)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open postgres database: %w", err)
+		}
+	} else {
 	// Создаем директорию для БД, если её нет
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -42,10 +71,11 @@ func NewDB(path string, logger *zerolog.Logger) (*DB, error) {
 	}
 
 	// Добавляем параметры для SQLite: WAL mode, busy timeout
-	dsn := path + "?_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000"
-	db, err := sql.Open("sqlite3", dsn)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open database: %w", err)
+		sqliteDSN := path + "?_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000"
+		db, err = sql.Open("sqlite3", sqliteDSN)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open database: %w", err)
+		}
 	}
 
 	// Настройка пула соединений
@@ -62,6 +92,7 @@ func NewDB(path string, logger *zerolog.Logger) (*DB, error) {
 		DB:         db,
 		itemsCache: make(map[int64]models.Item),
 		logger:     logger,
+		driver:     driver,
 	}
 
 	// Создаем таблицы
@@ -75,8 +106,73 @@ func NewDB(path string, logger *zerolog.Logger) (*DB, error) {
 		// We don't return error here to allow the app to start even if items are missing
 	}
 
-	logger.Info().Str("path", path).Msg("Database initialized")
+	if driver == "postgres" {
+		logger.Info().Str("driver", "postgres").Msg("Database initialized")
+	} else {
+		logger.Info().Str("driver", "sqlite3").Str("path", path).Msg("Database initialized")
+	}
 	return instance, nil
+}
+
+func (db *DB) isPostgres() bool {
+	return db.driver == "postgres"
+}
+
+var placeholderRegexp = regexp.MustCompile(`\?`)
+
+func (db *DB) rebind(query string) string {
+	if !db.isPostgres() || !strings.Contains(query, "?") {
+		return query
+	}
+	idx := 0
+	return placeholderRegexp.ReplaceAllStringFunc(query, func(_ string) string {
+		idx++
+		return "$" + strconv.Itoa(idx)
+	})
+}
+
+func (db *DB) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	return db.DB.ExecContext(ctx, db.rebind(query), args...)
+}
+
+func (db *DB) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	return db.DB.QueryContext(ctx, db.rebind(query), args...)
+}
+
+func (db *DB) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
+	return db.DB.QueryRowContext(ctx, db.rebind(query), args...)
+}
+
+func (db *DB) insertAndReturnID(ctx context.Context, query string, args ...any) (int64, error) {
+	if db.isPostgres() {
+		query = strings.TrimSpace(query) + " RETURNING id"
+		var id int64
+		if err := db.QueryRowContext(ctx, query, args...).Scan(&id); err != nil {
+			return 0, err
+		}
+		return id, nil
+	}
+	result, err := db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
+}
+
+func (db *DB) insertAndReturnIDTx(ctx context.Context, tx *sql.Tx, query string, args ...any) (int64, error) {
+	if db.isPostgres() {
+		query = strings.TrimSpace(query) + " RETURNING id"
+		var id int64
+		if err := tx.QueryRowContext(ctx, db.rebind(query), args...).Scan(&id); err != nil {
+			return 0, err
+		}
+		return id, nil
+	}
+	result, err := tx.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
 }
 
 func (db *DB) createTables() error {
@@ -209,6 +305,110 @@ func (db *DB) createTables() error {
 		`CREATE INDEX IF NOT EXISTS idx_managers_chat_id ON managers(chat_id)`,
 	}
 
+	if db.isPostgres() {
+		queries = []string{
+			`CREATE TABLE IF NOT EXISTS items (
+				id BIGSERIAL PRIMARY KEY,
+				name TEXT UNIQUE NOT NULL,
+				description TEXT,
+				total_quantity BIGINT NOT NULL DEFAULT 1,
+				cabinet_id BIGINT,
+				sort_order BIGINT NOT NULL DEFAULT 0,
+				is_active BOOLEAN NOT NULL DEFAULT TRUE,
+				permanent_reserved BOOLEAN NOT NULL DEFAULT FALSE,
+				created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+				updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+			)`,
+			`CREATE TABLE IF NOT EXISTS users (
+				id BIGSERIAL PRIMARY KEY,
+				telegram_id BIGINT UNIQUE NOT NULL,
+				username TEXT,
+				first_name TEXT NOT NULL,
+				last_name TEXT,
+				phone TEXT,
+				is_manager BOOLEAN NOT NULL DEFAULT FALSE,
+				is_blacklisted BOOLEAN NOT NULL DEFAULT FALSE,
+				language_code TEXT,
+				last_activity TIMESTAMPTZ NOT NULL,
+				created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+				updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+			)`,
+			`CREATE TABLE IF NOT EXISTS user_settings (
+				id BIGSERIAL PRIMARY KEY,
+				user_id BIGINT NOT NULL UNIQUE,
+				reminders_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+				reminder_hours_before BIGINT NOT NULL DEFAULT 24,
+				created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+				updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+				FOREIGN KEY (user_id) REFERENCES users(telegram_id) ON DELETE CASCADE
+			)`,
+			`CREATE TABLE IF NOT EXISTS bookings (
+				id BIGSERIAL PRIMARY KEY,
+				user_id BIGINT NOT NULL,
+				user_name TEXT NOT NULL,
+				user_nickname TEXT,
+				phone TEXT NOT NULL,
+				item_id BIGINT NOT NULL,
+				item_name TEXT NOT NULL,
+				date DATE NOT NULL,
+				status TEXT NOT NULL DEFAULT 'pending',
+				comment TEXT,
+				reminder_sent BOOLEAN NOT NULL DEFAULT FALSE,
+				external_booking_id TEXT,
+				created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+				updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+				version BIGINT NOT NULL DEFAULT 1,
+				FOREIGN KEY(item_id) REFERENCES items(id),
+				FOREIGN KEY(user_id) REFERENCES users(telegram_id)
+			)`,
+			`CREATE INDEX IF NOT EXISTS idx_users_telegram_id ON users(telegram_id)`,
+			`CREATE INDEX IF NOT EXISTS idx_users_is_manager ON users(is_manager)`,
+			`CREATE INDEX IF NOT EXISTS idx_users_is_blacklisted ON users(is_blacklisted)`,
+			`CREATE INDEX IF NOT EXISTS idx_items_sort ON items(sort_order, id)`,
+			`CREATE INDEX IF NOT EXISTS idx_items_cabinet ON items(cabinet_id)`,
+			`CREATE INDEX IF NOT EXISTS idx_bookings_item_date_status ON bookings(item_id, date, status)`,
+			`CREATE TABLE IF NOT EXISTS sync_queue (
+				id BIGSERIAL PRIMARY KEY,
+				task_type TEXT NOT NULL,
+				booking_id BIGINT NOT NULL,
+				payload TEXT,
+				status TEXT DEFAULT 'pending',
+				retry_count BIGINT DEFAULT 0,
+				last_error TEXT,
+				created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+				processed_at TIMESTAMPTZ,
+				next_retry_at TIMESTAMPTZ
+			)`,
+			`CREATE INDEX IF NOT EXISTS idx_sync_queue_status ON sync_queue(status)`,
+			`CREATE INDEX IF NOT EXISTS idx_sync_queue_next_retry ON sync_queue(next_retry_at)`,
+			`CREATE INDEX IF NOT EXISTS idx_bookings_date ON bookings(date)`,
+			`CREATE INDEX IF NOT EXISTS idx_bookings_status ON bookings(status)`,
+			`CREATE INDEX IF NOT EXISTS idx_bookings_item_id ON bookings(item_id)`,
+			`CREATE INDEX IF NOT EXISTS idx_bookings_user_id ON bookings(user_id)`,
+			`CREATE INDEX IF NOT EXISTS idx_bookings_reminder ON bookings(reminder_sent, date)`,
+			`CREATE INDEX IF NOT EXISTS idx_bookings_external ON bookings(external_booking_id)`,
+			`CREATE INDEX IF NOT EXISTS idx_items_active ON items(is_active)`,
+			`CREATE INDEX IF NOT EXISTS idx_items_permanent ON items(permanent_reserved)`,
+			`CREATE INDEX IF NOT EXISTS idx_user_settings_user_id ON user_settings(user_id)`,
+			`CREATE TABLE IF NOT EXISTS blocked_users (
+				user_id BIGINT PRIMARY KEY,
+				blocked_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				reason TEXT,
+				blocked_by BIGINT NOT NULL,
+				FOREIGN KEY (blocked_by) REFERENCES users(telegram_id)
+			)`,
+			`CREATE TABLE IF NOT EXISTS managers (
+				user_id BIGINT PRIMARY KEY,
+				chat_id BIGINT NOT NULL,
+				name TEXT NOT NULL,
+				added_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				added_by BIGINT NOT NULL DEFAULT 0
+			)`,
+			`CREATE INDEX IF NOT EXISTS idx_blocked_users_blocked_at ON blocked_users(blocked_at)`,
+			`CREATE INDEX IF NOT EXISTS idx_managers_chat_id ON managers(chat_id)`,
+		}
+	}
+
 	for _, query := range queries {
 		if _, err := db.Exec(query); err != nil {
 			return fmt.Errorf("error executing query %s: %v", query, err)
@@ -227,8 +427,7 @@ func (db *DB) createTables() error {
 func (db *DB) ensureBookingVersionColumn() error {
 	_, err := db.Exec(`ALTER TABLE bookings ADD COLUMN version INTEGER NOT NULL DEFAULT 1`)
 	if err != nil {
-		// Ignore duplicate column error for SQLite
-		if strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+		if isDuplicateColumnErr(err) {
 			return nil
 		}
 		return fmt.Errorf("failed to add version column: %w", err)
@@ -247,7 +446,7 @@ func (db *DB) ensureNewColumns() error {
 
 	for _, m := range migrations {
 		_, err := db.Exec(m)
-		if err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+		if err != nil && !isDuplicateColumnErr(err) {
 			// Log but don't fail - column might already exist
 			if db.logger != nil {
 				db.logger.Debug().Err(err).Str("migration", m).Msg("Migration skipped")
@@ -255,6 +454,14 @@ func (db *DB) ensureNewColumns() error {
 		}
 	}
 	return nil
+}
+
+func isDuplicateColumnErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "duplicate column") || strings.Contains(msg, "already exists")
 }
 
 func (db *DB) Close() error {
