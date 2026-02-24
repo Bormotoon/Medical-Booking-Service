@@ -24,7 +24,9 @@ services:
     volumes:
       - bronivik_jr_data:/app/data
       - bronivik_jr_exports:/app/exports
+      - ./bronivik_jr/configs:/app/configs:ro
       - ./credentials:/app/credentials:ro
+      - ./.env:/app/.env:ro
     depends_on:
       redis:
         condition: service_healthy
@@ -58,6 +60,8 @@ services:
       - TZ=Europe/Moscow
     volumes:
       - bronivik_jr_data:/app/data
+      - ./bronivik_jr/configs:/app/configs:ro
+      - ./.env:/app/.env:ro
     ports:
       - "${API_HTTP_PORT:-8080}:8080"
       - "${API_GRPC_PORT:-8081}:8081"
@@ -67,7 +71,7 @@ services:
     networks:
       - bronivik-network
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/healthz"]
+      test: ["CMD-SHELL", "wget --header='x-api-key: key1' --header='x-api-extra: extra1' --spider -q http://localhost:8080/healthz"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -100,6 +104,8 @@ services:
       - RETRY_DELAYS=${RETRY_DELAYS:-1s,5s,30s}
     volumes:
       - bronivik_jr_data:/app/data
+      - ./bronivik_jr/configs:/app/configs:ro
+      - ./.env:/app/.env:ro
     depends_on:
       bronivik-jr-bot:
         condition: service_healthy
@@ -139,6 +145,7 @@ services:
     volumes:
       - bronivik_crm_data:/app/data
       - bronivik_crm_exports:/app/exports
+      - ./bronivik_crm/configs:/app/configs:ro
       - ./credentials:/app/credentials:ro
     ports:
       - "${CRM_HEALTH_PORT:-8090}:8090"
