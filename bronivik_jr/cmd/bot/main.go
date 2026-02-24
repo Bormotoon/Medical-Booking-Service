@@ -36,6 +36,8 @@ func main() {
 }
 
 func run() error {
+	workerMode := len(os.Args) > 1 && os.Args[1] == "worker"
+
 	cfg, items, logger, closer, loadErr := loadConfigAndLogger()
 	if loadErr != nil {
 		return loadErr
@@ -98,7 +100,7 @@ func run() error {
 		go backupService.Start(ctx)
 	}
 
-	return startBot(ctx, cfg, stateService, sheetsService, sheetsWorker, eventBus, bookingService, userService, itemService, metrics, &logger)
+	return startBot(ctx, cfg, stateService, sheetsService, sheetsWorker, eventBus, bookingService, userService, itemService, metrics, &logger, workerMode)
 }
 
 func loadConfigAndLogger() (*config.Config, []models.Item, zerolog.Logger, io.Closer, error) {
@@ -234,6 +236,7 @@ func startBot(
 	itemService *service.ItemService,
 	metrics *bot.Metrics,
 	logger *zerolog.Logger,
+	workerMode bool,
 ) error {
 	if cfg.Telegram.BotToken == "YOUR_BOT_TOKEN_HERE" {
 		logger.Error().Msg("Задайте токен бота в config.yaml")
@@ -259,8 +262,19 @@ func startBot(
 		return err
 	}
 
-	logger.Info().Msg("Бот запущен...")
+	if workerMode {
+		logger.Info().Msg("Worker mode enabled: starting reminders without Telegram polling")
+	} else {
+		logger.Info().Msg("Бот запущен...")
+	}
+
 	telegramBot.StartReminders(ctx)
+	if workerMode {
+		<-ctx.Done()
+		logger.Info().Msg("Worker shutdown complete.")
+		return nil
+	}
+
 	telegramBot.Start(ctx)
 
 	logger.Info().Msg("Shutdown complete.")

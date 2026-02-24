@@ -1,8 +1,6 @@
 # Medical Booking Service - Docker Compose
 # Orchestration for all services
 
-version: '3.8'
-
 services:
   # =============================================================================
   # Bronivik Jr - Bot (Device Booking)
@@ -16,6 +14,7 @@ services:
     environment:
       - BOT_TOKEN=${BOT_TOKEN}
       - DB_PATH=/app/data/bronivik_jr.db
+      - REDIS_ADDR=redis:6379
       - REDIS_URL=redis://redis:6379/0
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - TZ=Europe/Moscow
@@ -32,6 +31,9 @@ services:
         condition: service_healthy
     networks:
       - bronivik-network
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     healthcheck:
       test: ["CMD-SHELL", "test -f /proc/1/status"]
       interval: 30s
@@ -51,6 +53,7 @@ services:
     command: ["./api"]
     environment:
       - DB_PATH=/app/data/bronivik_jr.db
+      - REDIS_ADDR=redis:6379
       - REDIS_URL=redis://redis:6379/0
       - API_HTTP_PORT=8080
       - API_GRPC_PORT=8081
@@ -58,9 +61,13 @@ services:
       - API_AUTH_KEYS=${API_AUTH_KEYS}
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - TZ=Europe/Moscow
+      - GOOGLE_CREDENTIALS_FILE=/app/credentials/google-credentials.json
+      - USERS_SPREADSHEET_ID=${USERS_SPREADSHEET_ID}
+      - BOOKINGS_SPREADSHEET_ID=${BOOKINGS_SPREADSHEET_ID}
     volumes:
       - bronivik_jr_data:/app/data
       - ./bronivik_jr/configs:/app/configs:ro
+      - ./credentials:/app/credentials:ro
       - ./.env:/app/.env:ro
     ports:
       - "${API_HTTP_PORT:-8080}:8080"
@@ -70,6 +77,9 @@ services:
         condition: service_healthy
     networks:
       - bronivik-network
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     healthcheck:
       test: ["CMD-SHELL", "wget --header='x-api-key: key1' --header='x-api-extra: extra1' --spider -q http://localhost:8080/healthz"]
       interval: 30s
@@ -90,6 +100,7 @@ services:
     environment:
       - BOT_TOKEN=${BOT_TOKEN}
       - DB_PATH=/app/data/bronivik_jr.db
+      - REDIS_ADDR=redis:6379
       - REDIS_URL=redis://redis:6379/0
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - TZ=Europe/Moscow
@@ -113,6 +124,9 @@ services:
         condition: service_healthy
     networks:
       - bronivik-network
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     healthcheck:
       test: ["CMD-SHELL", "test -f /proc/1/status"]
       interval: 60s
@@ -156,6 +170,9 @@ services:
         condition: service_healthy
     networks:
       - bronivik-network
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:8090/healthz"]
       interval: 30s

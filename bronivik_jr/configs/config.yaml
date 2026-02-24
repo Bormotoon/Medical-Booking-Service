@@ -35,14 +35,14 @@ database:
     migration_table: "schema_migrations"
 
 redis:
-  address: "localhost:6379"
+  address: ${REDIS_ADDR}
   password: ""
   db: 0
   pool_size: 10
 
 backup:
   enabled: true
-  schedule: "0 2 * * *"  # ежедневно в 2:00
+  schedule: "24h"  # интервал между бэкапами
   retention_days: 30
   storage_path: "/var/backups/bot"
 
