@@ -71,7 +71,11 @@ func (b *Bot) handleCallbackQuery(ctx context.Context, update *tgbotapi.Update) 
 		if state != nil && state.TempData["item_id"] != nil {
 			itemID := state.GetInt64("item_id")
 			b.handleDateSelection(ctx, update, itemID)
+			return
 		}
+		b.sendMessage(callback.Message.Chat.ID, "Сначала выберите аппарат для просмотра расписания")
+		b.setUserState(ctx, userID, "schedule_select_item", map[string]interface{}{"page": 0})
+		b.sendScheduleItemsPage(ctx, callback.Message.Chat.ID, callback.Message.MessageID, 0)
 	}
 }
 

@@ -47,7 +47,7 @@ func (b *Bot) handleManagerClientPhone(ctx context.Context, update *tgbotapi.Upd
 	// Нормализуем телефон
 	normalizedPhone := b.normalizePhone(text)
 	if normalizedPhone == "" {
-		b.sendMessage(update.Message.Chat.ID, "Неверный формат номера телефона. Пожалуйста, введите номер в формате +7XXXXXXXXXX или 8XXXXXXXXXX")
+		b.sendMessage(update.Message.Chat.ID, "Неверный формат контакта. Введите номер (+7XXXXXXXXXX или 8XXXXXXXXXX) или Telegram (@username / t.me/username)")
 		return
 	}
 
@@ -810,10 +810,26 @@ func (b *Bot) handleCallButton(ctx context.Context, update *tgbotapi.Update) {
 	msg.ParseMode = models.ParseModeMarkdown
 
 	// Создаем клавиатуру с быстрыми действиями
+	contactValue := strings.TrimSpace(booking.Phone)
+	telegramValue := strings.TrimPrefix(contactValue, "@")
+	if strings.HasPrefix(telegramValue, "https://t.me/") {
+		telegramValue = strings.TrimPrefix(telegramValue, "https://t.me/")
+	}
+	if strings.HasPrefix(telegramValue, "http://t.me/") {
+		telegramValue = strings.TrimPrefix(telegramValue, "http://t.me/")
+	}
+	if strings.HasPrefix(telegramValue, "t.me/") {
+		telegramValue = strings.TrimPrefix(telegramValue, "t.me/")
+	}
+	if idx := strings.IndexAny(telegramValue, "/?"); idx >= 0 {
+		telegramValue = telegramValue[:idx]
+	}
+
+	whatsAppValue := strings.TrimPrefix(contactValue, "+")
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonURL("💬 WhatsApp", fmt.Sprintf("https://wa.me/%s", strings.TrimPrefix(booking.Phone, "+"))),
-			tgbotapi.NewInlineKeyboardButtonURL("✉️ Telegram", fmt.Sprintf("https://t.me/%s", strings.TrimPrefix(booking.Phone, "+"))),
+			tgbotapi.NewInlineKeyboardButtonURL("💬 WhatsApp", fmt.Sprintf("https://wa.me/%s", whatsAppValue)),
+			tgbotapi.NewInlineKeyboardButtonURL("✉️ Telegram", fmt.Sprintf("https://t.me/%s", telegramValue)),
 		),
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("⬅️ Назад к заявке", fmt.Sprintf("show_booking:%d", booking.ID)),

@@ -17,8 +17,12 @@ func TestNormalizePhone(t *testing.T) {
 		{"79991234567", "79991234567"},
 		{"+7 (999) 123-45-67", "79991234567"},
 		{"9991234567", "79991234567"},
+		{"@client_name", "@client_name"},
+		{"t.me/client_name", "@client_name"},
+		{"https://t.me/client_name", "@client_name"},
 		{"123", ""},
 		{"abcdefghijk", ""},
+		{"@abc", ""},
 	}
 
 	for _, tt := range tests {

@@ -489,6 +489,7 @@ func (b *Bot) showMonthScheduleForItem(ctx context.Context, update *tgbotapi.Upd
 
 	keyboard = append(keyboard, []tgbotapi.InlineKeyboardButton{
 		tgbotapi.NewInlineKeyboardButtonData(btnCreateForItem, "start_the_order_item"),
+		tgbotapi.NewInlineKeyboardButtonData("⬅️ Назад в меню", "back_to_main_from_schedule"),
 	})
 
 	markup := tgbotapi.NewInlineKeyboardMarkup(keyboard...)
@@ -546,7 +547,16 @@ func (b *Bot) handleSpecificDateInput(ctx context.Context, update *tgbotapi.Upda
 		booked,
 		selectedItem.TotalQuantity)
 
+	keyboard := make([][]tgbotapi.InlineKeyboardButton, 0, 1)
+	keyboard = append(keyboard, []tgbotapi.InlineKeyboardButton{
+		tgbotapi.NewInlineKeyboardButtonData(btnCreateForItem, "start_the_order_item"),
+		tgbotapi.NewInlineKeyboardButtonData("⬅️ Назад в меню", "back_to_main_from_schedule"),
+	})
+
+	markup := tgbotapi.NewInlineKeyboardMarkup(keyboard...)
+
 	msg := tgbotapi.NewMessage(update.Message.Chat.ID, message)
+	msg.ReplyMarkup = &markup
 	msg.ParseMode = models.ParseModeMarkdown
 	if _, err := b.tgService.Send(msg); err != nil {
 		b.logger.Error().Err(err).Msg("Failed to send specific date info in handleSpecificDateInput")
@@ -558,7 +568,13 @@ func (b *Bot) requestSpecificDate(ctx context.Context, update *tgbotapi.Update) 
 	msg := tgbotapi.NewMessage(update.Message.Chat.ID,
 		"Введите дату в формате ДД.ММ.ГГГГ (например, 25.12.2025):")
 
-	b.setUserState(ctx, update.Message.From.ID, models.StateWaitingSpecificDate, nil)
+	state := b.getUserState(ctx, update.Message.From.ID)
+	tempData := map[string]interface{}{}
+	if state != nil && state.TempData != nil {
+		tempData = state.TempData
+	}
+
+	b.setUserState(ctx, update.Message.From.ID, models.StateWaitingSpecificDate, tempData)
 	if _, err := b.tgService.Send(msg); err != nil {
 		b.logger.Error().Err(err).Msg("Failed to send requestSpecificDate message")
 	}
@@ -730,7 +746,7 @@ func (b *Bot) handlePhoneReceived(ctx context.Context, update *tgbotapi.Update, 
 	// Проверяем и нормализуем номер телефона
 	normalizedPhone := b.normalizePhone(phone)
 	if normalizedPhone == "" {
-		b.sendMessage(update.Message.Chat.ID, "Неверный формат номера телефона. Пожалуйста, введите номер в формате +7XXXXXXXXXX или 8XXXXXXXXXX")
+		b.sendMessage(update.Message.Chat.ID, "Неверный формат контакта. Введите номер (+7XXXXXXXXXX или 8XXXXXXXXXX) или Telegram (@username / t.me/username)")
 		return
 	}
 
@@ -793,6 +809,10 @@ func (b *Bot) handlePhoneReceived(ctx context.Context, update *tgbotapi.Update, 
 
 // normalizePhone нормализует номер телефона
 func (b *Bot) normalizePhone(phone string) string {
+	if tgContact := b.normalizeTelegramContact(phone); tgContact != "" {
+		return tgContact
+	}
+
 	// Удаляем все нецифровые символы
 	cleaned := ""
 	for _, char := range phone {
@@ -813,6 +833,46 @@ func (b *Bot) normalizePhone(phone string) string {
 	}
 
 	return "" // Неверный формат
+}
+
+// normalizeTelegramContact извлекает username из @username или t.me/username.
+func (b *Bot) normalizeTelegramContact(input string) string {
+	value := strings.TrimSpace(input)
+	if value == "" {
+		return ""
+	}
+
+	lower := strings.ToLower(value)
+	switch {
+	case strings.HasPrefix(lower, "https://t.me/"):
+		value = value[len("https://t.me/"):]
+	case strings.HasPrefix(lower, "http://t.me/"):
+		value = value[len("http://t.me/"):]
+	case strings.HasPrefix(lower, "t.me/"):
+		value = value[len("t.me/"):]
+	case strings.HasPrefix(value, "@"):
+		value = value[1:]
+	default:
+		return ""
+	}
+
+	if idx := strings.IndexAny(value, "/?"); idx >= 0 {
+		value = value[:idx]
+	}
+
+	if len(value) < 5 || len(value) > 32 {
+		return ""
+	}
+
+	for _, r := range value {
+		isLetter := (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')
+		isDigit := r >= '0' && r <= '9'
+		if !isLetter && !isDigit && r != '_' {
+			return ""
+		}
+	}
+
+	return "@" + value
 }
 
 // formatPhoneForDisplay форматирует номер телефона для красивого отображения
