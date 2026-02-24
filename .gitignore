@@ -1,0 +1,17 @@
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# Credentials and keys
+credentials/
+**/credentials/
+*.pem
+*.key
+*.p12
+*.pfx
+*secret*
+*token*
