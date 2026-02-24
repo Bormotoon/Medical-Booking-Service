@@ -59,10 +59,7 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	sheetsService, err := initGoogleSheets(ctx, cfg, &logger)
-	if err != nil {
-		return err
-	}
+	sheetsService := initGoogleSheets(ctx, cfg, &logger)
 
 	redisClient, stateService := initStateService(ctx, cfg, &logger)
 
@@ -96,11 +93,29 @@ func run() error {
 	}
 
 	if cfg.Backup.Enabled {
-		backupService := database.NewBackupServiceWithDriver(cfg.DatabaseDriver(), cfg.Database.Path, cfg.Backup, &logger)
+		backupService := database.NewBackupServiceWithDriver(
+			cfg.DatabaseDriver(),
+			cfg.Database.Path,
+			cfg.Backup,
+			&logger,
+		)
 		go backupService.Start(ctx)
 	}
 
-	return startBot(ctx, cfg, stateService, sheetsService, sheetsWorker, eventBus, bookingService, userService, itemService, metrics, &logger, workerMode)
+	return startBot(
+		ctx,
+		cfg,
+		stateService,
+		sheetsService,
+		sheetsWorker,
+		eventBus,
+		bookingService,
+		userService,
+		itemService,
+		metrics,
+		&logger,
+		workerMode,
+	)
 }
 
 func loadConfigAndLogger() (*config.Config, []models.Item, zerolog.Logger, io.Closer, error) {
@@ -184,10 +199,10 @@ func initDatabase(cfg *config.Config, items []models.Item, logger *zerolog.Logge
 	return db, nil
 }
 
-func initGoogleSheets(ctx context.Context, cfg *config.Config, logger *zerolog.Logger) (*google.SheetsService, error) {
+func initGoogleSheets(ctx context.Context, cfg *config.Config, logger *zerolog.Logger) *google.SheetsService {
 	if cfg.Google.GoogleCredentialsFile == "" || cfg.Google.UsersSpreadSheetID == "" || cfg.Google.BookingSpreadSheetID == "" {
 		logger.Warn().Msg("Google Sheets is not configured; continuing without sheets integration")
-		return nil, nil
+		return nil
 	}
 
 	sheetsSvc, err := google.NewSimpleSheetsService(
@@ -197,16 +212,16 @@ func initGoogleSheets(ctx context.Context, cfg *config.Config, logger *zerolog.L
 	)
 	if err != nil {
 		logger.Warn().Err(err).Msg("Failed to initialize Google Sheets service")
-		return nil, nil
+		return nil
 	}
 
 	if err := sheetsSvc.TestConnection(ctx); err != nil {
 		logger.Warn().Err(err).Msg("Google Sheets connection test failed; continuing without sheets integration")
-		return nil, nil
+		return nil
 	}
 
 	logger.Info().Msg("Google Sheets service initialized successfully")
-	return sheetsSvc, nil
+	return sheetsSvc
 }
 
 func initStateService(ctx context.Context, cfg *config.Config, logger *zerolog.Logger) (*redis.Client, *service.StateService) {

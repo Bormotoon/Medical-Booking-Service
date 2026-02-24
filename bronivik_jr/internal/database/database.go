@@ -58,7 +58,7 @@ func newDB(driver, path, dsn string, logger *zerolog.Logger) (*DB, error) {
 		err error
 	)
 
-	if driver == "postgres" {
+	if driver == postgresDriver {
 		db, err = sql.Open("pgx", dsn)
 		if err != nil {
 			return nil, fmt.Errorf("failed to open postgres database: %w", err)
@@ -66,8 +66,8 @@ func newDB(driver, path, dsn string, logger *zerolog.Logger) (*DB, error) {
 	} else {
 		// Создаем директорию для БД, если её нет
 		dir := filepath.Dir(path)
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return nil, fmt.Errorf("failed to create database directory: %w", err)
+		if mkErr := os.MkdirAll(dir, 0o755); mkErr != nil {
+			return nil, fmt.Errorf("failed to create database directory: %w", mkErr)
 		}
 
 		// Добавляем параметры для SQLite: WAL mode, busy timeout
@@ -106,8 +106,8 @@ func newDB(driver, path, dsn string, logger *zerolog.Logger) (*DB, error) {
 		// We don't return error here to allow the app to start even if items are missing
 	}
 
-	if driver == "postgres" {
-		logger.Info().Str("driver", "postgres").Msg("Database initialized")
+	if driver == postgresDriver {
+		logger.Info().Str("driver", postgresDriver).Msg("Database initialized")
 	} else {
 		logger.Info().Str("driver", "sqlite3").Str("path", path).Msg("Database initialized")
 	}
@@ -115,7 +115,7 @@ func newDB(driver, path, dsn string, logger *zerolog.Logger) (*DB, error) {
 }
 
 func (db *DB) isPostgres() bool {
-	return db.driver == "postgres"
+	return db.driver == postgresDriver
 }
 
 var placeholderRegexp = regexp.MustCompile(`\?`)

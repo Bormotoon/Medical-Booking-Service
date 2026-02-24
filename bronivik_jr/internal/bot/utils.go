@@ -746,7 +746,10 @@ func (b *Bot) handlePhoneReceived(ctx context.Context, update *tgbotapi.Update, 
 	// Проверяем и нормализуем номер телефона
 	normalizedPhone := b.normalizePhone(phone)
 	if normalizedPhone == "" {
-		b.sendMessage(update.Message.Chat.ID, "Неверный формат контакта. Введите номер (+7XXXXXXXXXX или 8XXXXXXXXXX) или Telegram (@username / t.me/username)")
+		b.sendMessage(
+			update.Message.Chat.ID,
+			"Неверный формат контакта. Введите номер (+7XXXXXXXXXX или 8XXXXXXXXXX) или Telegram (@username / t.me/username)",
+		)
 		return
 	}
 
@@ -842,19 +845,11 @@ func (b *Bot) normalizeTelegramContact(input string) string {
 		return ""
 	}
 
-	lower := strings.ToLower(value)
-	switch {
-	case strings.HasPrefix(lower, "https://t.me/"):
-		value = value[len("https://t.me/"):]
-	case strings.HasPrefix(lower, "http://t.me/"):
-		value = value[len("http://t.me/"):]
-	case strings.HasPrefix(lower, "t.me/"):
-		value = value[len("t.me/"):]
-	case strings.HasPrefix(value, "@"):
-		value = value[1:]
-	default:
+	normalized, ok := trimTelegramPrefix(value)
+	if !ok {
 		return ""
 	}
+	value = normalized
 
 	if idx := strings.IndexAny(value, "/?"); idx >= 0 {
 		value = value[:idx]
@@ -873,6 +868,25 @@ func (b *Bot) normalizeTelegramContact(input string) string {
 	}
 
 	return "@" + value
+}
+
+func trimTelegramPrefix(value string) (string, bool) {
+	lower := strings.ToLower(value)
+
+	if strings.HasPrefix(value, "@") {
+		return value[1:], true
+	}
+	if strings.HasPrefix(lower, "https://t.me/") {
+		return value[len("https://t.me/"):], true
+	}
+	if strings.HasPrefix(lower, "http://t.me/") {
+		return value[len("http://t.me/"):], true
+	}
+	if strings.HasPrefix(lower, "t.me/") {
+		return value[len("t.me/"):], true
+	}
+
+	return "", false
 }
 
 // formatPhoneForDisplay форматирует номер телефона для красивого отображения

@@ -22,10 +22,16 @@ type BackupService struct {
 	logger *zerolog.Logger
 }
 
+const (
+	sqliteDriver      = "sqlite3"
+	postgresDriver    = "postgres"
+	defaultBackupPath = "backups"
+)
+
 func NewBackupService(dbPath string, cfg config.BackupConfig, logger *zerolog.Logger) *BackupService {
 	return &BackupService{
 		dbPath: dbPath,
-		driver: "sqlite3",
+		driver: sqliteDriver,
 		config: cfg,
 		logger: logger,
 	}
@@ -33,7 +39,7 @@ func NewBackupService(dbPath string, cfg config.BackupConfig, logger *zerolog.Lo
 
 func NewBackupServiceWithDriver(driver, dbPath string, cfg config.BackupConfig, logger *zerolog.Logger) *BackupService {
 	if driver == "" {
-		driver = "sqlite3"
+		driver = sqliteDriver
 	}
 	return &BackupService{
 		dbPath: dbPath,
@@ -49,13 +55,13 @@ func (s *BackupService) Start(ctx context.Context) {
 		return
 	}
 
-	if s.driver == "postgres" {
+	if s.driver == postgresDriver {
 		s.logger.Warn().Msg("Backup service is disabled for postgres in-app mode; use pg_dump/managed backups")
 		return
 	}
 
 	if s.config.StoragePath == "" {
-		s.config.StoragePath = "backups"
+		s.config.StoragePath = defaultBackupPath
 	}
 
 	s.logger.Info().Str("schedule", s.config.Schedule).Msg("Backup service started")
@@ -92,7 +98,7 @@ func (s *BackupService) Start(ctx context.Context) {
 
 func (s *BackupService) PerformBackup() error {
 	if s.config.StoragePath == "" {
-		s.config.StoragePath = "backups"
+		s.config.StoragePath = defaultBackupPath
 	}
 
 	if _, err := os.Stat(s.config.StoragePath); os.IsNotExist(err) {
@@ -153,7 +159,7 @@ func (s *BackupService) CleanupOldBackups() {
 	}
 
 	if s.config.StoragePath == "" {
-		s.config.StoragePath = "backups"
+		s.config.StoragePath = defaultBackupPath
 	}
 
 	files, err := os.ReadDir(s.config.StoragePath)
