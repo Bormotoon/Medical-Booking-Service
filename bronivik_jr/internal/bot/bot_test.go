@@ -241,6 +241,7 @@ type mockUserService struct {
 	saveError           error
 	updateActivityError error
 	updatePhoneError    error
+	updateActivityCalls int
 	mu                  sync.RWMutex
 }
 
@@ -258,10 +259,20 @@ func (m *mockUserService) SaveUser(ctx context.Context, user *models.User) error
 }
 
 func (m *mockUserService) UpdateUserActivity(ctx context.Context, telegramID int64) error {
-	if m.updateActivityError != nil {
-		return m.updateActivityError
+	m.mu.Lock()
+	m.updateActivityCalls++
+	err := m.updateActivityError
+	m.mu.Unlock()
+	if err != nil {
+		return err
 	}
 	return nil
+}
+
+func (m *mockUserService) getUpdateActivityCalls() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.updateActivityCalls
 }
 
 func (m *mockUserService) UpdateUserPhone(ctx context.Context, telegramID int64, phone string) error {
@@ -1891,6 +1902,46 @@ func TestMiddleware(t *testing.T) {
 	b.trackActivity(123)
 	// Wait a bit for the goroutine
 	time.Sleep(50 * time.Millisecond)
+}
+
+func TestTrackActivityDebouncesUpdates(t *testing.T) {
+	b, mocks := setupTestBot()
+
+	currentTime := time.Date(2026, 3, 7, 12, 0, 0, 0, time.UTC)
+	b.activityWindow = time.Minute
+	b.activityNow = func() time.Time { return currentTime }
+
+	b.trackActivity(123)
+	require.Eventually(t, func() bool {
+		return mocks.user.getUpdateActivityCalls() == 1
+	}, time.Second, 10*time.Millisecond)
+
+	b.trackActivity(123)
+	assert.Never(t, func() bool {
+		return mocks.user.getUpdateActivityCalls() > 1
+	}, 100*time.Millisecond, 10*time.Millisecond)
+
+	currentTime = currentTime.Add(2 * time.Minute)
+	b.trackActivity(123)
+	require.Eventually(t, func() bool {
+		return mocks.user.getUpdateActivityCalls() == 2
+	}, time.Second, 10*time.Millisecond)
+}
+
+func TestUpdateUserActivityRetriesAfterFailure(t *testing.T) {
+	b, mocks := setupTestBot()
+
+	currentTime := time.Date(2026, 3, 7, 12, 0, 0, 0, time.UTC)
+	b.activityWindow = time.Hour
+	b.activityNow = func() time.Time { return currentTime }
+
+	mocks.user.updateActivityError = errors.New("update activity error")
+	b.updateUserActivity(123)
+	require.Equal(t, 1, mocks.user.getUpdateActivityCalls())
+
+	mocks.user.updateActivityError = nil
+	b.updateUserActivity(123)
+	require.Equal(t, 2, mocks.user.getUpdateActivityCalls())
 }
 
 func TestStop(t *testing.T) {

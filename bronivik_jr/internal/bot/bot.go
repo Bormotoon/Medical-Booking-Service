@@ -3,6 +3,7 @@ package bot
 import (
 	"context"
 	"os"
+	"sync"
 	"time"
 
 	"bronivik/internal/config"
@@ -36,6 +37,8 @@ const (
 	statusPending = "⏳"
 	statusError   = "❌"
 	typeSingle    = "single"
+
+	defaultActivityUpdateInterval = 5 * time.Minute
 )
 
 // Bot represents the Telegram bot instance and its dependencies.
@@ -51,6 +54,10 @@ type Bot struct {
 	itemService    domain.ItemService
 	metrics        *Metrics
 	logger         *zerolog.Logger
+	activityMu     sync.Mutex
+	activityLast   map[int64]time.Time
+	activityWindow time.Duration
+	activityNow    func() time.Time
 }
 
 // NewBot creates a new instance of the Telegram bot.
@@ -88,6 +95,9 @@ func NewBot(
 		itemService:    itemService,
 		metrics:        metrics,
 		logger:         logger,
+		activityLast:   make(map[int64]time.Time),
+		activityWindow: defaultActivityUpdateInterval,
+		activityNow:    time.Now,
 	}, nil
 }
 

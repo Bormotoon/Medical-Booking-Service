@@ -193,12 +193,11 @@ func (b *Bot) handleStartWithUserTracking(ctx context.Context, update *tgbotapi.
 }
 
 func (b *Bot) updateUserActivity(userID int64) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	err := b.userService.UpdateUserActivity(ctx, userID)
-	if err != nil {
-		b.logger.Error().Err(err).Int64("user_id", userID).Msg("Error updating user activity")
+	scheduledAt, ok := b.beginActivityUpdate(userID)
+	if !ok {
+		return
 	}
+	b.performActivityUpdate(context.Background(), userID, scheduledAt)
 }
 
 func (b *Bot) updateUserPhone(userID int64, phone string) {
