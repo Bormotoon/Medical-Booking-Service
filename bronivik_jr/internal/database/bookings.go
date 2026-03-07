@@ -82,6 +82,8 @@ func (db *DB) CreateBooking(ctx context.Context, booking *models.Booking) error 
 	return nil
 }
 
+// CreateBookingWithLock is the only supported booking-capacity guard and relies on SQLite transactions.
+// PostgreSQL runtime is intentionally unsupported in bronivik_jr.
 func (db *DB) CreateBookingWithLock(ctx context.Context, booking *models.Booking) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {

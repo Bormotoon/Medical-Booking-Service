@@ -157,6 +157,8 @@ Medical-Booking-Service/
 - **SQLite3** (встроен в Docker-образы)
 - **Google Cloud Service Account** (опционально, для синхронизации с Google Sheets)
 
+PostgreSQL не входит в поддерживаемые runtime-сценарии; `bronivik_jr` и `bronivik_crm` используют только SQLite.
+
 ---
 
 ## 🚀 Быстрый старт

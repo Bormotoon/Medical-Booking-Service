@@ -138,11 +138,13 @@ func getUserByTelegramIDTx(ctx context.Context, tx *sql.Tx, telegramID int64, is
 	return scanUser(row)
 }
 
-// NewDB opens database at path and runs migrations.
+// NewDB opens a SQLite database at path and runs migrations.
 func NewDB(path string) (*DB, error) {
 	return NewDBWithDriver("sqlite3", path, "")
 }
 
+// NewDBWithDriver keeps SQLite as the only supported runtime backend.
+// PostgreSQL is intentionally unsupported in bronivik_crm.
 func NewDBWithDriver(driver, path, dsn string) (*DB, error) {
 	if driver == "" {
 		driver = "sqlite3"
