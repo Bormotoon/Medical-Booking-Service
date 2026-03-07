@@ -1,6 +1,3 @@
-# Medical Booking Service - CI/CD Pipeline
-# Runs on push to master and pull requests
-
 name: CI/CD
 
 on:
@@ -16,61 +13,22 @@ on:
       - 'docs/**'
 
 env:
-  GO_VERSION: '1.24'
-  GO_VERSION_CRM: '1.22'
+  GOLANGCI_LINT_VERSION: v1.64.8
 
 jobs:
-  # ===========================================================================
-  # Lint - Check code quality
-  # ===========================================================================
-  lint:
-    name: Lint
+  verify:
+    name: Verify (${{ matrix.module }})
     runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Go (bronivik_jr)
-        uses: actions/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache-dependency-path: bronivik_jr/go.sum
-
-      - name: Run golangci-lint (bronivik_jr)
-        uses: golangci/golangci-lint-action@v4
-        with:
-          version: latest
-          working-directory: bronivik_jr
-          args: --timeout=5m
-
-      - name: Set up Go (bronivik_crm)
-        uses: actions/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VERSION_CRM }}
-          cache-dependency-path: bronivik_crm/go.sum
-
-      - name: Run golangci-lint (bronivik_crm)
-        uses: golangci/golangci-lint-action@v4
-        with:
-          version: latest
-          working-directory: bronivik_crm
-          args: --timeout=5m
-
-  # ===========================================================================
-  # Test - Run unit and integration tests
-  # ===========================================================================
-  test:
-    name: Test
-    runs-on: ubuntu-latest
-    needs: lint
     strategy:
+      fail-fast: false
       matrix:
-        module: [bronivik_jr, bronivik_crm]
         include:
           - module: bronivik_jr
-            go-version: '1.24'
+            go_version_file: bronivik_jr/go.mod
+            make_target: ci-jr
           - module: bronivik_crm
-            go-version: '1.22'
+            go_version_file: bronivik_crm/go.mod
+            make_target: ci-crm
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -78,71 +36,16 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: ${{ matrix.go-version }}
+          go-version-file: ${{ matrix.go_version_file }}
           cache-dependency-path: ${{ matrix.module }}/go.sum
 
-      - name: Install dependencies
-        working-directory: ${{ matrix.module }}
-        run: go mod download
+      - name: Run local CI target
+        run: make ${{ matrix.make_target }} GOLANGCI_LINT_VERSION=${{ env.GOLANGCI_LINT_VERSION }}
 
-      - name: Run tests
-        working-directory: ${{ matrix.module }}
-        run: go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
-
-      - name: Upload coverage
-        uses: codecov/codecov-action@v4
-        with:
-          files: ${{ matrix.module }}/coverage.out
-          flags: ${{ matrix.module }}
-          fail_ci_if_error: false
-
-  # ===========================================================================
-  # Build - Build binaries and Docker images
-  # ===========================================================================
-  build:
-    name: Build
-    runs-on: ubuntu-latest
-    needs: test
-    strategy:
-      matrix:
-        module: [bronivik_jr, bronivik_crm]
-        include:
-          - module: bronivik_jr
-            go-version: '1.24'
-          - module: bronivik_crm
-            go-version: '1.22'
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: ${{ matrix.go-version }}
-          cache-dependency-path: ${{ matrix.module }}/go.sum
-
-      - name: Build binaries
-        working-directory: ${{ matrix.module }}
-        run: |
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o bin/${{ matrix.module }} ./cmd/bot
-          if [ "${{ matrix.module }}" = "bronivik_jr" ]; then
-            CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o bin/${{ matrix.module }}-api ./cmd/api
-          fi
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.module }}-binaries
-          path: ${{ matrix.module }}/bin/
-          retention-days: 7
-
-  # ===========================================================================
-  # Docker - Build and push Docker images
-  # ===========================================================================
   docker:
     name: Docker Build
     runs-on: ubuntu-latest
-    needs: build
+    needs: verify
     permissions:
       contents: read
       packages: write
@@ -185,13 +88,10 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # ===========================================================================
-  # Security - Scan for vulnerabilities
-  # ===========================================================================
   security:
     name: Security Scan
     runs-on: ubuntu-latest
-    needs: lint
+    needs: verify
     permissions:
       actions: read
       contents: read
@@ -232,9 +132,6 @@ jobs:
           sarif_file: 'trivy-crm-results.sarif'
           category: bronivik_crm
 
-  # ===========================================================================
-  # Deploy - Deploy to production (manual trigger)
-  # ===========================================================================
   deploy:
     name: Deploy
     runs-on: ubuntu-latest
@@ -251,16 +148,3 @@ jobs:
           echo "Images pushed to ghcr.io/${{ github.repository }}"
           # Add your deployment commands here
           # e.g., SSH to server, pull new images, restart containers
-
-      # Uncomment and configure for your deployment target
-      # - name: Deploy to server
-      #   uses: appleboy/ssh-action@v1.0.0
-      #   with:
-      #     host: ${{ secrets.DEPLOY_HOST }}
-      #     username: ${{ secrets.DEPLOY_USER }}
-      #     key: ${{ secrets.DEPLOY_KEY }}
-      #     script: |
-      #       cd /opt/medical-booking
-      #       docker-compose pull
-      #       docker-compose up -d --remove-orphans
-      #       docker system prune -f

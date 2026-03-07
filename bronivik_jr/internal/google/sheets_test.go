@@ -1,12 +1,13 @@
 package google
 
 import (
-	"bronivik/internal/models"
 	"context"
 	"os"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"bronivik/internal/models"
 )
 
 func TestFilterActiveBookings(t *testing.T) {

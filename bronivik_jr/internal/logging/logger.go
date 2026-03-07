@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"bronivik/internal/config"
+
 	"github.com/rs/zerolog"
 )
 

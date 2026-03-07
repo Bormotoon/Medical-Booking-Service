@@ -157,44 +157,6 @@ func (s *HTTPServer) shouldIncludeItem(item *models.Item, req *AvailabilityReque
 	return true
 }
 
-func (s *HTTPServer) getItemAvailabilityDates(ctx context.Context, item *models.Item, start, end time.Time) []DateAvailability {
-	availability := make([]DateAvailability, 0)
-	for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
-		dateStr := d.Format("2006-01-02")
-
-		if item.PermanentReserved {
-			availability = append(availability, DateAvailability{
-				Date:      dateStr,
-				Available: false,
-				Reason:    "reserved",
-			})
-			continue
-		}
-
-		info, err := s.db.GetItemAvailabilityByName(ctx, item.Name, d)
-		if err != nil {
-			availability = append(availability, DateAvailability{
-				Date:      dateStr,
-				Available: false,
-				Reason:    "error",
-			})
-			continue
-		}
-
-		reason := ""
-		if !info.Available {
-			reason = "booked"
-		}
-
-		availability = append(availability, DateAvailability{
-			Date:      dateStr,
-			Available: info.Available,
-			Reason:    reason,
-		})
-	}
-	return availability
-}
-
 func (s *HTTPServer) buildItemAvailability(
 	ctx context.Context,
 	items []*models.Item,

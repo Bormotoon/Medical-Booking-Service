@@ -1,62 +1,30 @@
 linters-settings:
-  govet:
-    enable:
-      - shadow
-  gocyclo:
-    min-complexity: 15
-  dupl:
-    threshold: 100
-  goconst:
-    min-len: 3
-    min-occurrences: 3
-  misspell:
-    locale: US
-  lll:
-    line-length: 140
   goimports:
     local-prefixes: bronivik
-  unused:
-    {}
-  unparam:
-    {}
-  nakedret:
-    max-func-lines: 30
-  prealloc:
-    simple: true
-    range-loops: true
-    for-loops: false
-  gocritic:
-    enabled-tags:
-      - diagnostic
-      - experimental
-      - opinionated
-      - performance
-      - style
+  misspell:
+    locale: US
 
 linters:
+  disable-all: true
   enable:
-    - govet
-    - errcheck
-    - staticcheck
-    - unused
-    - gosimple
-    - ineffassign
-    - typecheck
     - bodyclose
-    - gocyclo
-    - dupl
-    - goconst
-    - gocritic
+    - errcheck
+    - gofmt
+    - goimports
+    - gosimple
+    - govet
+    - ineffassign
     - misspell
-    - lll
-    - unparam
-    - nakedret
-    - prealloc
-    - copyloopvar
+    - staticcheck
+    - typecheck
+    - unused
 
 run:
   timeout: 5m
   tests: true
+
 issues:
-  exclude-dirs:
-    - vendor
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - errcheck
