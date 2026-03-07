@@ -6,7 +6,32 @@ const (
 	StatusCanceled  = "canceled"
 	StatusChanged   = "changed"
 	StatusCompleted = "completed"
+
+	// Legacy booking statuses kept for backward-compatible reads from old rows.
+	StatusApprovedLegacy = "approved"
+	StatusRejectedLegacy = "rejected"
 )
+
+// NormalizeBookingStatus maps legacy aliases to the canonical booking status set.
+func NormalizeBookingStatus(status string) string {
+	switch status {
+	case StatusApprovedLegacy:
+		return StatusConfirmed
+	default:
+		return status
+	}
+}
+
+// BookingStatusBlocksSlot reports whether a booking status should consume capacity.
+// Unknown statuses are treated as blocking to avoid accidental overbooking.
+func BookingStatusBlocksSlot(status string) bool {
+	switch status {
+	case StatusCanceled, StatusRejectedLegacy:
+		return false
+	default:
+		return true
+	}
+}
 
 const (
 	ParseModeMarkdown = "Markdown"

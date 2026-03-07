@@ -178,6 +178,88 @@ func TestGetBookedCountCountsTimestampDates(t *testing.T) {
 	assert.False(t, available)
 }
 
+func TestCreateExternalBookingBlocksPendingBooking(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+
+	ctx := context.Background()
+	item := &models.Item{Name: "Shared Item", TotalQuantity: 1, IsActive: true}
+	require.NoError(t, db.CreateItem(ctx, item))
+
+	date := time.Date(2026, 3, 21, 0, 0, 0, 0, time.UTC)
+	require.NoError(t, db.CreateBooking(ctx, &models.Booking{
+		ItemID:   item.ID,
+		ItemName: item.Name,
+		Date:     date,
+		UserID:   1,
+		UserName: "Pending User",
+		Phone:    "+70000000001",
+		Status:   models.StatusPending,
+	}))
+
+	bookingID, err := db.CreateExternalBooking(ctx, item.ID, item.Name, date, "ext-pending", "External", "+79990000001")
+	assert.ErrorIs(t, err, ErrNotAvailable)
+	assert.Zero(t, bookingID)
+}
+
+func TestCreateExternalBookingBlocksConfirmedBooking(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+
+	ctx := context.Background()
+	item := &models.Item{Name: "Shared Item", TotalQuantity: 1, IsActive: true}
+	require.NoError(t, db.CreateItem(ctx, item))
+
+	date := time.Date(2026, 3, 22, 0, 0, 0, 0, time.UTC)
+	require.NoError(t, db.CreateBooking(ctx, &models.Booking{
+		ItemID:   item.ID,
+		ItemName: item.Name,
+		Date:     date,
+		UserID:   2,
+		UserName: "Confirmed User",
+		Phone:    "+70000000002",
+		Status:   models.StatusConfirmed,
+	}))
+
+	bookingID, err := db.CreateExternalBooking(ctx, item.ID, item.Name, date, "ext-confirmed", "External", "+79990000002")
+	assert.ErrorIs(t, err, ErrNotAvailable)
+	assert.Zero(t, bookingID)
+}
+
+func TestCreateExternalBookingAllowsBookingAfterCancellation(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+
+	ctx := context.Background()
+	item := &models.Item{Name: "Shared Item", TotalQuantity: 1, IsActive: true}
+	require.NoError(t, db.CreateItem(ctx, item))
+
+	date := time.Date(2026, 3, 23, 0, 0, 0, 0, time.UTC)
+	internalBooking := &models.Booking{
+		ItemID:   item.ID,
+		ItemName: item.Name,
+		Date:     date,
+		UserID:   3,
+		UserName: "Canceled User",
+		Phone:    "+70000000003",
+		Status:   models.StatusPending,
+	}
+	require.NoError(t, db.CreateBooking(ctx, internalBooking))
+	require.NoError(t, db.UpdateBookingStatus(ctx, internalBooking.ID, models.StatusCanceled))
+
+	bookingID, err := db.CreateExternalBooking(ctx, item.ID, item.Name, date, "ext-canceled", "External", "+79990000003")
+	require.NoError(t, err)
+	assert.NotZero(t, bookingID)
+
+	stored, err := db.GetExternalBooking(ctx, "ext-canceled")
+	require.NoError(t, err)
+	assert.Equal(t, models.StatusConfirmed, stored.Status)
+
+	bookedCount, err := db.GetBookedCount(ctx, item.ID, date)
+	require.NoError(t, err)
+	assert.Equal(t, 1, bookedCount)
+}
+
 func TestOptimisticLocking(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()

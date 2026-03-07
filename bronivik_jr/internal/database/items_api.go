@@ -38,13 +38,9 @@ func (db *DB) CreateExternalBooking(
 		return 0, fmt.Errorf("check existing: %w", err)
 	}
 
-	// Check availability
-	var bookedCount int64
-	err = tx.QueryRowContext(ctx, db.rebind(`
-		SELECT COUNT(*) FROM bookings 
-		WHERE item_id = ? AND date(date) = date(?) AND status = 'approved'`,
-	), itemID, date,
-	).Scan(&bookedCount)
+	// Reuse the shared occupancy calculation so external and internal bookings
+	// follow the same blocking-status rules.
+	bookedCount, err := db.getBookedCountWithQuerier(ctx, tx, itemID, date)
 	if err != nil {
 		return 0, fmt.Errorf("check availability: %w", err)
 	}
@@ -59,7 +55,7 @@ func (db *DB) CreateExternalBooking(
 		return 0, fmt.Errorf("get quantity: %w", err)
 	}
 
-	if bookedCount >= totalQty {
+	if int64(bookedCount) >= totalQty {
 		return 0, ErrNotAvailable
 	}
 
@@ -68,8 +64,8 @@ func (db *DB) CreateExternalBooking(
 	bookingID, err := db.insertAndReturnIDTx(ctx, tx, `
 		INSERT INTO bookings (
 			user_id, user_name, user_nickname, phone, item_id, item_name,
-			date, status, external_booking_id, created_at, updated_at, version
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			date, status, comment, external_booking_id, created_at, updated_at, version
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		0, // API booking has no telegram user
 		clientName,
 		"",
@@ -77,7 +73,8 @@ func (db *DB) CreateExternalBooking(
 		itemID,
 		itemName,
 		date.Format("2006-01-02"),
-		"approved", // Auto-approve external bookings
+		models.StatusConfirmed, // External bookings are immediately confirmed.
+		"",
 		externalBookingID,
 		now,
 		now,
@@ -98,9 +95,12 @@ func (db *DB) CreateExternalBooking(
 func (db *DB) CancelExternalBooking(ctx context.Context, externalBookingID string) error {
 	result, err := db.ExecContext(ctx, `
 		UPDATE bookings 
-		SET status = 'canceled', updated_at = ?
-		WHERE external_booking_id = ? AND status != 'canceled'`,
-		time.Now(), externalBookingID,
+		SET status = ?, updated_at = ?
+		WHERE external_booking_id = ? AND status != ?`,
+		models.StatusCanceled,
+		time.Now(),
+		externalBookingID,
+		models.StatusCanceled,
 	)
 	if err != nil {
 		return err

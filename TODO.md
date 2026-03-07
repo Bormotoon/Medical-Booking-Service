@@ -11,7 +11,7 @@
 
 ## P0. Критические исправления
 
-### [ ] P0-1. Убрать двойные бронирования между `bronivik_crm` и `bronivik_jr`
+### [x] P0-1. Убрать двойные бронирования между `bronivik_crm` и `bronivik_jr`
 
 Проблема:
 - `CreateExternalBooking()` в `bronivik_jr` считает занятыми только записи со статусом `"approved"`.

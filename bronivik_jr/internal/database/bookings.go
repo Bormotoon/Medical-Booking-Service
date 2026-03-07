@@ -2,11 +2,34 @@ package database
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"time"
 
 	"bronivik/internal/models"
 )
+
+type bookingCountQuerier interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+const bookedCountByDateQuery = `SELECT COUNT(*) FROM bookings WHERE item_id = ? AND date(date) = date(?) AND status NOT IN (?, ?)`
+
+func (db *DB) getBookedCountWithQuerier(ctx context.Context, querier bookingCountQuerier, itemID int64, date time.Time) (int, error) {
+	var count int
+	err := querier.QueryRowContext(
+		ctx,
+		db.rebind(bookedCountByDateQuery),
+		itemID,
+		date.Format("2006-01-02"),
+		models.StatusCanceled,
+		models.StatusRejectedLegacy,
+	).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get booked count: %w", err)
+	}
+	return count, nil
+}
 
 func (db *DB) CheckAvailability(ctx context.Context, itemID int64, date time.Time) (bool, error) {
 	bookedCount, err := db.GetBookedCount(ctx, itemID, date)
@@ -25,13 +48,7 @@ func (db *DB) CheckAvailability(ctx context.Context, itemID int64, date time.Tim
 }
 
 func (db *DB) GetBookedCount(ctx context.Context, itemID int64, date time.Time) (int, error) {
-	query := `SELECT COUNT(*) FROM bookings WHERE item_id = ? AND date(date) = date(?) AND status NOT IN (?, ?)`
-	var count int
-	err := db.QueryRowContext(ctx, query, itemID, date.Format("2006-01-02"), models.StatusCanceled, "rejected").Scan(&count)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get booked count: %w", err)
-	}
-	return count, nil
+	return db.getBookedCountWithQuerier(ctx, db.DB, itemID, date)
 }
 
 func (db *DB) CreateBooking(ctx context.Context, booking *models.Booking) error {
@@ -75,10 +92,7 @@ func (db *DB) CreateBookingWithLock(ctx context.Context, booking *models.Booking
 	}()
 
 	// 1. Check availability inside transaction
-	var bookedCount int
-	queryCount := `SELECT COUNT(*) FROM bookings WHERE item_id = ? AND date(date) = date(?) AND status NOT IN (?, ?)`
-	err = tx.QueryRowContext(ctx, db.rebind(queryCount), booking.ItemID,
-		booking.Date.Format("2006-01-02"), models.StatusCanceled, "rejected").Scan(&bookedCount)
+	bookedCount, err := db.getBookedCountWithQuerier(ctx, tx, booking.ItemID, booking.Date)
 	if err != nil {
 		return fmt.Errorf("failed to check availability in tx: %w", err)
 	}
@@ -213,7 +227,7 @@ func (db *DB) GetAvailabilityForPeriod(ctx context.Context, itemID int64, startD
 
 	rows, err := db.QueryContext(ctx, query, itemID,
 		startDate.Format("2006-01-02"), endDate.Format("2006-01-02"),
-		models.StatusCanceled, "rejected")
+		models.StatusCanceled, models.StatusRejectedLegacy)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get availability batch: %w", err)
 	}

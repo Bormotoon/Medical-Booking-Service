@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -36,6 +37,92 @@ func TestAvailabilityReflectsBookings(t *testing.T) {
 	insertIntegrationBooking(t, db, &item, date, "pending")
 
 	checkAvailable(t, ts.URL, item.Name, dateStr, false, 1, item.TotalQuantity)
+}
+
+func TestExternalBookDeviceHonorsBlockingStatuses(t *testing.T) {
+	tests := []struct {
+		name               string
+		existingStatus     string
+		cancelBeforeBook   bool
+		wantHTTPStatusCode int
+		wantCreated        bool
+	}{
+		{
+			name:               "pending blocks external booking",
+			existingStatus:     models.StatusPending,
+			wantHTTPStatusCode: http.StatusConflict,
+		},
+		{
+			name:               "confirmed blocks external booking",
+			existingStatus:     models.StatusConfirmed,
+			wantHTTPStatusCode: http.StatusConflict,
+		},
+		{
+			name:               "canceled does not block external booking",
+			existingStatus:     models.StatusPending,
+			cancelBeforeBook:   true,
+			wantHTTPStatusCode: http.StatusOK,
+			wantCreated:        true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db := newIntegrationDB(t)
+			item := createIntegrationItem(t, db, "shared-device", 1)
+			db.SetItems([]*models.Item{&item})
+
+			server := newIntegrationHTTPServer(db)
+			ts := httptest.NewServer(server.server.Handler)
+			t.Cleanup(ts.Close)
+
+			date := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+			existing := &models.Booking{
+				UserID:   1,
+				UserName: "existing",
+				Phone:    "+70000000000",
+				ItemID:   item.ID,
+				ItemName: item.Name,
+				Date:     date,
+				Status:   tt.existingStatus,
+			}
+			if err := db.CreateBooking(context.Background(), existing); err != nil {
+				t.Fatalf("create existing booking: %v", err)
+			}
+			if tt.cancelBeforeBook {
+				if err := db.UpdateBookingStatus(context.Background(), existing.ID, models.StatusCanceled); err != nil {
+					t.Fatalf("cancel booking: %v", err)
+				}
+			}
+
+			statusCode, resp := bookDevice(t, ts.URL, BookDeviceRequest{
+				DeviceID:          item.ID,
+				Date:              date.Format("2006-01-02"),
+				ExternalBookingID: "crm-" + tt.name,
+				ClientName:        "External Client",
+				ClientPhone:       "+79990000000",
+			})
+
+			if statusCode != tt.wantHTTPStatusCode {
+				t.Fatalf("status: want %d got %d", tt.wantHTTPStatusCode, statusCode)
+			}
+			if resp.Success != tt.wantCreated {
+				t.Fatalf("success: want %v got %v", tt.wantCreated, resp.Success)
+			}
+
+			if !tt.wantCreated {
+				return
+			}
+
+			stored, err := db.GetExternalBooking(context.Background(), "crm-"+tt.name)
+			if err != nil {
+				t.Fatalf("get external booking: %v", err)
+			}
+			if stored.Status != models.StatusConfirmed {
+				t.Fatalf("status: want %s got %s", models.StatusConfirmed, stored.Status)
+			}
+		})
+	}
 }
 
 func newIntegrationHTTPServer(db *database.DB) *HTTPServer {
@@ -110,4 +197,26 @@ func checkAvailable(t *testing.T, baseURL, itemName, dateStr string, wantAvailab
 	if body.Total != wantTotal {
 		t.Fatalf("total: want %d got %d", wantTotal, body.Total)
 	}
+}
+
+func bookDevice(t *testing.T, baseURL string, req BookDeviceRequest) (int, BookDeviceResponse) {
+	t.Helper()
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+
+	resp, err := http.Post(baseURL+"/api/book-device", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var parsed BookDeviceResponse
+	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	return resp.StatusCode, parsed
 }
