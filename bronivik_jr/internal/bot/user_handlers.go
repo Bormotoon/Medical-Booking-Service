@@ -37,7 +37,12 @@ func (b *Bot) handleMessage(ctx context.Context, update *tgbotapi.Update) {
 		return
 	}
 
-	state := b.getUserState(ctx, userID)
+	state := b.getUserState(ctx, update.Message.From.ID)
+
+	if update.Message.Contact != nil {
+		b.handleContactReceived(ctx, update)
+		return
+	}
 
 	// Обработка общих кнопок "Назад" и "Отмена"
 	if text == btnCancel || text == btnBack {
@@ -143,13 +148,13 @@ func (b *Bot) handleBookingProcessCommands(ctx context.Context, update *tgbotapi
 
 // handleUserStateSteps обрабатывает ввод пользователя в зависимости от текущего шага
 func (b *Bot) handleUserStateSteps(ctx context.Context, update *tgbotapi.Update, text string, state *models.UserState) bool {
-	userID := update.Message.From.ID
-
 	switch state.CurrentStep {
 	case models.StateEnterName:
+		if state.TempData == nil {
+			state.TempData = make(map[string]interface{})
+		}
 		state.TempData["user_name"] = b.sanitizeInput(text)
-		b.setUserState(ctx, userID, models.StatePhoneNumber, state.TempData)
-		b.handlePhoneRequest(ctx, update)
+		b.handlePhoneRequest(ctx, update, state.TempData)
 		return true
 
 	case models.StatePhoneNumber:

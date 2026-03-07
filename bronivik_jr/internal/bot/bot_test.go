@@ -165,12 +165,15 @@ func (m *mockTelegramService) StopReceivingUpdates() {}
 type mockStateManager struct {
 	domain.StateManager
 	states map[int64]*models.UserState
+	getCalls int
+	setCalls int
 	mu     sync.RWMutex
 }
 
 func (m *mockStateManager) SetUserState(ctx context.Context, userID int64, step string, data map[string]interface{}) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.setCalls++
 	if m.states == nil {
 		m.states = make(map[int64]*models.UserState)
 	}
@@ -186,6 +189,7 @@ func (m *mockStateManager) SetUserState(ctx context.Context, userID int64, step 
 func (m *mockStateManager) GetUserState(ctx context.Context, userID int64) (*models.UserState, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+	m.getCalls++
 	if m.states == nil {
 		return nil, nil
 	}
@@ -222,6 +226,12 @@ func (m *mockStateManager) getStates() map[int64]*models.UserState {
 
 func (m *mockStateManager) CheckRateLimit(ctx context.Context, userID int64, limit int, window time.Duration) (bool, error) {
 	return true, nil
+}
+
+func (m *mockStateManager) getCallStats() (int, int) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.getCalls, m.setCalls
 }
 
 type mockUserService struct {
@@ -1210,6 +1220,84 @@ func TestHandleMessage_Contacts(t *testing.T) {
 	if len(mocks.tg.sentMessages) == 0 {
 		t.Errorf("expected message sent")
 	}
+}
+
+func TestHandleMessage_SharedTelegramContactUsesContactPhone(t *testing.T) {
+	b, mocks := setupTestBot()
+	ctx := context.Background()
+	date := time.Now().Add(24 * time.Hour)
+
+	mocks.state.states[456] = &models.UserState{
+		UserID:      456,
+		CurrentStep: models.StatePhoneNumber,
+		TempData: map[string]interface{}{
+			"item_id":    int64(1),
+			"date":       date,
+			"user_name":  "Иван Иванов",
+		},
+	}
+
+	update := tgbotapi.Update{
+		Message: &tgbotapi.Message{
+			From: &tgbotapi.User{ID: 456, FirstName: "Ivan", LastName: "Ivanov"},
+			Chat: &tgbotapi.Chat{ID: 456},
+			Contact: &tgbotapi.Contact{PhoneNumber: "+7 (926) 341-25-38"},
+		},
+	}
+
+	b.handleMessage(ctx, &update)
+
+	bookings := mocks.booking.getBookings()
+	require.Len(t, bookings, 1)
+	assert.Equal(t, "79263412538", bookings[int64(1)].Phone)
+
+	for _, chattable := range mocks.tg.getSentMessages() {
+		msg, ok := chattable.(tgbotapi.MessageConfig)
+		if ok {
+			assert.NotContains(t, msg.Text, "Неверный формат контакта")
+		}
+	}
+}
+
+func TestHandleMessage_NameStepAvoidsRedundantStateReload(t *testing.T) {
+	b, mocks := setupTestBot()
+	ctx := context.Background()
+	date := time.Now().Add(24 * time.Hour)
+
+	mocks.state.states[456] = &models.UserState{
+		UserID:      456,
+		CurrentStep: models.StateEnterName,
+		TempData: map[string]interface{}{
+			"item_id": int64(1),
+			"date":    date,
+		},
+	}
+
+	getBefore, setBefore := mocks.state.getCallStats()
+
+	b.handleMessage(ctx, &tgbotapi.Update{
+		Message: &tgbotapi.Message{
+			From: &tgbotapi.User{ID: 456},
+			Chat: &tgbotapi.Chat{ID: 456},
+			Text: "Иван Иванов",
+		},
+	})
+
+	getAfter, setAfter := mocks.state.getCallStats()
+	assert.Equal(t, getBefore+1, getAfter)
+	assert.Equal(t, setBefore+1, setAfter)
+
+	state, err := mocks.state.GetUserState(ctx, 456)
+	require.NoError(t, err)
+	require.NotNil(t, state)
+	assert.Equal(t, models.StatePhoneNumber, state.CurrentStep)
+	assert.Equal(t, "Иван Иванов", state.TempData["user_name"])
+
+	msgs := mocks.tg.getSentMessages()
+	require.NotEmpty(t, msgs)
+	phonePrompt, ok := msgs[len(msgs)-1].(tgbotapi.MessageConfig)
+	require.True(t, ok)
+	assert.Contains(t, phonePrompt.Text, "предоставьте ваш номер телефона")
 }
 
 func TestHandleMessage_MyBookings(t *testing.T) {

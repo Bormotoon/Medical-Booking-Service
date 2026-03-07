@@ -214,7 +214,7 @@ func (b *Bot) handleNameRequest(ctx context.Context, update *tgbotapi.Update) {
 }
 
 // Обновляем handlePhoneRequest - добавляем контакты
-func (b *Bot) handlePhoneRequest(ctx context.Context, update *tgbotapi.Update) {
+func (b *Bot) handlePhoneRequest(ctx context.Context, update *tgbotapi.Update, tempData map[string]interface{}) {
 	msg := tgbotapi.NewMessage(update.Message.Chat.ID,
 		"Пожалуйста, предоставьте ваш номер телефона для связи:\n"+
 			"Вы можете предоставить разрешение на использование номера из контакта телеграмм\n"+
@@ -234,9 +234,14 @@ func (b *Bot) handlePhoneRequest(ctx context.Context, update *tgbotapi.Update) {
 	)
 	msg.ReplyMarkup = keyboard
 
-	state := b.getUserState(ctx, update.Message.From.ID)
+	if tempData == nil {
+		state := b.getUserState(ctx, update.Message.From.ID)
+		if state != nil {
+			tempData = state.TempData
+		}
+	}
 
-	b.setUserState(ctx, update.Message.From.ID, models.StatePhoneNumber, state.TempData)
+	b.setUserState(ctx, update.Message.From.ID, models.StatePhoneNumber, tempData)
 	if _, err := b.tgService.Send(msg); err != nil {
 		b.logger.Error().Err(err).Int64("user_id", update.Message.From.ID).Msg("Failed to send phone request")
 	}
