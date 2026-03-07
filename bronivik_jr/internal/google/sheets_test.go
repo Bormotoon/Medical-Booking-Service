@@ -4,6 +4,7 @@ import (
 	"bronivik/internal/models"
 	"context"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -365,6 +366,95 @@ func TestGetSheetIdByName(t *testing.T) {
 func TestNewSimpleSheetsService(t *testing.T) {
 	// Skip this test as it requires real Google credentials
 	t.Skip("Requires real Google credentials")
+}
+
+func TestSheetsServiceBackgroundRefreshStopsOnClose(t *testing.T) {
+	parentCtx, parentCancel := context.WithCancel(context.Background())
+	defer parentCancel()
+
+	warmUpStarted := make(chan struct{}, 4)
+
+	s := &SheetsService{
+		warmUpTimeout:   time.Second,
+		refreshInterval: time.Millisecond,
+		warmUpFn: func(ctx context.Context) error {
+			select {
+			case warmUpStarted <- struct{}{}:
+			default:
+			}
+			<-ctx.Done()
+			return ctx.Err()
+		},
+	}
+	s.initBackgroundLifecycle(parentCtx)
+	s.startBackgroundRefresh()
+
+	select {
+	case <-warmUpStarted:
+	case <-time.After(time.Second):
+		t.Fatal("background warm-up did not start")
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = s.Close()
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("Close did not stop background goroutines")
+	}
+}
+
+func TestSheetsServiceBackgroundRefreshRepeatedInit(t *testing.T) {
+	var warmUpCalls atomic.Int32
+
+	for i := 0; i < 3; i++ {
+		parentCtx, parentCancel := context.WithCancel(context.Background())
+		started := make(chan struct{}, 1)
+
+		s := &SheetsService{
+			warmUpTimeout:   50 * time.Millisecond,
+			refreshInterval: time.Millisecond,
+			warmUpFn: func(ctx context.Context) error {
+				warmUpCalls.Add(1)
+				select {
+				case started <- struct{}{}:
+				default:
+				}
+				<-ctx.Done()
+				return ctx.Err()
+			},
+		}
+		s.initBackgroundLifecycle(parentCtx)
+		s.startBackgroundRefresh()
+
+		select {
+		case <-started:
+		case <-time.After(time.Second):
+			t.Fatalf("service instance %d did not start background warm-up", i)
+		}
+
+		parentCancel()
+
+		done := make(chan struct{})
+		go func(svc *SheetsService) {
+			defer close(done)
+			_ = svc.Close()
+		}(s)
+
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatalf("service instance %d did not shut down cleanly", i)
+		}
+	}
+
+	if warmUpCalls.Load() < 3 {
+		t.Fatalf("expected repeated init to trigger warm-up at least 3 times, got %d", warmUpCalls.Load())
+	}
 }
 
 func TestTestConnection(t *testing.T) {

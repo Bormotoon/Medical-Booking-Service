@@ -23,10 +23,18 @@ type SheetsService struct {
 	rowCache        map[int64]int
 	cacheMu         sync.RWMutex
 	lastRefresh     time.Time
+	bgCtx           context.Context
+	bgCancel        context.CancelFunc
+	bgWG            sync.WaitGroup
+	startOnce       sync.Once
+	closeOnce       sync.Once
+	warmUpTimeout   time.Duration
+	refreshInterval time.Duration
+	warmUpFn        func(context.Context) error
 }
 
-func NewSimpleSheetsService(credentialsFile, usersSheetID, bookingsSheetID string) (*SheetsService, error) {
-	ctx := context.Background()
+func NewSimpleSheetsService(parentCtx context.Context, credentialsFile, usersSheetID, bookingsSheetID string) (*SheetsService, error) {
+	ctx := normalizeSheetsContext(parentCtx)
 
 	// Читаем файл учетных данных сервисного аккаунта
 	credentialsJSON, err := os.ReadFile(credentialsFile)
@@ -54,27 +62,105 @@ func NewSimpleSheetsService(credentialsFile, usersSheetID, bookingsSheetID strin
 		usersSheetID:    usersSheetID,
 		bookingsSheetID: bookingsSheetID,
 		rowCache:        make(map[int64]int),
+		warmUpTimeout:   30 * time.Second,
+		refreshInterval: time.Duration(models.SheetsCacheTTL) * time.Second,
 	}
-
-	// Warm up cache in background
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		_ = service.WarmUpCache(ctx)
-	}()
-
-	// Periodic cache refresh
-	go func() {
-		ticker := time.NewTicker(time.Duration(models.SheetsCacheTTL) * time.Second)
-		defer ticker.Stop()
-		for range ticker.C {
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			_ = service.WarmUpCache(ctx)
-			cancel()
-		}
-	}()
+	service.initBackgroundLifecycle(ctx)
+	service.startBackgroundRefresh()
 
 	return service, nil
+}
+
+func normalizeSheetsContext(ctx context.Context) context.Context {
+	if ctx != nil {
+		return ctx
+	}
+	return context.Background()
+}
+
+func (s *SheetsService) initBackgroundLifecycle(parentCtx context.Context) {
+	if s.rowCache == nil {
+		s.rowCache = make(map[int64]int)
+	}
+	if s.warmUpTimeout <= 0 {
+		s.warmUpTimeout = 30 * time.Second
+	}
+	if s.refreshInterval <= 0 {
+		s.refreshInterval = time.Duration(models.SheetsCacheTTL) * time.Second
+	}
+	if s.warmUpFn == nil {
+		s.warmUpFn = s.WarmUpCache
+	}
+	s.bgCtx, s.bgCancel = context.WithCancel(normalizeSheetsContext(parentCtx))
+}
+
+func (s *SheetsService) startBackgroundRefresh() {
+	if s.bgCtx == nil || s.bgCancel == nil {
+		return
+	}
+
+	s.startOnce.Do(func() {
+		s.bgWG.Add(2)
+		go s.runInitialWarmUp()
+		go s.runPeriodicRefresh()
+	})
+}
+
+func (s *SheetsService) runInitialWarmUp() {
+	defer s.bgWG.Done()
+	_ = s.runWarmUpCycle()
+}
+
+func (s *SheetsService) runPeriodicRefresh() {
+	defer s.bgWG.Done()
+
+	ticker := time.NewTicker(s.refreshInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-s.bgCtx.Done():
+			return
+		case <-ticker.C:
+			_ = s.runWarmUpCycle()
+		}
+	}
+}
+
+func (s *SheetsService) runWarmUpCycle() error {
+	if s.bgCtx == nil {
+		return nil
+	}
+
+	select {
+	case <-s.bgCtx.Done():
+		return s.bgCtx.Err()
+	default:
+	}
+
+	ctx := s.bgCtx
+	cancel := func() {}
+	if s.warmUpTimeout > 0 {
+		ctx, cancel = context.WithTimeout(s.bgCtx, s.warmUpTimeout)
+	}
+	defer cancel()
+
+	warmUp := s.warmUpFn
+	if warmUp == nil {
+		warmUp = s.WarmUpCache
+	}
+
+	return warmUp(ctx)
+}
+
+func (s *SheetsService) Close() error {
+	s.closeOnce.Do(func() {
+		if s.bgCancel != nil {
+			s.bgCancel()
+		}
+		s.bgWG.Wait()
+	})
+	return nil
 }
 
 // TestConnection проверяет подключение к таблице

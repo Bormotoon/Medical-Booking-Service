@@ -128,6 +128,9 @@ func runBotMode() error {
 	defer stop()
 
 	sheetsService := initGoogleSheets(ctx, cfg, &logger)
+	if sheetsService != nil {
+		defer func() { _ = sheetsService.Close() }()
+	}
 	redisClient, stateService := initStateService(ctx, cfg, &logger)
 	if redisClient != nil {
 		defer redisClient.Close()
@@ -317,6 +320,7 @@ func initGoogleSheets(ctx context.Context, cfg *config.Config, logger *zerolog.L
 	}
 
 	sheetsSvc, err := google.NewSimpleSheetsService(
+		ctx,
 		cfg.Google.GoogleCredentialsFile,
 		cfg.Google.UsersSpreadSheetID,
 		cfg.Google.BookingSpreadSheetID,
@@ -327,6 +331,7 @@ func initGoogleSheets(ctx context.Context, cfg *config.Config, logger *zerolog.L
 	}
 
 	if err := sheetsSvc.TestConnection(ctx); err != nil {
+		_ = sheetsSvc.Close()
 		logger.Warn().Err(err).Msg("Google Sheets connection test failed; continuing without sheets integration")
 		return nil
 	}

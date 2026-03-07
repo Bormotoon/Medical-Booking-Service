@@ -51,6 +51,9 @@ func run() error {
 	}
 	defer db.Close()
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	if !cfg.API.Enabled {
 		logger.Warn().Msg("API is disabled in config, but starting API application. Check your config.")
 	}
@@ -60,7 +63,10 @@ func run() error {
 		defer redisClient.Close()
 	}
 
-	sheetsService := initGoogleSheets(cfg, &logger)
+	sheetsService := initGoogleSheets(ctx, cfg, &logger)
+	if sheetsService != nil {
+		defer func() { _ = sheetsService.Close() }()
+	}
 
 	grpcServer, err := api.NewGRPCServer(&cfg.API, db, &logger)
 	if err != nil {
@@ -69,9 +75,6 @@ func run() error {
 	}
 
 	httpServer := api.NewHTTPServer(&cfg.API, db, redisClient, sheetsService, &logger)
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	startMetrics(ctx, cfg, &logger)
 
@@ -164,12 +167,13 @@ func initRedis(cfg *config.Config, logger *zerolog.Logger) *redis.Client {
 	return redisClient
 }
 
-func initGoogleSheets(cfg *config.Config, logger *zerolog.Logger) *google.SheetsService {
+func initGoogleSheets(ctx context.Context, cfg *config.Config, logger *zerolog.Logger) *google.SheetsService {
 	if cfg.Google.GoogleCredentialsFile == "" || cfg.Google.BookingSpreadSheetID == "" {
 		return nil
 	}
 
 	sheetsService, err := google.NewSimpleSheetsService(
+		ctx,
 		cfg.Google.GoogleCredentialsFile,
 		cfg.Google.UsersSpreadSheetID,
 		cfg.Google.BookingSpreadSheetID,
