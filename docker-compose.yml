@@ -11,6 +11,7 @@ services:
       dockerfile: Dockerfile
     container_name: bronivik-jr-bot
     restart: unless-stopped
+    command: ["./bot"]
     environment:
       - BOT_TOKEN=${BOT_TOKEN}
       - DB_PATH=/app/data/bronivik_jr.db
@@ -118,8 +119,6 @@ services:
       - ./bronivik_jr/configs:/app/configs:ro
       - ./.env:/app/.env:ro
     depends_on:
-      bronivik-jr-bot:
-        condition: service_healthy
       redis:
         condition: service_healthy
     networks:

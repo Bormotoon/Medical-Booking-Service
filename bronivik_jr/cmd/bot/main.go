@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"flag"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -11,7 +13,6 @@ import (
 	"syscall"
 	"time"
 
-	"bronivik/internal/api"
 	"bronivik/internal/bot"
 	"bronivik/internal/config"
 	"bronivik/internal/database"
@@ -29,6 +30,21 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
+const (
+	defaultConfigPath = "configs/config.yaml"
+	defaultItemsPath  = "configs/items.yaml"
+
+	modeBot    = "bot"
+	modeWorker = "worker"
+
+	workerJobReminders = "reminders"
+)
+
+type appCommand struct {
+	mode      string
+	workerJob string
+}
+
 func main() {
 	if err := run(); err != nil {
 		log.Fatalf("Fatal error: %v", err)
@@ -36,74 +52,102 @@ func main() {
 }
 
 func run() error {
-	workerMode := len(os.Args) > 1 && os.Args[1] == "worker"
+	cmd, err := parseCommand(os.Args[1:])
+	if err != nil {
+		return err
+	}
 
-	cfg, items, logger, closer, loadErr := loadConfigAndLogger()
-	if loadErr != nil {
-		return loadErr
+	switch cmd.mode {
+	case modeBot:
+		return runBotMode()
+	case modeWorker:
+		return runWorkerMode(cmd.workerJob)
+	default:
+		return fmt.Errorf("unsupported mode: %s", cmd.mode)
+	}
+}
+
+func parseCommand(args []string) (appCommand, error) {
+	if len(args) == 0 {
+		return appCommand{mode: modeBot}, nil
+	}
+
+	switch args[0] {
+	case modeWorker:
+		fs := flag.NewFlagSet(modeWorker, flag.ContinueOnError)
+		fs.SetOutput(io.Discard)
+
+		job := fs.String("job", "", "worker job to run")
+		if err := fs.Parse(args[1:]); err != nil {
+			return appCommand{}, fmt.Errorf("parse worker flags: %w", err)
+		}
+		if fs.NArg() > 0 {
+			return appCommand{}, fmt.Errorf("unexpected worker arguments: %v", fs.Args())
+		}
+		if *job == "" {
+			return appCommand{}, fmt.Errorf("worker job is required")
+		}
+		if *job != workerJobReminders {
+			return appCommand{}, fmt.Errorf("unsupported worker job: %s", *job)
+		}
+		return appCommand{mode: modeWorker, workerJob: *job}, nil
+	default:
+		return appCommand{}, fmt.Errorf("unknown command: %s", args[0])
+	}
+}
+
+func runBotMode() error {
+	cfg, logger, closer, err := loadConfigAndLogger()
+	if err != nil {
+		return err
 	}
 	if closer != nil {
 		defer (func(c io.Closer) { _ = c.Close() })(closer)
 	}
 
-	if err := prepareDirectories(cfg, &logger); err != nil {
+	items, err := loadItems(&logger)
+	if err != nil {
 		return err
 	}
 
-	db, err := initDatabase(cfg, items, &logger)
+	if err := prepareDirectories(cfg, &logger, true); err != nil {
+		return err
+	}
+
+	db, err := initDatabase(cfg, &logger)
 	if err != nil {
 		return err
 	}
 	defer db.Close()
 
+	if err := syncItems(db, items, &logger); err != nil {
+		logger.Error().Err(err).Msg("Ошибка синхронизации позиций")
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	sheetsService := initGoogleSheets(ctx, cfg, &logger)
-
 	redisClient, stateService := initStateService(ctx, cfg, &logger)
-
-	// Запускаем воркер синхронизации Google Sheets
-	var sheetsWorker *worker.SheetsWorker
-	if sheetsService != nil {
-		retryPolicy := worker.RetryPolicy{MaxRetries: 5, InitialDelay: 2 * time.Second, MaxDelay: time.Minute, BackoffFactor: 2}
-		sheetsWorker = worker.NewSheetsWorker(db, sheetsService, redisClient, retryPolicy, &logger)
-		go sheetsWorker.Start(ctx)
+	if redisClient != nil {
+		defer redisClient.Close()
 	}
+
+	sheetsWorker := startSheetsWorker(ctx, db, sheetsService, redisClient, &logger)
 
 	eventBus := events.NewEventBus()
 	subscribeBookingEvents(ctx, eventBus, db, sheetsWorker, &logger)
 
-	// Инициализация бизнес-сервисов
 	bookingService := service.NewBookingService(db, eventBus, sheetsWorker, cfg.Bot.MaxBookingDays, cfg.Bot.MinBookingAdvance, &logger)
 	userService := service.NewUserService(db, cfg, &logger)
 	itemService := service.NewItemService(db, &logger)
 	metrics := bot.NewMetrics()
 
-	if cfg.API.Enabled {
-		apiServer := api.NewHTTPServer(&cfg.API, db, redisClient, sheetsService, &logger)
-		go func() {
-			if err := apiServer.Start(); err != nil {
-				logger.Error().Err(err).Msg("API server error")
-			}
-		}()
-		defer func() {
-			_ = apiServer.Shutdown(context.Background())
-		}()
-	}
-
 	if cfg.Backup.Enabled {
-		backupService := database.NewBackupServiceWithDriver(
-			cfg.DatabaseDriver(),
-			cfg.Database.Path,
-			cfg.Backup,
-			&logger,
-		)
-		go backupService.Start(ctx)
+		startBackupLoop(ctx, cfg, &logger)
 	}
 
-	return startBot(
-		ctx,
+	telegramBot, err := newApplicationBot(
 		cfg,
 		stateService,
 		sheetsService,
@@ -114,35 +158,93 @@ func run() error {
 		itemService,
 		metrics,
 		&logger,
-		workerMode,
 	)
+	if err != nil {
+		return err
+	}
+
+	logger.Info().Msg("Bot mode enabled: starting interactive Telegram bot")
+	telegramBot.Start(ctx)
+	logger.Info().Msg("Shutdown complete.")
+	return nil
 }
 
-func loadConfigAndLogger() (*config.Config, []models.Item, zerolog.Logger, io.Closer, error) {
+func runWorkerMode(job string) error {
+	switch job {
+	case workerJobReminders:
+		return runReminderWorkerMode()
+	default:
+		return fmt.Errorf("unsupported worker job: %s", job)
+	}
+}
+
+func runReminderWorkerMode() error {
+	cfg, logger, closer, err := loadConfigAndLogger()
+	if err != nil {
+		return err
+	}
+	if closer != nil {
+		defer (func(c io.Closer) { _ = c.Close() })(closer)
+	}
+
+	if err := prepareDirectories(cfg, &logger, false); err != nil {
+		return err
+	}
+
+	db, err := initDatabase(cfg, &logger)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	bookingService := service.NewBookingService(db, nil, nil, cfg.Bot.MaxBookingDays, cfg.Bot.MinBookingAdvance, &logger)
+	userService := service.NewUserService(db, cfg, &logger)
+
+	telegramBot, err := newReminderBot(cfg, bookingService, userService, &logger)
+	if err != nil {
+		return err
+	}
+
+	logger.Info().Str("job", workerJobReminders).Msg("Worker mode enabled: starting single worker job")
+	telegramBot.StartReminders(ctx)
+	<-ctx.Done()
+	logger.Info().Str("job", workerJobReminders).Msg("Worker shutdown complete.")
+	return nil
+}
+
+func loadConfigAndLogger() (*config.Config, zerolog.Logger, io.Closer, error) {
 	configPath := os.Getenv("CONFIG_PATH")
 	if configPath == "" {
-		configPath = "configs/config.yaml"
+		configPath = defaultConfigPath
 	}
 
 	cfg, err := config.Load(configPath)
 	if err != nil {
-		return nil, nil, zerolog.Logger{}, nil, err
+		return nil, zerolog.Logger{}, nil, err
 	}
 
 	baseLogger, closer, err := logging.New(cfg.Logging, cfg.App)
 	if err != nil {
-		return nil, nil, zerolog.Logger{}, nil, err
+		return nil, zerolog.Logger{}, nil, err
 	}
 	logger := baseLogger.With().Str("component", "bot-main").Logger()
 
+	return cfg, logger, closer, nil
+}
+
+func loadItems(logger *zerolog.Logger) ([]models.Item, error) {
 	itemsPath := os.Getenv("ITEMS_PATH")
 	if itemsPath == "" {
-		itemsPath = "configs/items.yaml"
+		itemsPath = defaultItemsPath
 	}
+
 	itemsData, err := os.ReadFile(itemsPath)
 	if err != nil {
 		logger.Error().Err(err).Msgf("Ошибка чтения %s", itemsPath)
-		return nil, nil, zerolog.Logger{}, closer, err
+		return nil, err
 	}
 
 	var itemsConfig struct {
@@ -150,18 +252,18 @@ func loadConfigAndLogger() (*config.Config, []models.Item, zerolog.Logger, io.Cl
 	}
 	if err := yaml.Unmarshal(itemsData, &itemsConfig); err != nil {
 		logger.Error().Err(err).Msg("Ошибка парсинга items.yaml")
-		return nil, nil, zerolog.Logger{}, closer, err
+		return nil, err
 	}
 
 	if err := config.ValidateItems(itemsConfig.Items); err != nil {
 		logger.Error().Err(err).Msg("Items validation failed")
-		return nil, nil, zerolog.Logger{}, closer, err
+		return nil, err
 	}
 
-	return cfg, itemsConfig.Items, logger, closer, nil
+	return itemsConfig.Items, nil
 }
 
-func prepareDirectories(cfg *config.Config, logger *zerolog.Logger) error {
+func prepareDirectories(cfg *config.Config, logger *zerolog.Logger, withExports bool) error {
 	if cfg == nil {
 		return os.ErrInvalid
 	}
@@ -171,14 +273,16 @@ func prepareDirectories(cfg *config.Config, logger *zerolog.Logger) error {
 			return err
 		}
 	}
-	if err := os.MkdirAll(cfg.Exports.Path, 0o755); err != nil {
-		logger.Error().Err(err).Msg("Ошибка создания директории для экспорта")
-		return err
+	if withExports {
+		if err := os.MkdirAll(cfg.Exports.Path, 0o755); err != nil {
+			logger.Error().Err(err).Msg("Ошибка создания директории для экспорта")
+			return err
+		}
 	}
 	return nil
 }
 
-func initDatabase(cfg *config.Config, items []models.Item, logger *zerolog.Logger) (*database.DB, error) {
+func initDatabase(cfg *config.Config, logger *zerolog.Logger) (*database.DB, error) {
 	var (
 		db  *database.DB
 		err error
@@ -192,11 +296,18 @@ func initDatabase(cfg *config.Config, items []models.Item, logger *zerolog.Logge
 		logger.Error().Err(err).Msg("Ошибка инициализации базы данных")
 		return nil, err
 	}
+	return db, nil
+}
 
+func syncItems(db *database.DB, items []models.Item, logger *zerolog.Logger) error {
+	if db == nil {
+		return os.ErrInvalid
+	}
 	if err := db.SyncItems(context.Background(), items); err != nil {
 		logger.Error().Err(err).Msg("Ошибка синхронизации позиций")
+		return err
 	}
-	return db, nil
+	return nil
 }
 
 func initGoogleSheets(ctx context.Context, cfg *config.Config, logger *zerolog.Logger) *google.SheetsService {
@@ -239,8 +350,39 @@ func initStateService(ctx context.Context, cfg *config.Config, logger *zerolog.L
 	return redisClient, service.NewStateService(stateRepo, logger)
 }
 
-func startBot(
+func startSheetsWorker(
 	ctx context.Context,
+	db *database.DB,
+	sheetsService *google.SheetsService,
+	redisClient *redis.Client,
+	logger *zerolog.Logger,
+) *worker.SheetsWorker {
+	if sheetsService == nil {
+		return nil
+	}
+
+	retryPolicy := worker.RetryPolicy{
+		MaxRetries:    5,
+		InitialDelay:  2 * time.Second,
+		MaxDelay:      time.Minute,
+		BackoffFactor: 2,
+	}
+	sheetsWorker := worker.NewSheetsWorker(db, sheetsService, redisClient, retryPolicy, logger)
+	go sheetsWorker.Start(ctx)
+	return sheetsWorker
+}
+
+func startBackupLoop(ctx context.Context, cfg *config.Config, logger *zerolog.Logger) {
+	backupService := database.NewBackupServiceWithDriver(
+		cfg.DatabaseDriver(),
+		cfg.Database.Path,
+		cfg.Backup,
+		logger,
+	)
+	go backupService.Start(ctx)
+}
+
+func newApplicationBot(
 	cfg *config.Config,
 	stateService *service.StateService,
 	sheetsService *google.SheetsService,
@@ -251,49 +393,67 @@ func startBot(
 	itemService *service.ItemService,
 	metrics *bot.Metrics,
 	logger *zerolog.Logger,
-	workerMode bool,
-) error {
-	if cfg.Telegram.BotToken == "YOUR_BOT_TOKEN_HERE" {
+) (*bot.Bot, error) {
+	tgService, err := initTelegramService(cfg, logger)
+	if err != nil {
+		return nil, err
+	}
+
+	return bot.NewBot(
+		tgService,
+		cfg,
+		stateService,
+		sheetsService,
+		sheetsWorker,
+		eventBus,
+		bookingService,
+		userService,
+		itemService,
+		metrics,
+		logger,
+	)
+}
+
+func newReminderBot(
+	cfg *config.Config,
+	bookingService *service.BookingService,
+	userService *service.UserService,
+	logger *zerolog.Logger,
+) (*bot.Bot, error) {
+	tgService, err := initTelegramService(cfg, logger)
+	if err != nil {
+		return nil, err
+	}
+
+	return bot.NewBot(
+		tgService,
+		cfg,
+		nil,
+		nil,
+		nil,
+		nil,
+		bookingService,
+		userService,
+		nil,
+		nil,
+		logger,
+	)
+}
+
+func initTelegramService(cfg *config.Config, logger *zerolog.Logger) (*service.TelegramService, error) {
+	if cfg.Telegram.BotToken == "YOUR_BOT_TOKEN_HERE" || cfg.Telegram.BotToken == "" {
 		logger.Error().Msg("Задайте токен бота в config.yaml")
-		return os.ErrInvalid
+		return nil, os.ErrInvalid
 	}
 
 	botAPI, err := tgbotapi.NewBotAPI(cfg.Telegram.BotToken)
 	if err != nil {
 		logger.Error().Err(err).Msg("Ошибка создания BotAPI")
-		return err
+		return nil, err
 	}
 
 	botWrapper := bot.NewBotWrapper(botAPI)
-	tgService := service.NewTelegramService(botWrapper)
-
-	telegramBot, err := bot.NewBot(
-		tgService, cfg, stateService, sheetsService,
-		sheetsWorker, eventBus, bookingService, userService,
-		itemService, metrics, logger,
-	)
-	if err != nil {
-		logger.Error().Err(err).Msg("Ошибка создания бота")
-		return err
-	}
-
-	if workerMode {
-		logger.Info().Msg("Worker mode enabled: starting reminders without Telegram polling")
-	} else {
-		logger.Info().Msg("Бот запущен...")
-	}
-
-	telegramBot.StartReminders(ctx)
-	if workerMode {
-		<-ctx.Done()
-		logger.Info().Msg("Worker shutdown complete.")
-		return nil
-	}
-
-	telegramBot.Start(ctx)
-
-	logger.Info().Msg("Shutdown complete.")
-	return nil
+	return service.NewTelegramService(botWrapper), nil
 }
 
 func subscribeBookingEvents(

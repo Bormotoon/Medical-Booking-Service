@@ -74,7 +74,7 @@
 - Тест на успешное создание брони на 90 или 120 минут.
 - Тест на отказ при частично занятом диапазоне.
 
-### [ ] P0-3. Разделить `worker mode` и `bot mode` в `bronivik_jr`
+### [x] P0-3. Разделить `worker mode` и `bot mode` в `bronivik_jr`
 
 Проблема:
 - Контейнер `bronivik-jr-worker` запускается как worker, но поднимает API, backup loop, Sheets worker и reminder loop.
