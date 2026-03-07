@@ -23,10 +23,10 @@ exports:
   path: "./exports/"
 
 database:
-  path: "./data/bookings.db"
+  path: "${JR_DB_PATH:-./data/bookings.db}"
 
 redis:
-  address: ${REDIS_ADDR}
+  address: "${REDIS_ADDR:-}"
   password: ""
   db: 0
   pool_size: 10
@@ -44,15 +44,15 @@ monitoring:
   log_level: "info"  # debug/info/warn/error
 
 logging:
-  level: "info"
+  level: "${LOG_LEVEL:-info}"
   format: "json"  # json/text
   output: "stdout" # stdout/file
   file_path: "/var/log/bot/app.log"
 
 google:
-  credentials_file: ${GOOGLE_CREDENTIALS_FILE}
-  users_spreadsheet_id: ${USERS_SPREADSHEET_ID}
-  bookings_spreadsheet_id: ${BOOKINGS_SPREADSHEET_ID}
+  credentials_file: "${GOOGLE_CREDENTIALS_FILE:-}"
+  users_spreadsheet_id: "${USERS_SPREADSHEET_ID:-}"
+  bookings_spreadsheet_id: "${BOOKINGS_SPREADSHEET_ID:-}"
 
 bot:
   reminder_time: "09:00"
@@ -64,9 +64,9 @@ api:
   enabled: true
   http:
     enabled: true
-    port: 8080
+    port: ${JR_API_HTTP_PORT:-8080}
   grpc:
-    port: 8081
+    port: ${JR_API_GRPC_PORT:-8081}
     reflection: true
     tls:
       enabled: false
@@ -75,12 +75,12 @@ api:
       client_ca_file: "./certs/ca.crt"
       require_client_cert: true
   auth:
-    enabled: true
+    enabled: ${JR_API_AUTH_ENABLED:-true}
     header_api_key: "x-api-key"
     header_extra: "x-api-extra"
     api_keys:
-      - key: ${CRM_API_KEY}
-        extra: ${CRM_API_EXTRA}
+      - key: "${CRM_API_KEY:-}"
+        extra: "${CRM_API_EXTRA:-}"
         name: "bronivik_crm"
         permissions: ["read:availability", "read:items"]
   rate_limit:

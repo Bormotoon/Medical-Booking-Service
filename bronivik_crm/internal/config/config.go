@@ -4,12 +4,16 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/joho/godotenv"
 	"gopkg.in/yaml.v3"
 )
+
+var envPlaceholderPattern = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)(:-([^}]*))?\}`)
 
 type Config struct {
 	Telegram struct {
@@ -78,13 +82,16 @@ func Load(path string) (*Config, error) {
 		path = "configs/config.yaml"
 	}
 
+	if err := loadDotEnvIfPresent(".env"); err != nil {
+		return nil, err
+	}
+
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
 
-	// Support ${ENV_VAR} placeholders in YAML config.
-	data = []byte(os.ExpandEnv(string(data)))
+	data = []byte(expandEnvWithDefaults(string(data)))
 
 	var cfg Config
 	if err = yaml.Unmarshal(data, &cfg); err != nil {
@@ -108,6 +115,34 @@ func Load(path string) (*Config, error) {
 	}
 
 	return &cfg, nil
+}
+
+func loadDotEnvIfPresent(path string) error {
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	return godotenv.Load(path)
+}
+
+func expandEnvWithDefaults(input string) string {
+	return envPlaceholderPattern.ReplaceAllStringFunc(input, func(match string) string {
+		parts := envPlaceholderPattern.FindStringSubmatch(match)
+		if len(parts) == 0 {
+			return match
+		}
+
+		key := parts[1]
+		if value, ok := os.LookupEnv(key); ok && value != "" {
+			return value
+		}
+		if strings.Contains(match, ":-") {
+			return parts[3]
+		}
+		return os.Getenv(key)
+	})
 }
 
 func (c *Config) BookingMinAdvance() time.Duration {

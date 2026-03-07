@@ -9,7 +9,7 @@ telegram:
   debug: false
 
 database:
-  path: "data/bronivik_crm.db"
+  path: "${CRM_DB_PATH:-data/bronivik_crm.db}"
 
 backup:
   enabled: true
@@ -18,16 +18,16 @@ backup:
   retention_days: 14
 
 redis:
-  address: "redis:6379"
+  address: "${REDIS_ADDR:-redis:6379}"
   password: ""
-  db: 0
+  db: ${CRM_REDIS_DB:-1}
   pool_size: 10
 
 api:
   enabled: true
-  base_url: ${BOT1_API_URL}
-  api_key: ${CRM_API_KEY}
-  api_extra: ${CRM_API_EXTRA}
+  base_url: "${JR_API_BASE_URL:-http://localhost:8080}"
+  api_key: "${CRM_API_KEY:-}"
+  api_extra: "${CRM_API_EXTRA:-}"
   cache_ttl_seconds: 300
 
 booking:
@@ -39,7 +39,7 @@ managers:
   - 123456789
 
 logging:
-  level: "info"
+  level: "${LOG_LEVEL:-info}"
   format: "text"
   output: "stdout"
   file_path: ""
@@ -47,5 +47,5 @@ logging:
 monitoring:
   prometheus_enabled: false
   prometheus_port: 9090
-  health_check_port: 8090
+  health_check_port: ${CRM_HEALTH_PORT:-8090}
   log_level: "info"

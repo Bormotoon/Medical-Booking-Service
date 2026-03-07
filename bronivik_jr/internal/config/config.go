@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 
 	"bronivik/internal/models"
@@ -11,6 +12,8 @@ import (
 	"github.com/joho/godotenv"
 	"gopkg.in/yaml.v3"
 )
+
+var envPlaceholderPattern = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)(:-([^}]*))?\}`)
 
 type Config struct {
 	App              AppConfig        `yaml:"app"`
@@ -153,9 +156,7 @@ type GoogleConfig struct {
 }
 
 func Load(configPath string) (*Config, error) {
-	// Загружаем .env файл если существует
-	err := godotenv.Load(".env")
-	if err != nil {
+	if err := loadDotEnvIfPresent(".env"); err != nil {
 		return nil, err
 	}
 
@@ -164,8 +165,7 @@ func Load(configPath string) (*Config, error) {
 		return nil, err
 	}
 
-	// Предварительная замена переменных окружения в YAML
-	expandedData := []byte(os.ExpandEnv(string(data)))
+	expandedData := []byte(expandEnvWithDefaults(string(data)))
 
 	var config Config
 	if err := yaml.Unmarshal(expandedData, &config); err != nil {
@@ -179,6 +179,34 @@ func Load(configPath string) (*Config, error) {
 	}
 
 	return &config, nil
+}
+
+func loadDotEnvIfPresent(path string) error {
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	return godotenv.Load(path)
+}
+
+func expandEnvWithDefaults(input string) string {
+	return envPlaceholderPattern.ReplaceAllStringFunc(input, func(match string) string {
+		parts := envPlaceholderPattern.FindStringSubmatch(match)
+		if len(parts) == 0 {
+			return match
+		}
+
+		key := parts[1]
+		if value, ok := os.LookupEnv(key); ok && value != "" {
+			return value
+		}
+		if strings.Contains(match, ":-") {
+			return parts[3]
+		}
+		return os.Getenv(key)
+	})
 }
 
 func (c *Config) Validate() error {

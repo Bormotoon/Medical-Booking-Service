@@ -168,6 +168,40 @@ items:
 	}
 }
 
+func TestLoadSampleConfigFromEnv(t *testing.T) {
+	t.Setenv("BOT_TOKEN", "test_token")
+	t.Setenv("JR_DB_PATH", filepath.Join(t.TempDir(), "jr.db"))
+	t.Setenv("REDIS_ADDR", "127.0.0.1:6379")
+	t.Setenv("LOG_LEVEL", "debug")
+	t.Setenv("JR_API_HTTP_PORT", "18080")
+	t.Setenv("JR_API_GRPC_PORT", "18081")
+	t.Setenv("JR_API_AUTH_ENABLED", "false")
+	t.Setenv("GOOGLE_CREDENTIALS_FILE", "/tmp/google.json")
+	t.Setenv("USERS_SPREADSHEET_ID", "users-sheet")
+	t.Setenv("BOOKINGS_SPREADSHEET_ID", "bookings-sheet")
+
+	cfg, err := Load(filepath.Join("..", "..", "configs", "config.yaml"))
+	if err != nil {
+		t.Fatalf("failed to load sample config: %v", err)
+	}
+
+	if cfg.Database.Path == "" {
+		t.Fatalf("expected database path to be populated from env")
+	}
+	if cfg.Logging.Level != "debug" {
+		t.Fatalf("expected log level from env, got %q", cfg.Logging.Level)
+	}
+	if cfg.API.HTTP.Port != 18080 || cfg.API.GRPC.Port != 18081 {
+		t.Fatalf("expected API ports from env, got http=%d grpc=%d", cfg.API.HTTP.Port, cfg.API.GRPC.Port)
+	}
+	if cfg.API.Auth.Enabled {
+		t.Fatalf("expected auth to be disabled from env-backed config")
+	}
+	if cfg.Google.GoogleCredentialsFile != "/tmp/google.json" {
+		t.Fatalf("expected google credentials file from env, got %q", cfg.Google.GoogleCredentialsFile)
+	}
+}
+
 func TestValidateItems(t *testing.T) {
 	tests := []struct {
 		name    string
