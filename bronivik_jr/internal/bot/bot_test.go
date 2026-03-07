@@ -164,10 +164,10 @@ func (m *mockTelegramService) StopReceivingUpdates() {}
 
 type mockStateManager struct {
 	domain.StateManager
-	states map[int64]*models.UserState
+	states   map[int64]*models.UserState
 	getCalls int
 	setCalls int
-	mu     sync.RWMutex
+	mu       sync.RWMutex
 }
 
 func (m *mockStateManager) SetUserState(ctx context.Context, userID int64, step string, data map[string]interface{}) error {
@@ -1231,16 +1231,16 @@ func TestHandleMessage_SharedTelegramContactUsesContactPhone(t *testing.T) {
 		UserID:      456,
 		CurrentStep: models.StatePhoneNumber,
 		TempData: map[string]interface{}{
-			"item_id":    int64(1),
-			"date":       date,
-			"user_name":  "Иван Иванов",
+			"item_id":   int64(1),
+			"date":      date,
+			"user_name": "Иван Иванов",
 		},
 	}
 
 	update := tgbotapi.Update{
 		Message: &tgbotapi.Message{
-			From: &tgbotapi.User{ID: 456, FirstName: "Ivan", LastName: "Ivanov"},
-			Chat: &tgbotapi.Chat{ID: 456},
+			From:    &tgbotapi.User{ID: 456, FirstName: "Ivan", LastName: "Ivanov"},
+			Chat:    &tgbotapi.Chat{ID: 456},
 			Contact: &tgbotapi.Contact{PhoneNumber: "+7 (926) 341-25-38"},
 		},
 	}
