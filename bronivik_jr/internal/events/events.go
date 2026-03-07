@@ -2,6 +2,8 @@ package events
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"sync"
 	"time"
 )
@@ -59,7 +61,7 @@ func (b *EventBus) Subscribe(eventType string, handler EventHandler) {
 }
 
 // Publish notifies subscribers of the event type.
-func (b *EventBus) Publish(event *Event) {
+func (b *EventBus) Publish(event *Event) error {
 	b.mu.RLock()
 	handlers := append([]EventHandler(nil), b.subscribers[event.Type]...)
 	b.mu.RUnlock()
@@ -68,10 +70,15 @@ func (b *EventBus) Publish(event *Event) {
 		event.CreatedAt = time.Now()
 	}
 
+	var handlerErrors []error
 	for _, handler := range handlers {
 		// Handlers run synchronously; caller decides concurrency model.
-		_ = handler(event)
+		if err := handler(event); err != nil {
+			handlerErrors = append(handlerErrors, fmt.Errorf("event %s handler failed: %w", event.Type, err))
+		}
 	}
+
+	return errors.Join(handlerErrors...)
 }
 
 // PublishJSON serializes the payload and publishes an event.
@@ -85,8 +92,7 @@ func (b *EventBus) PublishJSON(eventType string, payload interface{}) error {
 		return err
 	}
 
-	b.Publish(&Event{Type: eventType, Payload: raw, CreatedAt: time.Now()})
-	return nil
+	return b.Publish(&Event{Type: eventType, Payload: raw, CreatedAt: time.Now()})
 }
 
 // NewJSONEvent builds an Event with JSON payload for manual publishing.

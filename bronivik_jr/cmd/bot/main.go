@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -139,7 +138,6 @@ func runBotMode() error {
 	sheetsWorker := startSheetsWorker(ctx, db, sheetsService, redisClient, &logger)
 
 	eventBus := events.NewEventBus()
-	subscribeBookingEvents(ctx, eventBus, db, sheetsWorker, &logger)
 
 	bookingService := service.NewBookingService(db, eventBus, sheetsWorker, cfg.Bot.MaxBookingDays, cfg.Bot.MinBookingAdvance, &logger)
 	userService := service.NewUserService(db, cfg, &logger)
@@ -459,75 +457,4 @@ func initTelegramService(cfg *config.Config, logger *zerolog.Logger) (*service.T
 
 	botWrapper := bot.NewBotWrapper(botAPI)
 	return service.NewTelegramService(botWrapper), nil
-}
-
-func subscribeBookingEvents(
-	ctx context.Context,
-	bus *events.EventBus,
-	db *database.DB,
-	sheetsWorker *worker.SheetsWorker,
-	logger *zerolog.Logger,
-) {
-	if bus == nil || sheetsWorker == nil || db == nil {
-		return
-	}
-
-	decode := func(ev *events.Event) (events.BookingEventPayload, error) {
-		var payload events.BookingEventPayload
-		if err := json.Unmarshal(ev.Payload, &payload); err != nil {
-			return payload, err
-		}
-		return payload, nil
-	}
-
-	upsertHandler := func(ev *events.Event) error {
-		payload, err := decode(ev)
-		if err != nil {
-			logger.Error().Err(err).Str("event", ev.Type).Msg("event bus: decode payload")
-			return nil
-		}
-
-		booking, err := db.GetBooking(ctx, payload.BookingID)
-		if err != nil {
-			logger.Error().Err(err).Int64("booking_id", payload.BookingID).Msg("event bus: load booking")
-			return nil
-		}
-
-		if err := sheetsWorker.EnqueueTask(ctx, "upsert", booking.ID, booking, ""); err != nil {
-			logger.Error().Err(err).Int64("booking_id", booking.ID).Msg("event bus: enqueue upsert")
-		}
-		return nil
-	}
-
-	statusHandler := func(ev *events.Event) error {
-		payload, err := decode(ev)
-		if err != nil {
-			logger.Error().Err(err).Str("event", ev.Type).Msg("event bus: decode payload")
-			return nil
-		}
-
-		status := payload.Status
-		if status == "" {
-			booking, err := db.GetBooking(ctx, payload.BookingID)
-			if err == nil {
-				status = booking.Status
-			}
-		}
-
-		if status == "" {
-			logger.Error().Int64("booking_id", payload.BookingID).Msg("event bus: missing status")
-			return nil
-		}
-
-		if err := sheetsWorker.EnqueueTask(ctx, "update_status", payload.BookingID, nil, status); err != nil {
-			logger.Error().Err(err).Int64("booking_id", payload.BookingID).Msg("event bus: enqueue status")
-		}
-		return nil
-	}
-
-	bus.Subscribe(events.EventBookingCreated, upsertHandler)
-	bus.Subscribe(events.EventBookingItemChange, upsertHandler)
-	bus.Subscribe(events.EventBookingConfirmed, statusHandler)
-	bus.Subscribe(events.EventBookingCanceled, statusHandler)
-	bus.Subscribe(events.EventBookingCompleted, statusHandler)
 }

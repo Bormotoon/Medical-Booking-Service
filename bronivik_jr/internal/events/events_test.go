@@ -2,6 +2,7 @@ package events
 
 import (
 	"encoding/json"
+	"errors"
 	"testing"
 )
 
@@ -50,7 +51,10 @@ func TestEventBusMultipleSubscribers(t *testing.T) {
 	bus.Subscribe("event", func(_ *Event) error { count1++; return nil })
 	bus.Subscribe("event", func(_ *Event) error { count2++; return nil })
 
-	bus.Publish(&Event{Type: "event"})
+	err := bus.Publish(&Event{Type: "event"})
+	if err != nil {
+		t.Fatalf("Publish failed: %v", err)
+	}
 
 	if count1 != 1 || count2 != 1 {
 		t.Errorf("expected both handlers to be called once, got %d and %d", count1, count2)
@@ -60,10 +64,32 @@ func TestEventBusMultipleSubscribers(t *testing.T) {
 func TestEventBusNoSubscribers(t *testing.T) {
 	bus := NewEventBus()
 	// Should not panic
-	bus.Publish(&Event{Type: "unknown"})
+	if err := bus.Publish(&Event{Type: "unknown"}); err != nil {
+		t.Fatalf("Publish failed: %v", err)
+	}
 	err := bus.PublishJSON("unknown", nil)
 	if err != nil {
 		t.Errorf("PublishJSON failed: %v", err)
+	}
+}
+
+func TestEventBusSubscriberErrors(t *testing.T) {
+	bus := NewEventBus()
+	errFirst := errors.New("first handler failed")
+	errSecond := errors.New("second handler failed")
+
+	bus.Subscribe("event", func(_ *Event) error { return errFirst })
+	bus.Subscribe("event", func(_ *Event) error { return errSecond })
+
+	err := bus.Publish(&Event{Type: "event"})
+	if err == nil {
+		t.Fatal("expected aggregated subscriber error")
+	}
+	if !errors.Is(err, errFirst) {
+		t.Fatalf("expected first error to be joined, got %v", err)
+	}
+	if !errors.Is(err, errSecond) {
+		t.Fatalf("expected second error to be joined, got %v", err)
 	}
 }
 
