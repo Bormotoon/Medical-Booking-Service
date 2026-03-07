@@ -41,6 +41,11 @@ func (m *mockRepo) CheckRateLimit(ctx context.Context, userID int64, limit int, 
 	return args.Bool(0), args.Error(1)
 }
 
+func (m *mockRepo) RestoreRateLimit(ctx context.Context, userID int64, count int, ttl time.Duration) error {
+	args := m.Called(ctx, userID, count, ttl)
+	return args.Error(0)
+}
+
 func TestFailoverStateRepository(t *testing.T) {
 	primary := new(mockRepo)
 	fallback := new(mockRepo)
@@ -197,5 +202,84 @@ func TestFailoverStateRepository(t *testing.T) {
 
 	t.Run("HealthCheckDoesNothing", func(t *testing.T) {
 		repo.checkHealth() // Just for coverage
+	})
+}
+
+func TestFailoverStateRepository_ReplaysPendingChangesOnRecovery(t *testing.T) {
+	logger := zerolog.New(io.Discard)
+	ctx := context.Background()
+
+	t.Run("SetState", func(t *testing.T) {
+		primary := new(mockRepo)
+		fallback := NewMemoryStateRepository(time.Hour)
+		repo := NewFailoverStateRepository(primary, fallback, &logger)
+
+		state := &models.UserState{UserID: 101, CurrentStep: "fallback"}
+		repo.isDown.Store(true)
+		repo.lastCheck = time.Now()
+
+		err := repo.SetState(ctx, state)
+		assert.NoError(t, err)
+
+		repo.lastCheck = time.Now().Add(-2 * time.Minute)
+		primary.On("SetState", ctx, mock.MatchedBy(func(got *models.UserState) bool {
+			return got.UserID == state.UserID && got.CurrentStep == state.CurrentStep
+		})).Return(nil).Once()
+		primary.On("GetState", ctx, int64(101)).Return(&models.UserState{UserID: 101, CurrentStep: "fallback"}, nil).Once()
+
+		got, err := repo.GetState(ctx, 101)
+		assert.NoError(t, err)
+		assert.Equal(t, "fallback", got.CurrentStep)
+		assert.False(t, repo.isDown.Load())
+
+		fallbackState, err := fallback.GetState(ctx, 101)
+		assert.NoError(t, err)
+		assert.Nil(t, fallbackState)
+		primary.AssertExpectations(t)
+	})
+
+	t.Run("ClearState", func(t *testing.T) {
+		primary := new(mockRepo)
+		fallback := NewMemoryStateRepository(time.Hour)
+		repo := NewFailoverStateRepository(primary, fallback, &logger)
+
+		repo.isDown.Store(true)
+		repo.lastCheck = time.Now()
+		err := repo.ClearState(ctx, 202)
+		assert.NoError(t, err)
+
+		repo.lastCheck = time.Now().Add(-2 * time.Minute)
+		primary.On("ClearState", ctx, int64(202)).Return(nil).Once()
+		primary.On("GetState", ctx, int64(202)).Return(nil, nil).Once()
+
+		got, err := repo.GetState(ctx, 202)
+		assert.NoError(t, err)
+		assert.Nil(t, got)
+		assert.False(t, repo.isDown.Load())
+		primary.AssertExpectations(t)
+	})
+
+	t.Run("RateLimit", func(t *testing.T) {
+		primary := new(mockRepo)
+		fallback := NewMemoryStateRepository(time.Hour)
+		repo := NewFailoverStateRepository(primary, fallback, &logger)
+
+		repo.isDown.Store(true)
+		repo.lastCheck = time.Now()
+		allowed, err := repo.CheckRateLimit(ctx, 303, 5, time.Minute)
+		assert.NoError(t, err)
+		assert.True(t, allowed)
+
+		repo.lastCheck = time.Now().Add(-2 * time.Minute)
+		primary.On("RestoreRateLimit", ctx, int64(303), 1, mock.MatchedBy(func(ttl time.Duration) bool {
+			return ttl > 0 && ttl <= time.Minute
+		})).Return(nil).Once()
+		primary.On("CheckRateLimit", ctx, int64(303), 5, time.Minute).Return(true, nil).Once()
+
+		allowed, err = repo.CheckRateLimit(ctx, 303, 5, time.Minute)
+		assert.NoError(t, err)
+		assert.True(t, allowed)
+		assert.False(t, repo.isDown.Load())
+		primary.AssertExpectations(t)
 	})
 }

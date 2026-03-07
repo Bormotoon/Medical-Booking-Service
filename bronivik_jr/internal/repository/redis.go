@@ -104,6 +104,21 @@ func (r *RedisStateRepository) CheckRateLimit(ctx context.Context, userID int64,
 	return count <= int64(limit), nil
 }
 
+func (r *RedisStateRepository) RestoreRateLimit(ctx context.Context, userID int64, count int, ttl time.Duration) error {
+	if r.client == nil {
+		return fmt.Errorf("redis client is nil")
+	}
+	if count <= 0 || ttl <= 0 {
+		return nil
+	}
+
+	key := fmt.Sprintf("rate_limit:%d", userID)
+	if err := r.client.Set(ctx, key, count, ttl).Err(); err != nil {
+		return fmt.Errorf("failed to restore rate limit in redis: %w", err)
+	}
+	return nil
+}
+
 // Ping проверяет соединение с Redis
 func Ping(ctx context.Context, client *redis.Client) error {
 	_, err := client.Ping(ctx).Result()
