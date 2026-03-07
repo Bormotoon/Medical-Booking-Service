@@ -71,6 +71,7 @@ type APIAuthConfig struct {
 	HeaderAPIKey string         `yaml:"header_api_key"`
 	HeaderExtra  string         `yaml:"header_extra"`
 	APIKeys      []APIClientKey `yaml:"api_keys"`
+	enabledSet   bool
 }
 
 type APIClientKey struct {
@@ -237,6 +238,31 @@ func ValidateItems(items []models.Item) error {
 	return nil
 }
 
+func (c *APIAuthConfig) UnmarshalYAML(value *yaml.Node) error {
+	type rawAPIAuthConfig APIAuthConfig
+
+	var raw rawAPIAuthConfig
+	if err := value.Decode(&raw); err != nil {
+		return err
+	}
+
+	*c = APIAuthConfig(raw)
+	c.enabledSet = hasYAMLKey(value, "enabled")
+	return nil
+}
+
+func hasYAMLKey(node *yaml.Node, key string) bool {
+	if node == nil || node.Kind != yaml.MappingNode {
+		return false
+	}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if node.Content[i].Value == key {
+			return true
+		}
+	}
+	return false
+}
+
 func (c *Config) applyDefaults() {
 	if c.API.GRPC.Port == 0 {
 		c.API.GRPC.Port = 8081
@@ -248,7 +274,7 @@ func (c *Config) applyDefaults() {
 		c.Monitoring.PrometheusPort = 9090
 	}
 	// auth enabled by default when API is enabled
-	if !c.API.Auth.Enabled {
+	if !c.API.Auth.enabledSet {
 		c.API.Auth.Enabled = true
 	}
 	if !c.API.HTTP.Enabled && c.API.Enabled {

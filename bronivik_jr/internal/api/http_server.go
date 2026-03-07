@@ -339,6 +339,10 @@ func (a *HTTPAuth) Wrap(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+		if isPublicHealthEndpoint(r.URL.Path) {
+			next.ServeHTTP(w, r)
+			return
+		}
 
 		if a.cfg.Auth.Enabled {
 			if err := a.checkAuth(r); err != nil {
@@ -358,6 +362,10 @@ func (a *HTTPAuth) Wrap(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+func isPublicHealthEndpoint(path string) bool {
+	return path == "/healthz" || path == "/readyz"
 }
 
 var errPermissionDenied = fmt.Errorf("permission denied")

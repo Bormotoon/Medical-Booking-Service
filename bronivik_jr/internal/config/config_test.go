@@ -127,6 +127,45 @@ func TestApplyDefaults(t *testing.T) {
 	if cfg.Bot.RateLimitMessages != models.RateLimitMessages {
 		t.Errorf("expected default rate limit messages %d, got %d", models.RateLimitMessages, cfg.Bot.RateLimitMessages)
 	}
+	if !cfg.API.Auth.Enabled {
+		t.Errorf("expected auth to be enabled by default")
+	}
+}
+
+func TestLoadConfig_PreservesExplicitAuthDisabled(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	yamlContent := `
+telegram:
+  bot_token: "test_token"
+database:
+  path: "test.db"
+api:
+  auth:
+    enabled: false
+items:
+  - id: 1
+    name: "Item 1"
+    total_quantity: 1
+`
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0o644); err != nil {
+		t.Fatalf("failed to write temp config: %v", err)
+	}
+
+	if err := os.WriteFile(".env", []byte(""), 0o644); err != nil {
+		t.Fatalf("failed to write .env: %v", err)
+	}
+	defer os.Remove(".env")
+
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("failed to load config: %v", err)
+	}
+
+	if cfg.API.Auth.Enabled {
+		t.Fatalf("expected auth.enabled=false to be preserved")
+	}
 }
 
 func TestValidateItems(t *testing.T) {

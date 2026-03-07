@@ -149,6 +149,50 @@ func TestReadyz(t *testing.T) {
 	}
 }
 
+func TestHealthEndpointsBypassAuth(t *testing.T) {
+	db := newTestDB(t)
+	createTestItem(t, db, "camera", 2)
+
+	cfg := config.APIConfig{
+		Enabled: true,
+		HTTP:    config.APIHTTPConfig{Enabled: true, Port: 0},
+		Auth: config.APIAuthConfig{
+			Enabled:      true,
+			HeaderAPIKey: "x-api-key",
+			HeaderExtra:  "x-api-extra",
+			APIKeys: []config.APIClientKey{
+				{Key: "valid-key", Extra: "valid-extra", Permissions: []string{"read:items"}},
+			},
+		},
+	}
+	logger := zerolog.New(io.Discard)
+	server := NewHTTPServer(&cfg, db, nil, nil, &logger)
+	ts := httptest.NewServer(server.server.Handler)
+	t.Cleanup(ts.Close)
+
+	for _, endpoint := range []string{"/healthz", "/readyz"} {
+		resp, err := http.Get(ts.URL + endpoint)
+		if err != nil {
+			t.Fatalf("request %s failed: %v", endpoint, err)
+		}
+		resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("%s: expected 200, got %d", endpoint, resp.StatusCode)
+		}
+	}
+
+	resp, err := http.Get(ts.URL + "/api/v1/items")
+	if err != nil {
+		t.Fatalf("items request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected auth-protected endpoint to return 401, got %d", resp.StatusCode)
+	}
+}
+
 func TestAvailabilityBulk_Success(t *testing.T) {
 	db := newTestDB(t)
 	item1 := createTestItem(t, db, "camera", 2)
