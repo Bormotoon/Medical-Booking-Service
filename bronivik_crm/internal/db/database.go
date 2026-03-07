@@ -15,7 +15,6 @@ import (
 	"bronivik/bronivik_crm/internal/crmapi"
 	"bronivik/bronivik_crm/internal/model"
 
-	_ "github.com/jackc/pgx/v5/stdlib"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -132,16 +131,15 @@ func NewDBWithDriver(driver, path, dsn string) (*DB, error) {
 	if driver == "" {
 		driver = "sqlite3"
 	}
+	if driver != "sqlite3" {
+		return nil, fmt.Errorf("driver %q is not supported; only sqlite3 is supported", driver)
+	}
 
 	var (
 		db  *sql.DB
 		err error
 	)
-	if driver == "postgres" {
-		db, err = sql.Open("pgx", dsn)
-	} else {
-		db, err = sql.Open("sqlite3", path)
-	}
+	db, err = sql.Open("sqlite3", path)
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
 	}

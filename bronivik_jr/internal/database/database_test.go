@@ -42,3 +42,11 @@ func TestDB_Ping(t *testing.T) {
 	err := db.PingContext(context.Background())
 	assert.NoError(t, err)
 }
+
+func TestNewDBWithDriverRejectsUnsupportedDriver(t *testing.T) {
+	logger := zerolog.Nop()
+
+	_, err := NewDBWithDriver("postgres", "ignored", "postgres://example", &logger)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "only sqlite3 is supported")
+}

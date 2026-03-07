@@ -82,6 +82,22 @@ func TestValidateConfig(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name: "postgres unsupported",
+			cfg: Config{
+				Telegram: TelegramConfig{BotToken: "token"},
+				Database: DatabaseConfig{
+					Path: "path",
+					Postgres: PostgresConfig{
+						Host:   "localhost",
+						User:   "user",
+						DBName: "db",
+					},
+				},
+				Items: []models.Item{{ID: 1, Name: "Item 1"}},
+			},
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {

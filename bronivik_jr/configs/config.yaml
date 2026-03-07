@@ -24,15 +24,6 @@ exports:
 
 database:
   path: "./data/bookings.db"
-  postgres:
-    host: "localhost"
-    port: 5432
-    user: ${BOT_USER}
-    password: ${BOT_PASSWORD}
-    dbname: ${POSTGRES_DB}
-    sslmode: "disable"
-    max_connections: 20
-    migration_table: "schema_migrations"
 
 redis:
   address: ${REDIS_ADDR}

@@ -190,9 +190,7 @@ func (c *Config) Validate() error {
 	}
 
 	if c.UsePostgres() {
-		if c.Database.Postgres.Host == "" || c.Database.Postgres.User == "" || c.Database.Postgres.DBName == "" {
-			return errors.New("postgres config is incomplete: host, user and dbname are required")
-		}
+		return errors.New("postgresql is not supported; configure sqlite database.path")
 	}
 
 	return ValidateItems(c.Items)

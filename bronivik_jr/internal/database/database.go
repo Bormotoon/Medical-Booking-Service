@@ -15,7 +15,6 @@ import (
 
 	"bronivik/internal/models"
 
-	_ "github.com/jackc/pgx/v5/stdlib"
 	_ "github.com/mattn/go-sqlite3" // sqlite3 driver
 	"github.com/rs/zerolog"
 )
@@ -43,7 +42,7 @@ func NewDB(path string, logger *zerolog.Logger) (*DB, error) {
 }
 
 // NewDBWithDriver initializes database with an explicit driver.
-// Supported drivers: sqlite3, postgres.
+// Supported drivers: sqlite3.
 func NewDBWithDriver(driver, path, dsn string, logger *zerolog.Logger) (*DB, error) {
 	return newDB(driver, path, dsn, logger)
 }
@@ -52,30 +51,26 @@ func newDB(driver, path, dsn string, logger *zerolog.Logger) (*DB, error) {
 	if driver == "" {
 		driver = "sqlite3"
 	}
+	if driver != "sqlite3" {
+		return nil, fmt.Errorf("driver %q is not supported; only sqlite3 is supported", driver)
+	}
 
 	var (
 		db  *sql.DB
 		err error
 	)
 
-	if driver == postgresDriver {
-		db, err = sql.Open("pgx", dsn)
-		if err != nil {
-			return nil, fmt.Errorf("failed to open postgres database: %w", err)
-		}
-	} else {
-		// Создаем директорию для БД, если её нет
-		dir := filepath.Dir(path)
-		if mkErr := os.MkdirAll(dir, 0o755); mkErr != nil {
-			return nil, fmt.Errorf("failed to create database directory: %w", mkErr)
-		}
+	// Создаем директорию для БД, если её нет
+	dir := filepath.Dir(path)
+	if mkErr := os.MkdirAll(dir, 0o755); mkErr != nil {
+		return nil, fmt.Errorf("failed to create database directory: %w", mkErr)
+	}
 
-		// Добавляем параметры для SQLite: WAL mode, busy timeout
-		sqliteDSN := path + "?_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000"
-		db, err = sql.Open("sqlite3", sqliteDSN)
-		if err != nil {
-			return nil, fmt.Errorf("failed to open database: %w", err)
-		}
+	// Добавляем параметры для SQLite: WAL mode, busy timeout
+	sqliteDSN := path + "?_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000"
+	db, err = sql.Open("sqlite3", sqliteDSN)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
 	// Настройка пула соединений
@@ -106,11 +101,7 @@ func newDB(driver, path, dsn string, logger *zerolog.Logger) (*DB, error) {
 		// We don't return error here to allow the app to start even if items are missing
 	}
 
-	if driver == postgresDriver {
-		logger.Info().Str("driver", postgresDriver).Msg("Database initialized")
-	} else {
-		logger.Info().Str("driver", "sqlite3").Str("path", path).Msg("Database initialized")
-	}
+	logger.Info().Str("driver", "sqlite3").Str("path", path).Msg("Database initialized")
 	return instance, nil
 }
 

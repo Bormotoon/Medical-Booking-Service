@@ -351,3 +351,10 @@ func TestLegacyTablesMigrationToNamespacedTables(t *testing.T) {
 		t.Fatalf("migration is not idempotent, crm_users count = %d", count)
 	}
 }
+
+func TestNewDBWithDriverRejectsUnsupportedDriver(t *testing.T) {
+	_, err := NewDBWithDriver("postgres", "ignored", "postgres://example")
+	if err == nil {
+		t.Fatal("expected postgres driver to be rejected")
+	}
+}

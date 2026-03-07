@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -92,6 +93,9 @@ func Load(path string) (*Config, error) {
 
 	if cfg.Database.Path == "" {
 		cfg.Database.Path = "data/bronivik_crm.db"
+	}
+	if cfg.UsePostgres() {
+		return nil, fmt.Errorf("postgresql is not supported; configure sqlite database.path")
 	}
 
 	if err = os.MkdirAll(filepath.Dir(cfg.Database.Path), 0o755); err != nil {

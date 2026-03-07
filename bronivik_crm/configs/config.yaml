@@ -10,13 +10,6 @@ telegram:
 
 database:
   path: "data/bronivik_crm.db"
-  postgres:
-    host: ${POSTGRES_HOST}
-    port: ${POSTGRES_PORT}
-    user: ${POSTGRES_USER}
-    password: ${POSTGRES_PASSWORD}
-    dbname: ${POSTGRES_DB}
-    sslmode: ${POSTGRES_SSLMODE}
 
 backup:
   enabled: true
