@@ -55,6 +55,30 @@ func TestItemCRUD(t *testing.T) {
 	assert.Len(t, activeItems, 0)
 }
 
+func TestCreateItemDefaultsToActive(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+
+	ctx := context.Background()
+
+	item := &models.Item{
+		Name:          "Implicitly Active",
+		TotalQuantity: 1,
+	}
+
+	err := db.CreateItem(ctx, item)
+	require.NoError(t, err)
+	assert.True(t, item.IsActive)
+
+	found, err := db.GetItemByName(ctx, item.Name)
+	require.NoError(t, err)
+	assert.True(t, found.IsActive)
+
+	activeItems, err := db.GetActiveItems(ctx)
+	require.NoError(t, err)
+	assert.Len(t, activeItems, 1)
+}
+
 func TestItemReordering(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()

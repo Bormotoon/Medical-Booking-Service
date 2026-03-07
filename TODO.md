@@ -162,7 +162,7 @@
 
 ## P1. Высокий приоритет
 
-### [ ] P1-1. Убрать stale cache аппаратов из gRPC availability API
+### [x] P1-1. Убрать stale cache аппаратов из gRPC availability API
 
 Проблема:
 - `AvailabilityService` кеширует `itemsByName` только при старте.

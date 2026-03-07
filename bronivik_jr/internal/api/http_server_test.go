@@ -21,6 +21,8 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func TestAvailabilitySuccess(t *testing.T) {
@@ -629,6 +631,131 @@ func TestAvailabilityService_ListItems(t *testing.T) {
 
 	if len(resp.Items) != 2 {
 		t.Fatalf("expected 2 items, got %d", len(resp.Items))
+	}
+}
+
+func TestAvailabilityAPIs_ReflectLiveItemChangesWithoutRestart(t *testing.T) {
+	db := newTestDB(t)
+	svc := NewAvailabilityService(db)
+	server := newTestHTTPServer(db)
+	ts := httptest.NewServer(server.server.Handler)
+	t.Cleanup(ts.Close)
+
+	ctx := context.Background()
+	dateStr := "2025-12-01"
+
+	item := createTestItem(t, db, "camera", 2)
+
+	assertAvailabilityOK(t, svc, item.Name, dateStr)
+	assertItemNamesMatch(t, svc, ts.URL, []string{"camera"})
+
+	current, err := db.GetItemByID(ctx, item.ID)
+	if err != nil {
+		t.Fatalf("GetItemByID: %v", err)
+	}
+	current.Name = "camera-renamed"
+	if err := db.UpdateItem(ctx, current); err != nil {
+		t.Fatalf("UpdateItem: %v", err)
+	}
+
+	assertAvailabilityNotFound(t, svc, item.Name, dateStr)
+	assertAvailabilityHTTPNotFound(t, ts.URL, item.Name, dateStr)
+	assertAvailabilityOK(t, svc, current.Name, dateStr)
+	assertItemNamesMatch(t, svc, ts.URL, []string{"camera-renamed"})
+
+	if err := db.DeactivateItem(ctx, item.ID); err != nil {
+		t.Fatalf("DeactivateItem: %v", err)
+	}
+
+	assertAvailabilityNotFound(t, svc, current.Name, dateStr)
+	assertAvailabilityHTTPNotFound(t, ts.URL, current.Name, dateStr)
+	assertItemNamesMatch(t, svc, ts.URL, nil)
+}
+
+func assertAvailabilityOK(t *testing.T, svc *AvailabilityService, itemName, date string) {
+	t.Helper()
+
+	resp, err := svc.GetAvailability(context.Background(), &availabilityv1.GetAvailabilityRequest{
+		ItemName: itemName,
+		Date:     date,
+	})
+	if err != nil {
+		t.Fatalf("GetAvailability(%q): %v", itemName, err)
+	}
+	if resp.ItemName != itemName {
+		t.Fatalf("unexpected item name: got %q want %q", resp.ItemName, itemName)
+	}
+}
+
+func assertAvailabilityNotFound(t *testing.T, svc *AvailabilityService, itemName, date string) {
+	t.Helper()
+
+	_, err := svc.GetAvailability(context.Background(), &availabilityv1.GetAvailabilityRequest{
+		ItemName: itemName,
+		Date:     date,
+	})
+	if status.Code(err) != codes.NotFound {
+		t.Fatalf("expected NotFound for %q, got %v", itemName, err)
+	}
+}
+
+func assertAvailabilityHTTPNotFound(t *testing.T, baseURL, itemName, date string) {
+	t.Helper()
+
+	resp, err := http.Get(fmt.Sprintf("%s/api/v1/availability/%s?date=%s", baseURL, itemName, date))
+	if err != nil {
+		t.Fatalf("http availability request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected HTTP 404 for %q, got %d", itemName, resp.StatusCode)
+	}
+}
+
+func assertItemNamesMatch(t *testing.T, svc *AvailabilityService, baseURL string, want []string) {
+	t.Helper()
+
+	if want == nil {
+		want = []string{}
+	}
+
+	grpcResp, err := svc.ListItems(context.Background(), &availabilityv1.ListItemsRequest{})
+	if err != nil {
+		t.Fatalf("ListItems: %v", err)
+	}
+
+	grpcNames := make([]string, 0, len(grpcResp.Items))
+	for _, item := range grpcResp.Items {
+		grpcNames = append(grpcNames, item.Name)
+	}
+	if !reflect.DeepEqual(grpcNames, want) {
+		t.Fatalf("gRPC items mismatch: got %v want %v", grpcNames, want)
+	}
+
+	resp, err := http.Get(baseURL + "/api/v1/items")
+	if err != nil {
+		t.Fatalf("http items request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("unexpected http items status: %d", resp.StatusCode)
+	}
+
+	var body struct {
+		Items []models.Item `json:"items"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode items body: %v", err)
+	}
+
+	httpNames := make([]string, 0, len(body.Items))
+	for _, item := range body.Items {
+		httpNames = append(httpNames, item.Name)
+	}
+	if !reflect.DeepEqual(httpNames, want) {
+		t.Fatalf("HTTP items mismatch: got %v want %v", httpNames, want)
 	}
 }
 

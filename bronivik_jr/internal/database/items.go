@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"sort"
+	"strings"
 	"time"
 
 	"bronivik/internal/models"
@@ -97,6 +97,10 @@ func (db *DB) itemByNameFromCache(name string) (*models.Item, bool) {
 }
 
 func (db *DB) CreateItem(ctx context.Context, item *models.Item) error {
+	if !item.IsActive {
+		item.IsActive = true
+	}
+
 	query := `INSERT INTO items (name, description, total_quantity, sort_order, 
               is_active, permanent_reserved, cabinet_id, created_at, updated_at)
 	              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -194,9 +198,19 @@ func (db *DB) GetItemByName(ctx context.Context, name string) (*models.Item, err
 }
 
 func (db *DB) GetItemAvailabilityByName(ctx context.Context, itemName string, date time.Time) (*models.AvailabilityInfo, error) {
-	item, err := db.GetItemByName(ctx, itemName)
+	item, err := db.GetActiveItemByName(ctx, itemName)
 	if err != nil {
 		return nil, err
+	}
+
+	if item.PermanentReserved {
+		return &models.AvailabilityInfo{
+			ItemName:    item.Name,
+			Date:        date,
+			Available:   false,
+			BookedCount: 0,
+			Total:       item.TotalQuantity,
+		}, nil
 	}
 
 	bookedCount, err := db.GetBookedCount(ctx, item.ID, date)
@@ -214,26 +228,29 @@ func (db *DB) GetItemAvailabilityByName(ctx context.Context, itemName string, da
 }
 
 func (db *DB) GetActiveItems(ctx context.Context) ([]*models.Item, error) {
-	db.checkCacheTTL(ctx)
-	db.mu.RLock()
-	defer db.mu.RUnlock()
-
-	var items []*models.Item
-	for _, item := range db.itemsCache {
-		if item.IsActive && !item.PermanentReserved {
-			it := item
-			items = append(items, &it)
-		}
+	items, err := db.listItemsByQuery(ctx, `
+		SELECT id, name, description, total_quantity, sort_order,
+		       is_active, permanent_reserved, cabinet_id, created_at, updated_at
+		FROM items
+		WHERE is_active = 1 AND permanent_reserved = 0
+		ORDER BY sort_order, id
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get active items: %w", err)
 	}
+	return items, nil
+}
 
-	// Sort by SortOrder, then ID
-	sort.Slice(items, func(i, j int) bool {
-		if items[i].SortOrder != items[j].SortOrder {
-			return items[i].SortOrder < items[j].SortOrder
-		}
-		return items[i].ID < items[j].ID
-	})
-
+func (db *DB) GetCurrentItems(ctx context.Context) ([]*models.Item, error) {
+	items, err := db.listItemsByQuery(ctx, `
+		SELECT id, name, description, total_quantity, sort_order,
+		       is_active, permanent_reserved, cabinet_id, created_at, updated_at
+		FROM items
+		ORDER BY sort_order, id
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get current items: %w", err)
+	}
 	return items, nil
 }
 
@@ -301,4 +318,67 @@ func (db *DB) GetItems() []*models.Item {
 		items = append(items, &it)
 	}
 	return items
+}
+
+func (db *DB) GetActiveItemByName(ctx context.Context, name string) (*models.Item, error) {
+	normalized := strings.ToLower(strings.TrimSpace(name))
+	if normalized == "" {
+		return nil, fmt.Errorf("failed to get active item by name: %w", sql.ErrNoRows)
+	}
+
+	item, err := db.queryItemRow(
+		ctx,
+		`SELECT id, name, description, total_quantity, sort_order,
+		        is_active, permanent_reserved, cabinet_id, created_at, updated_at
+		   FROM items
+		  WHERE is_active = 1
+		    AND lower(trim(name)) = ?
+		  LIMIT 1`,
+		normalized,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get active item by name: %w", err)
+	}
+	return item, nil
+}
+
+func (db *DB) listItemsByQuery(ctx context.Context, query string, args ...any) ([]*models.Item, error) {
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]*models.Item, 0)
+	for rows.Next() {
+		item, err := scanItem(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func (db *DB) queryItemRow(ctx context.Context, query string, args ...any) (*models.Item, error) {
+	return scanItem(db.QueryRowContext(ctx, query, args...))
+}
+
+func scanItem(scanner interface{ Scan(...any) error }) (*models.Item, error) {
+	var item models.Item
+	var cabinet sql.NullInt64
+	if err := scanner.Scan(
+		&item.ID, &item.Name, &item.Description, &item.TotalQuantity,
+		&item.SortOrder, &item.IsActive, &item.PermanentReserved, &cabinet,
+		&item.CreatedAt, &item.UpdatedAt,
+	); err != nil {
+		return nil, err
+	}
+	if cabinet.Valid {
+		item.CabinetID = &cabinet.Int64
+	}
+	return &item, nil
 }

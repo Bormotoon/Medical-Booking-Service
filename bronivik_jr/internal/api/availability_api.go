@@ -74,7 +74,11 @@ func (s *HTTPServer) handleItemsAvailability(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Get items based on filters
-	items := s.db.GetItems()
+	items, err := s.db.GetCurrentItems(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load items")
+		return
+	}
 	filteredItems := make([]ItemAvailability, 0)
 
 	for _, item := range items {

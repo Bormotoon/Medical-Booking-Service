@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"sort"
 	"strings"
 	"time"
 
@@ -15,6 +14,7 @@ import (
 	"bronivik/internal/database"
 	"bronivik/internal/google"
 	"bronivik/internal/metrics"
+	"bronivik/internal/models"
 
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
@@ -282,15 +282,20 @@ func (s *HTTPServer) handleItems(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	items := s.db.GetItems()
-	sort.Slice(items, func(i, j int) bool {
-		if items[i].SortOrder == items[j].SortOrder {
-			return items[i].ID < items[j].ID
-		}
-		return items[i].SortOrder < items[j].SortOrder
-	})
+	items, err := s.db.GetCurrentItems(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list items")
+		return
+	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+	activeItems := make([]*models.Item, 0, len(items))
+	for _, item := range items {
+		if item.IsActive {
+			activeItems = append(activeItems, item)
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"items": activeItems})
 }
 
 // corsMiddleware adds permissive CORS headers for simple API consumption.

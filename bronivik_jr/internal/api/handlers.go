@@ -2,12 +2,13 @@ package api
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"strings"
 	"time"
 
 	availabilityv1 "bronivik/internal/api/gen/availability/v1"
 	"bronivik/internal/database"
-	"bronivik/internal/models"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -15,20 +16,12 @@ import (
 
 type AvailabilityService struct {
 	availabilityv1.UnimplementedAvailabilityServiceServer
-	db          *database.DB
-	itemsByName map[string]*models.Item
+	db *database.DB
 }
 
 func NewAvailabilityService(db *database.DB) *AvailabilityService {
-	items := db.GetItems()
-	idx := make(map[string]*models.Item, len(items))
-	for _, it := range items {
-		idx[strings.ToLower(strings.TrimSpace(it.Name))] = it
-	}
-
 	return &AvailabilityService{
-		db:          db,
-		itemsByName: idx,
+		db: db,
 	}
 }
 
@@ -44,31 +37,25 @@ func (s *AvailabilityService) GetAvailability(ctx context.Context, req *availabi
 		return nil, status.Error(codes.InvalidArgument, "date is required")
 	}
 
-	item, ok := s.itemsByName[strings.ToLower(itemName)]
-	if !ok {
-		return nil, status.Error(codes.NotFound, "item not found")
-	}
-
 	date, err := time.Parse("2006-01-02", dateStr)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid date format; expected YYYY-MM-DD")
 	}
 
-	var booked int
-	booked, err = s.db.GetBookedCount(ctx, item.ID, date)
+	info, err := s.db.GetItemAvailabilityByName(ctx, itemName, date)
 	if err != nil {
-		return nil, status.Error(codes.Internal, "failed to get booked count")
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, status.Error(codes.NotFound, "item not found")
+		}
+		return nil, status.Error(codes.Internal, "failed to get availability")
 	}
 
-	total := item.TotalQuantity
-	available := int64(booked) < total
-
 	return &availabilityv1.GetAvailabilityResponse{
-		ItemName:    item.Name,
+		ItemName:    info.ItemName,
 		Date:        dateStr,
-		Available:   available,
-		BookedCount: int64(booked),
-		Total:       total,
+		Available:   info.Available,
+		BookedCount: info.BookedCount,
+		Total:       info.Total,
 	}, nil
 }
 
@@ -86,8 +73,7 @@ func (s *AvailabilityService) GetAvailabilityBulk(ctx context.Context, req *avai
 	results := make([]*availabilityv1.Availability, 0, len(items)*len(dates))
 	for _, rawItem := range items {
 		itemName := strings.TrimSpace(rawItem)
-		item, ok := s.itemsByName[strings.ToLower(itemName)]
-		if !ok {
+		if itemName == "" {
 			// Skip unknown items rather than failing the whole request.
 			continue
 		}
@@ -99,19 +85,21 @@ func (s *AvailabilityService) GetAvailabilityBulk(ctx context.Context, req *avai
 				return nil, status.Errorf(codes.InvalidArgument, "invalid date format: %s", dateStr)
 			}
 
-			var booked int
-			booked, err = s.db.GetBookedCount(ctx, item.ID, date)
+			info, err := s.db.GetItemAvailabilityByName(ctx, itemName, date)
 			if err != nil {
-				return nil, status.Error(codes.Internal, "failed to get booked count")
+				if !errors.Is(err, sql.ErrNoRows) {
+					return nil, status.Error(codes.Internal, "failed to get availability")
+				}
+				// Skip unknown or inactive items rather than failing the whole request.
+				continue
 			}
 
-			total := item.TotalQuantity
 			results = append(results, &availabilityv1.Availability{
-				ItemName:    item.Name,
+				ItemName:    info.ItemName,
 				Date:        dateStr,
-				Available:   int64(booked) < total,
-				BookedCount: int64(booked),
-				Total:       total,
+				Available:   info.Available,
+				BookedCount: info.BookedCount,
+				Total:       info.Total,
 			})
 		}
 	}
@@ -123,9 +111,15 @@ func (s *AvailabilityService) ListItems(
 	ctx context.Context,
 	_ *availabilityv1.ListItemsRequest,
 ) (*availabilityv1.ListItemsResponse, error) {
-	items := s.db.GetItems()
+	items, err := s.db.GetCurrentItems(ctx)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "failed to list items")
+	}
 	out := make([]*availabilityv1.Item, 0, len(items))
 	for _, it := range items {
+		if !it.IsActive {
+			continue
+		}
 		out = append(out, &availabilityv1.Item{
 			Id:            it.ID,
 			Name:          it.Name,

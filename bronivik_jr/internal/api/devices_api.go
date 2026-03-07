@@ -64,14 +64,14 @@ func (s *HTTPServer) handleDevices(w http.ResponseWriter, r *http.Request) {
 	// Include permanently reserved devices?
 	includeReserved := r.URL.Query().Get("include_reserved") == "true"
 
-	// Get all items from cache
-	items := s.db.GetItems()
+	items, err := s.db.GetCurrentItems(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load devices")
+		return
+	}
 
 	devices := make([]DeviceResponse, 0, len(items))
 	for _, item := range items {
-		if !item.IsActive {
-			continue
-		}
 		// Skip permanently reserved unless explicitly requested
 		if item.PermanentReserved && !includeReserved {
 			continue
