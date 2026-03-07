@@ -27,12 +27,6 @@ items:
 		t.Fatalf("failed to write temp config: %v", err)
 	}
 
-	// Mock .env file
-	if err := os.WriteFile(".env", []byte(""), 0o644); err != nil {
-		t.Fatalf("failed to write .env: %v", err)
-	}
-	defer os.Remove(".env")
-
 	cfg, err := Load(configPath)
 	if err != nil {
 		t.Fatalf("failed to load config: %v", err)
@@ -153,11 +147,6 @@ items:
 		t.Fatalf("failed to write temp config: %v", err)
 	}
 
-	if err := os.WriteFile(".env", []byte(""), 0o644); err != nil {
-		t.Fatalf("failed to write .env: %v", err)
-	}
-	defer os.Remove(".env")
-
 	cfg, err := Load(configPath)
 	if err != nil {
 		t.Fatalf("failed to load config: %v", err)
@@ -165,6 +154,90 @@ items:
 
 	if cfg.API.Auth.Enabled {
 		t.Fatalf("expected auth.enabled=false to be preserved")
+	}
+}
+
+func TestLoadConfig_UsesDotEnvAsFallbackWithoutMutatingEnv(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Chdir(tmpDir)
+
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	yamlContent := `
+telegram:
+  bot_token: "${LOCAL_BOT_TOKEN}"
+database:
+  path: "${LOCAL_DB_PATH:-test.db}"
+items:
+  - id: 1
+    name: "Item 1"
+    total_quantity: 1
+`
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0o644); err != nil {
+		t.Fatalf("failed to write temp config: %v", err)
+	}
+	if err := os.WriteFile(".env", []byte("LOCAL_BOT_TOKEN=dotenv_token\nLOCAL_DB_PATH=dotenv.db\n"), 0o644); err != nil {
+		t.Fatalf("failed to write .env: %v", err)
+	}
+
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("failed to load config: %v", err)
+	}
+
+	if cfg.Telegram.BotToken != "dotenv_token" {
+		t.Fatalf("expected bot token from .env fallback, got %q", cfg.Telegram.BotToken)
+	}
+	if cfg.Database.Path != "dotenv.db" {
+		t.Fatalf("expected database path from .env fallback, got %q", cfg.Database.Path)
+	}
+	if _, ok := os.LookupEnv("LOCAL_BOT_TOKEN"); ok {
+		t.Fatalf("expected Load not to mutate process env with .env values")
+	}
+}
+
+func TestLoadConfig_PrefersProcessEnvOverDotEnv(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Chdir(tmpDir)
+
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	yamlContent := `
+telegram:
+  bot_token: "${LOCAL_BOT_TOKEN}"
+database:
+  path: "${LOCAL_DB_PATH:-test.db}"
+google:
+  credentials_file: "${LOCAL_GOOGLE_CREDENTIALS:-}"
+items:
+  - id: 1
+    name: "Item 1"
+    total_quantity: 1
+`
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0o644); err != nil {
+		t.Fatalf("failed to write temp config: %v", err)
+	}
+	if err := os.WriteFile(".env", []byte(
+		"LOCAL_BOT_TOKEN=dotenv_token\nLOCAL_DB_PATH=dotenv.db\nLOCAL_GOOGLE_CREDENTIALS=/tmp/dotenv.json\n",
+	), 0o644); err != nil {
+		t.Fatalf("failed to write .env: %v", err)
+	}
+
+	t.Setenv("LOCAL_BOT_TOKEN", "env_token")
+	t.Setenv("LOCAL_DB_PATH", "env.db")
+	t.Setenv("LOCAL_GOOGLE_CREDENTIALS", "")
+
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("failed to load config: %v", err)
+	}
+
+	if cfg.Telegram.BotToken != "env_token" {
+		t.Fatalf("expected bot token from process env, got %q", cfg.Telegram.BotToken)
+	}
+	if cfg.Database.Path != "env.db" {
+		t.Fatalf("expected database path from process env, got %q", cfg.Database.Path)
+	}
+	if cfg.Google.GoogleCredentialsFile != "" {
+		t.Fatalf("expected empty env to win over .env fallback, got %q", cfg.Google.GoogleCredentialsFile)
 	}
 }
 

@@ -156,7 +156,8 @@ type GoogleConfig struct {
 }
 
 func Load(configPath string) (*Config, error) {
-	if err := loadDotEnvIfPresent(".env"); err != nil {
+	dotEnvValues, err := loadDotEnvIfPresent(".env")
+	if err != nil {
 		return nil, err
 	}
 
@@ -165,7 +166,7 @@ func Load(configPath string) (*Config, error) {
 		return nil, err
 	}
 
-	expandedData := []byte(expandEnvWithDefaults(string(data)))
+	expandedData := []byte(expandEnvWithDefaults(string(data), dotEnvValues))
 
 	var config Config
 	if err := yaml.Unmarshal(expandedData, &config); err != nil {
@@ -181,17 +182,21 @@ func Load(configPath string) (*Config, error) {
 	return &config, nil
 }
 
-func loadDotEnvIfPresent(path string) error {
+func loadDotEnvIfPresent(path string) (map[string]string, error) {
 	if _, err := os.Stat(path); err != nil {
 		if os.IsNotExist(err) {
-			return nil
+			return nil, nil
 		}
-		return err
+		return nil, err
 	}
-	return godotenv.Load(path)
+	values, err := godotenv.Read(path)
+	if err != nil {
+		return nil, err
+	}
+	return values, nil
 }
 
-func expandEnvWithDefaults(input string) string {
+func expandEnvWithDefaults(input string, dotEnvValues map[string]string) string {
 	return envPlaceholderPattern.ReplaceAllStringFunc(input, func(match string) string {
 		parts := envPlaceholderPattern.FindStringSubmatch(match)
 		if len(parts) == 0 {
@@ -199,13 +204,22 @@ func expandEnvWithDefaults(input string) string {
 		}
 
 		key := parts[1]
-		if value, ok := os.LookupEnv(key); ok && value != "" {
-			return value
+		if value, ok := os.LookupEnv(key); ok {
+			if value != "" || !strings.Contains(match, ":-") {
+				return value
+			}
+			return parts[3]
+		}
+		if value, ok := dotEnvValues[key]; ok {
+			if value != "" || !strings.Contains(match, ":-") {
+				return value
+			}
+			return parts[3]
 		}
 		if strings.Contains(match, ":-") {
 			return parts[3]
 		}
-		return os.Getenv(key)
+		return ""
 	})
 }
 
