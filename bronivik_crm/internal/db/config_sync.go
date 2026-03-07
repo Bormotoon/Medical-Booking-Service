@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"time"
 
@@ -15,6 +16,12 @@ func (db *DB) SyncCabinetsFromConfig(ctx context.Context, cfg *config.CabinetsCo
 		return fmt.Errorf("cabinet config is nil")
 	}
 
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin sync transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
 	now := time.Now()
 	seen := make(map[int64]struct{})
 
@@ -25,14 +32,16 @@ func (db *DB) SyncCabinetsFromConfig(ctx context.Context, cfg *config.CabinetsCo
 		}
 
 		// Preserve created_at if the cabinet already exists.
-		_, err := db.ExecContext(ctx, `
+		_, err = tx.ExecContext(
+			ctx,
+			db.rebind(`
             INSERT INTO cabinets (id, name, description, is_active, created_at, updated_at)
             VALUES (?, ?, ?, ?, COALESCE((SELECT created_at FROM cabinets WHERE id = ?), ?), ?)
             ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name,
                 description = excluded.description,
                 is_active = excluded.is_active,
-                updated_at = excluded.updated_at`,
+                updated_at = excluded.updated_at`),
 			cab.ID, cab.Name, cab.Description, isActive, cab.ID, now, now,
 		)
 		if err != nil {
@@ -40,13 +49,13 @@ func (db *DB) SyncCabinetsFromConfig(ctx context.Context, cfg *config.CabinetsCo
 		}
 		seen[int64(cab.ID)] = struct{}{}
 
-		if err := db.applyScheduleFromConfig(ctx, int64(cab.ID), cab.DefaultSchedule, cfg.Defaults.Schedule); err != nil {
+		if err := db.applyScheduleFromConfigTx(ctx, tx, int64(cab.ID), cab.DefaultSchedule, cfg.Defaults.Schedule); err != nil {
 			return fmt.Errorf("sync cabinet %d schedule: %w", cab.ID, err)
 		}
 	}
 
 	// Deactivate cabinets that disappeared from config.
-	rows, err := db.QueryContext(ctx, `SELECT id FROM cabinets`)
+	rows, err := tx.QueryContext(ctx, db.rebind(`SELECT id FROM cabinets`))
 	if err != nil {
 		return err
 	}
@@ -60,7 +69,7 @@ func (db *DB) SyncCabinetsFromConfig(ctx context.Context, cfg *config.CabinetsCo
 		if _, ok := seen[id]; ok {
 			continue
 		}
-		if _, err := db.ExecContext(ctx, `UPDATE cabinets SET is_active = 0, updated_at = ? WHERE id = ?`, now, id); err != nil {
+		if _, err := tx.ExecContext(ctx, db.rebind(`UPDATE cabinets SET is_active = 0, updated_at = ? WHERE id = ?`), now, id); err != nil {
 			return fmt.Errorf("deactivate cabinet %d: %w", id, err)
 		}
 	}
@@ -68,22 +77,24 @@ func (db *DB) SyncCabinetsFromConfig(ctx context.Context, cfg *config.CabinetsCo
 		return err
 	}
 
-	// Best-effort creation of day-off overrides for configured holidays.
 	for _, h := range cfg.Holidays {
 		dt, err := time.Parse("2006-01-02", h.Date)
 		if err != nil {
 			return fmt.Errorf("parse holiday %s: %w", h.Date, err)
 		}
 		for id := range seen {
-			_ = db.SetDayOff(ctx, id, dt, h.Name)
+			if err := setDayOffTx(ctx, tx, id, dt, h.Name, db.isPostgres()); err != nil {
+				return fmt.Errorf("sync holiday %s for cabinet %d: %w", h.Date, id, err)
+			}
 		}
 	}
 
-	return nil
+	return tx.Commit()
 }
 
-func (db *DB) applyScheduleFromConfig(
+func (db *DB) applyScheduleFromConfigTx(
 	ctx context.Context,
+	tx *sql.Tx,
 	cabinetID int64,
 	cabinetSchedule *config.CabinetScheduleConfig,
 	defaultSchedule *config.CabinetScheduleConfig,
@@ -132,45 +143,80 @@ func (db *DB) applyScheduleFromConfig(
 	DefaultScheduleConfig.SlotDuration = slot
 
 	for day := 1; day <= 7; day++ {
-		if err := db.upsertScheduleRow(ctx, cabinetID, day, start, end, lunchStart, lunchEnd, slot); err != nil {
+		if err := upsertScheduleRowTx(ctx, tx, cabinetID, day, start, end, lunchStart, lunchEnd, slot, db.isPostgres()); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (db *DB) upsertScheduleRow(
+func upsertScheduleRowTx(
 	ctx context.Context,
+	tx *sql.Tx,
 	cabinetID int64,
 	day int,
 	start, end string,
 	lunchStart, lunchEnd *string,
 	slot int,
+	isPostgres bool,
 ) error {
 	now := time.Now()
 
-	res, err := db.ExecContext(ctx, `
+	query := `
         UPDATE cabinet_schedules
         SET start_time = ?, end_time = ?, lunch_start = ?, lunch_end = ?, slot_duration = ?, is_active = 1, updated_at = ?
-        WHERE cabinet_id = ? AND day_of_week = ?`,
-		start, end, lunchStart, lunchEnd, slot, now, cabinetID, day,
-	)
+        WHERE cabinet_id = ? AND day_of_week = ?`
+	if isPostgres {
+		query = rebindForTx(query)
+	} else {
+		query = qualifyCRMQueryTables(query)
+	}
+	res, err := tx.ExecContext(ctx, query, start, end, lunchStart, lunchEnd, slot, now, cabinetID, day)
 	if err != nil {
 		return err
 	}
 
 	rows, _ := res.RowsAffected()
 	if rows == 0 {
-		_, err = db.ExecContext(ctx, `
+		insertQuery := `
             INSERT INTO cabinet_schedules (
                 cabinet_id, day_of_week, start_time, end_time, lunch_start, lunch_end, slot_duration, is_active, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
-			cabinetID, day, start, end, lunchStart, lunchEnd, slot, now, now,
-		)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
+		if isPostgres {
+			insertQuery = rebindForTx(insertQuery)
+		} else {
+			insertQuery = qualifyCRMQueryTables(insertQuery)
+		}
+		_, err = tx.ExecContext(ctx, insertQuery, cabinetID, day, start, end, lunchStart, lunchEnd, slot, now, now)
 		if err != nil {
 			return err
 		}
 	}
 
 	return nil
+}
+
+func setDayOffTx(ctx context.Context, tx *sql.Tx, cabinetID int64, date time.Time, reason string, isPostgres bool) error {
+	now := time.Now()
+	query := `
+		INSERT INTO cabinet_schedule_overrides (
+			cabinet_id, date, is_closed, start_time, end_time,
+			lunch_start, lunch_end, reason, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(cabinet_id, date) DO UPDATE SET
+			is_closed = excluded.is_closed,
+			start_time = excluded.start_time,
+			end_time = excluded.end_time,
+			lunch_start = excluded.lunch_start,
+			lunch_end = excluded.lunch_end,
+			reason = excluded.reason,
+			updated_at = excluded.updated_at`
+	if isPostgres {
+		query = rebindForTx(query)
+	} else {
+		query = qualifyCRMQueryTables(query)
+	}
+
+	_, err := tx.ExecContext(ctx, query, cabinetID, date, true, "", "", "", "", reason, now, now)
+	return err
 }

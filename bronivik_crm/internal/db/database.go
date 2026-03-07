@@ -86,16 +86,31 @@ func (db *DB) GetOrCreateUserByTelegramID(
 			FirstName: firstName, LastName: lastName, CreatedAt: now, UpdatedAt: now,
 		}
 	} else {
-		// best-effort update of profile fields; phone only if provided
+		var updateQuery string
+		var updateArgs []any
 		if phone != "" {
-			_, _ = tx.ExecContext(ctx, db.rebind(`
-					UPDATE users SET username = ?, first_name = ?, last_name = ?, phone = ?, updated_at = ? 
-					WHERE id = ?`), username, firstName, lastName, phone, now, u.ID)
+			updateQuery = `
+				UPDATE users SET username = ?, first_name = ?, last_name = ?, phone = ?, updated_at = ?
+				WHERE id = ?`
+			updateArgs = []any{username, firstName, lastName, phone, now, u.ID}
 			u.Phone = phone
 		} else {
-			_, _ = tx.ExecContext(ctx, db.rebind(`
-					UPDATE users SET username = ?, first_name = ?, last_name = ?, updated_at = ? 
-					WHERE id = ?`), username, firstName, lastName, now, u.ID)
+			updateQuery = `
+				UPDATE users SET username = ?, first_name = ?, last_name = ?, updated_at = ?
+				WHERE id = ?`
+			updateArgs = []any{username, firstName, lastName, now, u.ID}
+		}
+
+		res, execErr := tx.ExecContext(ctx, db.rebind(updateQuery), updateArgs...)
+		if execErr != nil {
+			return nil, fmt.Errorf("update user %d profile: %w", u.ID, execErr)
+		}
+		rows, rowsErr := res.RowsAffected()
+		if rowsErr != nil {
+			return nil, fmt.Errorf("update user %d profile rows affected: %w", u.ID, rowsErr)
+		}
+		if rows == 0 {
+			return nil, fmt.Errorf("update user %d profile: no rows updated", u.ID)
 		}
 		u.Username = username
 		u.FirstName = firstName
