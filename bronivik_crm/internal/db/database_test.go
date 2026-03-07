@@ -10,6 +10,49 @@ import (
 	"bronivik/bronivik_crm/internal/model"
 )
 
+func setupHourlyBookingTestDB(t *testing.T, startTime, endTime string, slotDuration int) (*DB, *model.User, *model.Cabinet, time.Time) {
+	t.Helper()
+
+	dbPath := filepath.Join(t.TempDir(), "crm.db")
+	db, err := NewDB(dbPath)
+	if err != nil {
+		t.Fatalf("NewDB: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	ctx := context.Background()
+	user, err := db.GetOrCreateUserByTelegramID(ctx, 123, "u", "First", "Last", "")
+	if err != nil {
+		t.Fatalf("GetOrCreateUserByTelegramID: %v", err)
+	}
+
+	cab := &model.Cabinet{Name: "Cab1", Description: ""}
+	if err = db.CreateCabinet(ctx, cab); err != nil {
+		t.Fatalf("CreateCabinet: %v", err)
+	}
+
+	date := time.Date(2026, 1, 5, 0, 0, 0, 0, time.Local)
+	dow := int(date.Weekday())
+	if dow == 0 {
+		dow = 7
+	}
+	if err = db.CreateSchedule(ctx, &model.CabinetSchedule{
+		CabinetID:    cab.ID,
+		DayOfWeek:    dow,
+		StartTime:    startTime,
+		EndTime:      endTime,
+		SlotDuration: slotDuration,
+	}); err != nil {
+		t.Fatalf("CreateSchedule: %v", err)
+	}
+
+	return db, user, cab, date
+}
+
+func at(date time.Time, hour, minute int) time.Time {
+	return time.Date(date.Year(), date.Month(), date.Day(), hour, minute, 0, 0, date.Location())
+}
+
 func TestGetAvailableSlots_RespectsBookings(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "crm.db")
 	db, err := NewDB(dbPath)
@@ -116,6 +159,78 @@ func TestCreateHourlyBookingWithChecks_BusySlot(t *testing.T) {
 		Status:    "pending",
 	}
 	if err := db.CreateHourlyBookingWithChecks(ctx, attempt, nil); err != ErrSlotNotAvailable {
+		t.Fatalf("expected ErrSlotNotAvailable, got %v", err)
+	}
+}
+
+func TestCreateHourlyBookingWithChecks_AllowsSixtyMinuteRange(t *testing.T) {
+	db, user, cab, date := setupHourlyBookingTestDB(t, "09:00", "12:00", 30)
+
+	booking := &model.HourlyBooking{
+		UserID:    user.ID,
+		CabinetID: cab.ID,
+		StartTime: at(date, 9, 0),
+		EndTime:   at(date, 10, 0),
+		Status:    "pending",
+	}
+	if err := db.CreateHourlyBookingWithChecks(context.Background(), booking, nil); err != nil {
+		t.Fatalf("CreateHourlyBookingWithChecks: %v", err)
+	}
+
+	stored, err := db.GetHourlyBooking(context.Background(), booking.ID)
+	if err != nil {
+		t.Fatalf("GetHourlyBooking: %v", err)
+	}
+	if got := stored.EndTime.Sub(stored.StartTime); got != time.Hour {
+		t.Fatalf("duration: got %v want %v", got, time.Hour)
+	}
+}
+
+func TestCreateHourlyBookingWithChecks_AllowsNinetyMinuteRange(t *testing.T) {
+	db, user, cab, date := setupHourlyBookingTestDB(t, "09:00", "12:00", 30)
+
+	booking := &model.HourlyBooking{
+		UserID:    user.ID,
+		CabinetID: cab.ID,
+		StartTime: at(date, 9, 0),
+		EndTime:   at(date, 10, 30),
+		Status:    "pending",
+	}
+	if err := db.CreateHourlyBookingWithChecks(context.Background(), booking, nil); err != nil {
+		t.Fatalf("CreateHourlyBookingWithChecks: %v", err)
+	}
+
+	stored, err := db.GetHourlyBooking(context.Background(), booking.ID)
+	if err != nil {
+		t.Fatalf("GetHourlyBooking: %v", err)
+	}
+	if got := stored.EndTime.Sub(stored.StartTime); got != 90*time.Minute {
+		t.Fatalf("duration: got %v want %v", got, 90*time.Minute)
+	}
+}
+
+func TestCreateHourlyBookingWithChecks_RejectsPartiallyOccupiedRange(t *testing.T) {
+	db, user, cab, date := setupHourlyBookingTestDB(t, "09:00", "12:00", 30)
+
+	busy := &model.HourlyBooking{
+		UserID:    user.ID,
+		CabinetID: cab.ID,
+		StartTime: at(date, 9, 30),
+		EndTime:   at(date, 10, 0),
+		Status:    "pending",
+	}
+	if err := db.CreateHourlyBooking(context.Background(), busy); err != nil {
+		t.Fatalf("CreateHourlyBooking: %v", err)
+	}
+
+	attempt := &model.HourlyBooking{
+		UserID:    user.ID,
+		CabinetID: cab.ID,
+		StartTime: at(date, 9, 0),
+		EndTime:   at(date, 10, 30),
+		Status:    "pending",
+	}
+	if err := db.CreateHourlyBookingWithChecks(context.Background(), attempt, nil); err != ErrSlotNotAvailable {
 		t.Fatalf("expected ErrSlotNotAvailable, got %v", err)
 	}
 }

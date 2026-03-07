@@ -1262,7 +1262,7 @@ func validateSlotAlignmentTx(ctx context.Context, tx *sql.Tx, cabinetID int64, s
 	}
 
 	slot := time.Duration(slotDuration) * time.Minute
-	if !end.After(start) || end.Sub(start) != slot {
+	if !end.After(start) || end.Sub(start)%slot != 0 {
 		return ErrSlotMisaligned
 	}
 	if start.Before(startWin) || end.After(endWin) {

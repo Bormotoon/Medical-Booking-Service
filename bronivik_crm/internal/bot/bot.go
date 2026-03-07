@@ -12,6 +12,7 @@ import (
 	"bronivik/bronivik_crm/internal/db"
 	"bronivik/bronivik_crm/internal/metrics"
 	"bronivik/bronivik_crm/internal/model"
+	slotutil "bronivik/bronivik_crm/internal/slots"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/google/uuid"
@@ -395,7 +396,7 @@ func (b *Bot) handleBack(ctx context.Context, chatID, userID int64, st *userStat
 		b.sendTimeSlots(ctx, chatID, userID)
 	case "duration":
 		st.Step = stepDuration
-		b.sendDurations(chatID)
+		b.sendDurations(ctx, chatID, userID)
 	case "item":
 		st.Step = stepItem
 		b.sendItems(ctx, chatID, st.Draft.Date)
@@ -444,10 +445,10 @@ func (b *Bot) handleSlotCallback(ctx context.Context, chatID, userID int64, st *
 
 	st.Draft.StartTime = start.Format("15:04")
 	st.Step = stepDuration
-	b.sendDurations(chatID)
+	b.sendDurations(ctx, chatID, userID)
 }
 
-func (b *Bot) handleDurationCallback(ctx context.Context, chatID int64, _userID int64, st *userState, data string) {
+func (b *Bot) handleDurationCallback(ctx context.Context, chatID int64, userID int64, st *userState, data string) {
 	durStr := strings.TrimPrefix(data, "dur:")
 	dur, err := strconv.Atoi(durStr)
 	if err != nil {
@@ -460,6 +461,17 @@ func (b *Bot) handleDurationCallback(ctx context.Context, chatID int64, _userID 
 	startDT := time.Date(date.Year(), date.Month(), date.Day(), start.Hour(), start.Minute(), 0, 0, time.Local)
 	endDT := startDT.Add(time.Duration(dur) * time.Minute)
 
+	options, err := b.availableDurationOptions(ctx, st.Draft.CabinetID, date, startDT)
+	if err != nil {
+		b.reply(chatID, "Не удалось получить доступные длительности")
+		return
+	}
+	if !containsDuration(options, dur) {
+		b.reply(chatID, "Выбранная длительность недоступна для этого времени. Выберите одну из предложенных.")
+		b.sendDurations(ctx, chatID, userID)
+		return
+	}
+
 	// Final availability check for the whole range
 	ok, err := b.db.CheckSlotAvailability(ctx, st.Draft.CabinetID, date, startDT, endDT)
 	if err != nil {
@@ -468,7 +480,7 @@ func (b *Bot) handleDurationCallback(ctx context.Context, chatID int64, _userID 
 	}
 	if !ok {
 		b.reply(chatID, "Выбранный период времени занят. Выберите меньшую длительность или другое время.")
-		b.sendDurations(chatID)
+		b.sendDurations(ctx, chatID, userID)
 		return
 	}
 
@@ -478,18 +490,40 @@ func (b *Bot) handleDurationCallback(ctx context.Context, chatID int64, _userID 
 	b.sendItems(ctx, chatID, st.Draft.Date)
 }
 
-func (b *Bot) sendDurations(chatID int64) {
-	durations := []int{30, 60, 90, 120, 150, 180}
+func (b *Bot) sendDurations(ctx context.Context, chatID, userID int64) {
+	st := b.state.get(userID)
+	if st.Draft.CabinetID == 0 || st.Draft.Date == "" || st.Draft.StartTime == "" {
+		b.reply(chatID, "Сначала выберите время")
+		return
+	}
+
+	date, err := time.Parse("2006-01-02", st.Draft.Date)
+	if err != nil {
+		b.reply(chatID, "Некорректная дата")
+		return
+	}
+	start, err := time.Parse("15:04", st.Draft.StartTime)
+	if err != nil {
+		b.reply(chatID, "Некорректное время")
+		return
+	}
+	startDT := time.Date(date.Year(), date.Month(), date.Day(), start.Hour(), start.Minute(), 0, 0, time.Local)
+
+	durations, err := b.availableDurationOptions(ctx, st.Draft.CabinetID, date, startDT)
+	if err != nil {
+		b.reply(chatID, "Не удалось получить доступные длительности")
+		return
+	}
+	if len(durations) == 0 {
+		b.reply(chatID, "Для выбранного времени нет доступных длительностей. Выберите другой слот.")
+		st.Step = stepTime
+		b.sendTimeSlots(ctx, chatID, userID)
+		return
+	}
+
 	rows := make([][]tgbotapi.InlineKeyboardButton, 0)
 	for _, d := range durations {
-		label := fmt.Sprintf("%d мин", d)
-		if d >= 60 {
-			if d%60 == 0 {
-				label = fmt.Sprintf("%d ч", d/60)
-			} else {
-				label = fmt.Sprintf("%d ч %d мин", d/60, d%60)
-			}
-		}
+		label := slotutil.FormatDuration(d)
 		rows = append(rows, []tgbotapi.InlineKeyboardButton{
 			tgbotapi.NewInlineKeyboardButtonData(label, fmt.Sprintf("dur:%d", d)),
 		})
@@ -501,6 +535,66 @@ func (b *Bot) sendDurations(chatID int64) {
 	msg := tgbotapi.NewMessage(chatID, "Выберите длительность приема:")
 	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
 	_, _ = b.tg.Send(msg)
+}
+
+func (b *Bot) availableDurationOptions(ctx context.Context, cabinetID int64, date, startTime time.Time) ([]int, error) {
+	slots, err := b.db.GetAvailableSlots(ctx, cabinetID, date)
+	if err != nil {
+		return nil, err
+	}
+
+	_, _, slotDuration, err := b.db.GetScheduleWindow(ctx, cabinetID, date)
+	if err != nil {
+		return nil, err
+	}
+	if slotDuration <= 0 {
+		slotDuration = 60
+	}
+
+	converted, err := convertDBSlots(date, slots)
+	if err != nil {
+		return nil, err
+	}
+
+	options := slotutil.GetDurationOptions(converted, startTime, slotDuration)
+	if len(options) == 0 {
+		return nil, nil
+	}
+
+	filtered := make([]int, 0, len(options))
+	for _, duration := range options {
+		if duration > 180 {
+			break
+		}
+		filtered = append(filtered, duration)
+	}
+
+	return filtered, nil
+}
+
+func convertDBSlots(date time.Time, slots []db.TimeSlot) ([]slotutil.Slot, error) {
+	converted := make([]slotutil.Slot, 0, len(slots))
+	for _, slot := range slots {
+		start, end, err := parseTimeLabel(date, slot.StartTime+"-"+slot.EndTime)
+		if err != nil {
+			return nil, err
+		}
+		converted = append(converted, slotutil.Slot{
+			StartTime: start,
+			EndTime:   end,
+			Available: slot.Available,
+		})
+	}
+	return converted, nil
+}
+
+func containsDuration(options []int, duration int) bool {
+	for _, option := range options {
+		if option == duration {
+			return true
+		}
+	}
+	return false
 }
 
 func (b *Bot) handleConfirmCallback(ctx context.Context, chatID, userID int64, cq *tgbotapi.CallbackQuery, st *userState) {
