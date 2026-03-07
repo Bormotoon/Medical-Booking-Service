@@ -14,6 +14,7 @@ import (
 
 	"bronivik/bronivik_crm/internal/crmapi"
 	"bronivik/bronivik_crm/internal/model"
+	slotutil "bronivik/bronivik_crm/internal/slots"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -874,10 +875,10 @@ func (db *DB) CreateSchedule(ctx context.Context, s *model.CabinetSchedule) erro
 	}
 	now := time.Now()
 	query := `INSERT INTO cabinet_schedules (
-		cabinet_id, day_of_week, start_time, end_time, 
+		cabinet_id, day_of_week, start_time, end_time, lunch_start, lunch_end,
 		slot_duration, is_active, created_at, updated_at
-	) VALUES (?, ?, ?, ?, ?, 1, ?, ?)`
-	id, err := db.insertAndReturnID(ctx, query, s.CabinetID, s.DayOfWeek, s.StartTime, s.EndTime, s.SlotDuration, now, now)
+	) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
+	id, err := db.insertAndReturnID(ctx, query, s.CabinetID, s.DayOfWeek, s.StartTime, s.EndTime, s.LunchStart, s.LunchEnd, s.SlotDuration, now, now)
 	if err != nil {
 		return err
 	}
@@ -1068,36 +1069,24 @@ func (db *DB) GetAvailableSlots(ctx context.Context, cabinetID int64, date time.
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	startWin, endWin, slotDuration, err := resolveScheduleWindowTx(ctx, tx, cabinetID, date)
+	slots, _, err := dbGenerateSlotsTx(ctx, tx, cabinetID, date)
 	if err != nil {
 		return nil, err
 	}
-	if startWin.IsZero() || endWin.IsZero() {
+	if len(slots) == 0 {
 		return nil, nil
 	}
 
-	if slotDuration <= 0 {
-		slotDuration = 60
-	}
-
-	var slots []TimeSlot
-	for cursor := startWin; cursor.Add(time.Duration(slotDuration)*time.Minute).Before(endWin) ||
-		cursor.Add(time.Duration(slotDuration)*time.Minute).Equal(endWin); cursor = cursor.Add(time.Duration(slotDuration) * time.Minute) {
-		s := cursor
-		e := cursor.Add(time.Duration(slotDuration) * time.Minute)
-		var ok bool
-		ok, err = checkSlotAvailabilityTx(ctx, tx, cabinetID, date, s, e)
-		if err != nil {
-			return nil, err
-		}
-		slots = append(slots, TimeSlot{
-			StartTime: s.Format("15:04"),
-			EndTime:   e.Format("15:04"),
-			Available: ok,
+	result := make([]TimeSlot, 0, len(slots))
+	for _, slot := range slots {
+		result = append(result, TimeSlot{
+			StartTime: slot.StartTime.Format("15:04"),
+			EndTime:   slot.EndTime.Format("15:04"),
+			Available: slot.Available,
 		})
 	}
 
-	return slots, nil
+	return result, nil
 }
 
 // CreateHourlyBookingWithChecks checks slot and optional item availability before inserting.
@@ -1154,25 +1143,25 @@ func (db *DB) CreateHourlyBookingWithChecks(ctx context.Context, booking *model.
 }
 
 func checkSlotAvailabilityTx(ctx context.Context, tx *sql.Tx, cabinetID int64, date, start, end time.Time) (bool, error) {
-	startWin, endWin, _, err := resolveScheduleWindowTx(ctx, tx, cabinetID, date)
+	slots, scheduleInfo, err := dbGenerateSlotsTx(ctx, tx, cabinetID, date)
 	if err != nil {
 		return false, err
 	}
-	if startWin.IsZero() || endWin.IsZero() {
-		return false, nil
-	}
-	if start.Before(startWin) || end.After(endWin) || !end.After(start) {
+	if len(slots) == 0 {
 		return false, nil
 	}
 
-	var count int
-	if err := tx.QueryRowContext(ctx, rebindForTx(`
-		SELECT COUNT(1) FROM hourly_bookings
-        WHERE cabinet_id = ? AND start_time < ? AND end_time > ? 
-		AND status NOT IN ('canceled','rejected')`), cabinetID, end, start).Scan(&count); err != nil {
-		return false, err
+	slotDuration := scheduleInfo.SlotDuration
+	if slotDuration <= 0 {
+		slotDuration = DefaultScheduleConfig.SlotDuration
 	}
-	return count == 0, nil
+	slot := time.Duration(slotDuration) * time.Minute
+	if !end.After(start) || end.Sub(start)%slot != 0 {
+		return false, nil
+	}
+
+	count := int(end.Sub(start) / slot)
+	return slotutil.CanBookConsecutive(slots, start, count), nil
 }
 
 func resolveScheduleWindowTx(
@@ -1181,54 +1170,95 @@ func resolveScheduleWindowTx(
 	cabinetID int64,
 	date time.Time,
 ) (startWin, endWin time.Time, slotDuration int, err error) {
+	scheduleInfo, err := resolveScheduleInfoTx(ctx, tx, cabinetID, date)
+	if err != nil {
+		return time.Time{}, time.Time{}, 0, err
+	}
+	if scheduleInfo.IsClosed || scheduleInfo.StartTime == "" || scheduleInfo.EndTime == "" {
+		return time.Time{}, time.Time{}, 0, nil
+	}
+
+	startWin, err = combineDateTime(date, scheduleInfo.StartTime)
+	if err != nil {
+		return time.Time{}, time.Time{}, 0, err
+	}
+	endWin, err = combineDateTime(date, scheduleInfo.EndTime)
+	if err != nil {
+		return time.Time{}, time.Time{}, 0, err
+	}
+
+	if scheduleInfo.SlotDuration <= 0 {
+		scheduleInfo.SlotDuration = DefaultScheduleConfig.SlotDuration
+	}
+	return startWin, endWin, scheduleInfo.SlotDuration, nil
+}
+
+func resolveScheduleInfoTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	cabinetID int64,
+	date time.Time,
+) (slotutil.ScheduleInfo, error) {
 	day := int(date.Weekday())
 	if day == 0 {
 		day = 7 // make Monday=1..Sunday=7 consistent with UI
 	}
 
-	var sched model.CabinetSchedule
-	row := tx.QueryRowContext(ctx, rebindForTx(`SELECT id, cabinet_id, day_of_week, start_time, end_time, slot_duration, is_active, created_at, updated_at
+	var (
+		startTime  string
+		endTime    string
+		lunchStart sql.NullString
+		lunchEnd   sql.NullString
+		slotDur    int
+	)
+	row := tx.QueryRowContext(ctx, rebindForTx(`SELECT start_time, end_time, lunch_start, lunch_end, slot_duration
         FROM cabinet_schedules WHERE cabinet_id = ? AND day_of_week = ? AND is_active = 1 LIMIT 1`), cabinetID, day)
-	if err = row.Scan(
-		&sched.ID, &sched.CabinetID, &sched.DayOfWeek, &sched.StartTime,
-		&sched.EndTime, &sched.SlotDuration, &sched.IsActive, &sched.CreatedAt,
-		&sched.UpdatedAt,
-	); err != nil {
+	if err := row.Scan(&startTime, &endTime, &lunchStart, &lunchEnd, &slotDur); err != nil {
 		if err == sql.ErrNoRows {
-			return time.Time{}, time.Time{}, 0, nil
+			return slotutil.ScheduleInfo{}, nil
 		}
-		return time.Time{}, time.Time{}, 0, err
+		return slotutil.ScheduleInfo{}, err
 	}
 
-	var ovrStart, ovrEnd string
-	var closed bool
-	ovrStart, ovrEnd, closed, err = loadOverrideTx(ctx, tx, cabinetID, date)
+	info := slotutil.ScheduleInfo{
+		StartTime:    startTime,
+		EndTime:      endTime,
+		SlotDuration: slotDur,
+		IncludePast:  true,
+	}
+	if lunchStart.Valid {
+		info.LunchStart = lunchStart.String
+	}
+	if lunchEnd.Valid {
+		info.LunchEnd = lunchEnd.String
+	}
+
+	override, err := loadOverrideTx(ctx, tx, cabinetID, date)
 	if err != nil {
-		return time.Time{}, time.Time{}, 0, err
+		return slotutil.ScheduleInfo{}, err
 	}
-	if closed {
-		return time.Time{}, time.Time{}, 0, nil
+	if !override.Found {
+		if info.SlotDuration <= 0 {
+			info.SlotDuration = DefaultScheduleConfig.SlotDuration
+		}
+		return info, nil
 	}
-
-	startStr := sched.StartTime
-	endStr := sched.EndTime
-	if ovrStart != "" {
-		startStr = ovrStart
+	if override.IsClosed {
+		info.IsClosed = true
+		return info, nil
 	}
-	if ovrEnd != "" {
-		endStr = ovrEnd
+	if override.StartTime != "" {
+		info.StartTime = override.StartTime
 	}
-
-	startWin, err = combineDateTime(date, startStr)
-	if err != nil {
-		return time.Time{}, time.Time{}, 0, err
+	if override.EndTime != "" {
+		info.EndTime = override.EndTime
 	}
-	endWin, err = combineDateTime(date, endStr)
-	if err != nil {
-		return time.Time{}, time.Time{}, 0, err
+	info.LunchStart = override.LunchStart
+	info.LunchEnd = override.LunchEnd
+	if info.SlotDuration <= 0 {
+		info.SlotDuration = DefaultScheduleConfig.SlotDuration
 	}
-
-	return startWin, endWin, sched.SlotDuration, nil
+	return info, nil
 }
 
 // GetScheduleWindow returns schedule window and slot duration for a cabinet/date.
@@ -1273,18 +1303,42 @@ func validateSlotAlignmentTx(ctx context.Context, tx *sql.Tx, cabinetID int64, s
 	return nil
 }
 
-func loadOverrideTx(ctx context.Context, tx *sql.Tx, cabinetID int64, date time.Time) (start, end string, closed bool, err error) {
+type scheduleOverrideWindow struct {
+	Found      bool
+	StartTime  string
+	EndTime    string
+	LunchStart string
+	LunchEnd   string
+	IsClosed   bool
+}
+
+func loadOverrideTx(ctx context.Context, tx *sql.Tx, cabinetID int64, date time.Time) (scheduleOverrideWindow, error) {
+	var override scheduleOverrideWindow
+	var startTime, endTime, lunchStart, lunchEnd sql.NullString
 	row := tx.QueryRowContext(ctx, rebindForTx(`
-		SELECT start_time, end_time, is_closed 
+		SELECT start_time, end_time, lunch_start, lunch_end, is_closed 
 		FROM cabinet_schedule_overrides 
 		WHERE cabinet_id = ? AND date(date) = date(?) LIMIT 1`), cabinetID, date)
-	if err = row.Scan(&start, &end, &closed); err != nil {
+	if err := row.Scan(&startTime, &endTime, &lunchStart, &lunchEnd, &override.IsClosed); err != nil {
 		if err == sql.ErrNoRows {
-			return "", "", false, nil
+			return scheduleOverrideWindow{}, nil
 		}
-		return "", "", false, err
+		return scheduleOverrideWindow{}, err
 	}
-	return
+	if startTime.Valid {
+		override.StartTime = startTime.String
+	}
+	if endTime.Valid {
+		override.EndTime = endTime.String
+	}
+	if lunchStart.Valid {
+		override.LunchStart = lunchStart.String
+	}
+	if lunchEnd.Valid {
+		override.LunchEnd = lunchEnd.String
+	}
+	override.Found = true
+	return override, nil
 }
 
 func combineDateTime(date time.Time, hm string) (time.Time, error) {
@@ -1313,7 +1367,7 @@ func scanHourly(r rowScanner) (*model.HourlyBooking, error) {
 // ListSchedulesByCabinet returns active schedules for a cabinet.
 func (db *DB) ListSchedulesByCabinet(ctx context.Context, cabinetID int64) ([]model.CabinetSchedule, error) {
 	query := `SELECT id, cabinet_id, day_of_week, start_time, end_time, 
-		slot_duration, is_active, created_at, updated_at
+		lunch_start, lunch_end, slot_duration, is_active, created_at, updated_at
 		FROM cabinet_schedules WHERE cabinet_id = ? AND is_active = 1 
 		ORDER BY day_of_week, id`
 	rows, err := db.QueryContext(ctx, query, cabinetID)
@@ -1387,13 +1441,54 @@ func scanUser(r rowScanner) (*model.User, error) {
 
 func scanSchedule(r rowScanner) (*model.CabinetSchedule, error) {
 	var s model.CabinetSchedule
+	var lunchStart, lunchEnd sql.NullString
 	if err := r.Scan(
 		&s.ID, &s.CabinetID, &s.DayOfWeek, &s.StartTime, &s.EndTime,
-		&s.SlotDuration, &s.IsActive, &s.CreatedAt, &s.UpdatedAt,
+		&lunchStart, &lunchEnd, &s.SlotDuration, &s.IsActive, &s.CreatedAt, &s.UpdatedAt,
 	); err != nil {
 		return nil, err
 	}
+	if lunchStart.Valid {
+		s.LunchStart = lunchStart.String
+	}
+	if lunchEnd.Valid {
+		s.LunchEnd = lunchEnd.String
+	}
 	return &s, nil
+}
+
+type txBookingChecker struct {
+	tx *sql.Tx
+}
+
+func (c txBookingChecker) IsSlotBooked(ctx context.Context, cabinetID int64, start, end time.Time) (bool, error) {
+	var count int
+	if err := c.tx.QueryRowContext(ctx, rebindForTx(`
+		SELECT COUNT(*) FROM hourly_bookings
+		WHERE cabinet_id = ?
+		AND start_time < ? AND end_time > ?
+		AND status NOT IN ('canceled', 'rejected')`,
+	), cabinetID, end, start).Scan(&count); err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+func dbGenerateSlotsTx(ctx context.Context, tx *sql.Tx, cabinetID int64, date time.Time) ([]slotutil.Slot, slotutil.ScheduleInfo, error) {
+	scheduleInfo, err := resolveScheduleInfoTx(ctx, tx, cabinetID, date)
+	if err != nil {
+		return nil, slotutil.ScheduleInfo{}, err
+	}
+	if scheduleInfo.IsClosed || scheduleInfo.StartTime == "" || scheduleInfo.EndTime == "" {
+		return nil, scheduleInfo, nil
+	}
+
+	generator := slotutil.NewGenerator(txBookingChecker{tx: tx})
+	slots, err := generator.GenerateSlots(ctx, cabinetID, date, scheduleInfo)
+	if err != nil {
+		return nil, slotutil.ScheduleInfo{}, err
+	}
+	return slots, scheduleInfo, nil
 }
 
 func trimSQL(s string) string {

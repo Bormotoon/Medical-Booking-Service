@@ -118,6 +118,47 @@ func TestGenerateSlots(t *testing.T) {
 	}
 }
 
+func TestGenerateSlots_SkipsLunchAndKeepsAdjacentWindows(t *testing.T) {
+	baseDate := time.Now().AddDate(0, 0, 7)
+	generator := NewGenerator(&mockChecker{})
+
+	slots, err := generator.GenerateSlots(context.Background(), 1, baseDate, ScheduleInfo{
+		StartTime:    "09:00",
+		EndTime:      "14:00",
+		LunchStart:   "12:00",
+		LunchEnd:     "13:00",
+		SlotDuration: 30,
+	})
+	if err != nil {
+		t.Fatalf("GenerateSlots: %v", err)
+	}
+
+	got := make([]string, 0, len(slots))
+	for _, slot := range slots {
+		got = append(got, slot.StartTime.Format("15:04")+"-"+slot.EndTime.Format("15:04"))
+	}
+
+	expected := []string{
+		"09:00-09:30",
+		"09:30-10:00",
+		"10:00-10:30",
+		"10:30-11:00",
+		"11:00-11:30",
+		"11:30-12:00",
+		"13:00-13:30",
+		"13:30-14:00",
+	}
+
+	if len(got) != len(expected) {
+		t.Fatalf("slot count: got %d want %d", len(got), len(expected))
+	}
+	for i := range expected {
+		if got[i] != expected[i] {
+			t.Fatalf("slot %d: got %s want %s", i, got[i], expected[i])
+		}
+	}
+}
+
 func TestFindConsecutiveSlots(t *testing.T) {
 	baseDate := time.Now().AddDate(0, 0, 7)
 

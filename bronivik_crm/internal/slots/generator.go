@@ -31,6 +31,7 @@ type ScheduleInfo struct {
 	LunchEnd     string // "14:00" (optional)
 	SlotDuration int    // minutes
 	IsClosed     bool
+	IncludePast  bool
 }
 
 // BookingChecker checks if a slot is booked.
@@ -96,8 +97,8 @@ func (g *Generator) GenerateSlots(ctx context.Context, cabinetID int64, date tim
 			}
 		}
 
-		// Skip past slots
-		isPast := slotStart.Before(time.Now())
+		// DB-backed runtime paths may need historical availability without filtering.
+		isPast := !schedule.IncludePast && slotStart.Before(time.Now())
 
 		slots = append(slots, Slot{
 			StartTime: slotStart,

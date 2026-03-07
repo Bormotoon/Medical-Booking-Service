@@ -235,6 +235,85 @@ func TestCreateHourlyBookingWithChecks_RejectsPartiallyOccupiedRange(t *testing.
 	}
 }
 
+func TestGetAvailableSlots_SkipsLunchBreak(t *testing.T) {
+	db, _, cab, date := setupHourlyBookingTestDB(t, "09:00", "15:00", 30)
+
+	ctx := context.Background()
+	day := int(date.Weekday())
+	if day == 0 {
+		day = 7
+	}
+	if err := db.UpdateScheduleLunch(ctx, cab.ID, day, "12:00", "13:00"); err != nil {
+		t.Fatalf("UpdateScheduleLunch: %v", err)
+	}
+
+	slots, err := db.GetAvailableSlots(ctx, cab.ID, date)
+	if err != nil {
+		t.Fatalf("GetAvailableSlots: %v", err)
+	}
+
+	for _, slot := range slots {
+		if slot.StartTime >= "12:00" && slot.StartTime < "13:00" {
+			t.Fatalf("lunch slot should not be returned: %+v", slot)
+		}
+	}
+
+	ok, err := db.CheckSlotAvailability(ctx, cab.ID, date, at(date, 12, 0), at(date, 12, 30))
+	if err != nil {
+		t.Fatalf("CheckSlotAvailability: %v", err)
+	}
+	if ok {
+		t.Fatal("expected lunch slot to be unavailable")
+	}
+}
+
+func TestGetAvailableSlots_UsesOverrideAndDayOff(t *testing.T) {
+	db, _, cab, _ := setupHourlyBookingTestDB(t, "09:00", "15:00", 30)
+
+	ctx := context.Background()
+	overrideDate := time.Date(2030, 4, 8, 0, 0, 0, 0, time.Local)
+	if err := db.CreateScheduleOverride(ctx, &model.CabinetScheduleOverride{
+		CabinetID:  cab.ID,
+		Date:       overrideDate,
+		StartTime:  "11:00",
+		EndTime:    "13:00",
+		LunchStart: "12:00",
+		LunchEnd:   "12:30",
+	}); err != nil {
+		t.Fatalf("CreateScheduleOverride: %v", err)
+	}
+
+	slots, err := db.GetAvailableSlots(ctx, cab.ID, overrideDate)
+	if err != nil {
+		t.Fatalf("GetAvailableSlots: %v", err)
+	}
+	if len(slots) != 3 {
+		t.Fatalf("expected 3 override slots, got %d", len(slots))
+	}
+	if slots[0].StartTime != "11:00" || slots[0].EndTime != "11:30" {
+		t.Fatalf("unexpected first override slot: %+v", slots[0])
+	}
+	if slots[1].StartTime != "11:30" || slots[1].EndTime != "12:00" {
+		t.Fatalf("unexpected second override slot: %+v", slots[1])
+	}
+	if slots[2].StartTime != "12:30" || slots[2].EndTime != "13:00" {
+		t.Fatalf("unexpected slot after lunch override: %+v", slots[2])
+	}
+
+	dayOffDate := overrideDate.AddDate(0, 0, 1)
+	if err := db.SetDayOff(ctx, cab.ID, dayOffDate, "holiday"); err != nil {
+		t.Fatalf("SetDayOff: %v", err)
+	}
+
+	dayOffSlots, err := db.GetAvailableSlots(ctx, cab.ID, dayOffDate)
+	if err != nil {
+		t.Fatalf("GetAvailableSlots day off: %v", err)
+	}
+	if len(dayOffSlots) != 0 {
+		t.Fatalf("expected no slots on day off, got %d", len(dayOffSlots))
+	}
+}
+
 func TestLegacyTablesMigrationToNamespacedTables(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "crm_legacy.db")
 
