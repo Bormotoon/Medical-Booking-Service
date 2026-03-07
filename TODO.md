@@ -1,866 +1,470 @@
-# TODO: Medical Booking Service
-
-> Подробный план разработки на основе [features.md](features.md) и [features2.md](features2.md)
-
----
-
-## Легенда статусов
-
-- [ ] Не начато
-- [~] В работе
-- [x] Завершено
-- [!] Требует уточнения
-
----
-
-## 0. Подготовка и архитектурные решения
-
-### 0.0 Архитектурные решения (БЛОКИРУЮЩИЕ)
-
-> ⚠️ **Важно**: Эти решения должны быть приняты до начала реализации задач эпика II и III.
-
-#### 0.0.1 Политика напоминаний
-- [x] **Зафиксировать типы напоминаний** ✅ (13.01.2026)
-  - Описание: Определить, какие типы напоминаний поддерживаются системой.
-  - Варианты:
-    - "За N часов до записи" (где N — конфигурируемое значение, например 24, 12, 2 часа)
-    - "В день записи в фиксированное время" (например, 09:00 или 12:00)
-    - "Комбинированный" — оба варианта
-  - Рекомендации:
-    - Начать с простого варианта "За 24 часа до записи"
-    - Предусмотреть расширяемость (добавление типов через конфиг)
-    - Документировать выбранный подход в `docs/ARCHITECTURE.md`
-  - Критерии готовности:
-    - [x] Задокументирован перечень типов напоминаний
-    - [x] Определена логика выбора времени отправки
-
-- [x] **Определить таймзону для напоминаний** ✅ (13.01.2026)
-  - Описание: Уточнить, какое время "12:00" используется в системе.
-  - Варианты:
-    - A) Локальное время сервиса (UTC или TZ контейнера)
-    - B) Московское время (Europe/Moscow)
-    - C) Таймзона пользователя (требует хранения TZ в `user_settings`)
-  - Рекомендации:
-    - Для MVP использовать вариант B (МСК) как наиболее простой
-    - Хранить все времена в UTC в БД, конвертировать при отображении
-    - Добавить переменную окружения `TZ=Europe/Moscow` в docker-compose
-  - Критерии готовности:
-    - [x] Выбран и задокументирован подход к таймзонам
-    - [x] Обновлён docker-compose с явной установкой TZ
-
-- [x] **Определить понятие "отправленное уведомление"** ✅ (13.01.2026)
-  - Описание: Что считать успешной отправкой напоминания?
-  - Варианты:
-    - A) Факт успешного вызова Telegram API (HTTP 200)
-    - B) Постановка в очередь (для гарантированной доставки)
-    - C) Комбинированный: очередь + подтверждение отправки
-  - Рекомендации:
-    - Для MVP: вариант A с retry при ошибках
-    - Для production: вариант C с отдельной очередью (Redis/Rabbit)
-    - Хранить `sent_at` timestamp и `send_status` enum
-  - Критерии готовности:
-    - [x] Определён статус модели уведомлений
-    - [x] Описана логика retry
-
-#### 0.0.2 Ограничения Telegram
-- [x] **Зафиксировать rate limits для бота** ✅ (13.01.2026)
-  - Описание: Определить допустимую частоту отправки сообщений.
-  - Ограничения Telegram API:
-    - ~30 сообщений/секунду для обычного бота
-    - ~1 сообщение/секунду в один чат
-    - Burst до 30 сообщений, затем throttling
-  - Рекомендации:
-    - Установить консервативный лимит: 20 msg/sec
-    - Добавить jitter (случайную задержку 50-150ms) между сообщениями
-    - Реализовать exponential backoff при 429 Too Many Requests
-  - Критерии готовности:
-    - [x] Определены константы RATE_LIMIT_PER_SECOND, RATE_LIMIT_BURST
-    - [x] Задокументирована политика retry
-
-- [x] **Определить политику повторных попыток** ✅ (13.01.2026)
-  - Описание: Как обрабатывать ошибки отправки?
-  - Рекомендации:
-    - Максимум 3 попытки с exponential backoff (1s, 5s, 30s)
-    - При 429 — ждать Retry-After из заголовка
-    - После 3 неудач — пометить как FAILED, алертить
-    - Дедупликация: уникальный ключ (user_id, booking_id, reminder_type)
-  - Критерии готовности:
-    - [x] Константы MAX_RETRIES, RETRY_DELAYS определены
-    - [x] Логика дедупликации описана
-
-#### 0.0.3 Решение по базе данных
-- [x] **Принять решение о миграции на PostgreSQL** ✅ (13.01.2026)
-  - Описание: Оценить необходимость миграции с текущей БД на PostgreSQL.
-  - Текущее состояние:
-    - bronivik_jr: SQLite (предположительно)
-    - bronivik_crm: SQLite (предположительно)
-  - Варианты:
-    - A) Остаться на SQLite, очистку делать приложением
-    - B) Мигрировать на PostgreSQL с TTL через pg_cron / partitioning
-    - C) Отложить миграцию, но подготовить абстракции
-  - Рекомендации:
-    - Для production рекомендуется PostgreSQL
-    - Миграция — отдельный эпик с планом rollback
-    - Минимум: добавить database interface для абстракции
-  - Риски:
-    - Миграция данных может привести к downtime
-    - Несовместимость SQL-диалектов
-  - Критерии готовности:
-    - [x] Принято и задокументировано решение
-    - [x] Если миграция — создан план с оценкой сроков
-  - **Решение**: Вариант C — остаться на SQLite для MVP, подготовить абстракции.
-
-- [x] **Определить стратегию TTL для данных** ✅ (13.01.2026)
-  - Описание: Как реализовать автоматическую очистку старых данных?
-  - Варианты:
-    - A) Приложение: cron-задача DELETE WHERE created_at < now() - 31 days
-    - B) PostgreSQL partitioning + DROP PARTITION
-    - C) pg_cron extension с scheduled DELETE
-    - D) TimescaleDB retention policies
-  - Рекомендации:
-    - Для SQLite: только вариант A
-    - Для PostgreSQL MVP: вариант A или C
-    - Для большого объёма: вариант B
-  - Критерии готовности:
-    - [x] Выбран и задокументирован механизм TTL
-    - [x] Определена частота запуска очистки
-  - **Решение**: Вариант A — cron-задача в приложении, ежедневно в 03:00 МСК.
-
----
-
-## 0. Подготовка инфраструктуры
-
-### 0.1 Общая архитектура монорепо
-- [x] **Определить структуру проекта** ✅ (13.01.2026)
-  - Описание: Унифицировать структуру `bronivik_jr` (Бот 1 — аппараты) и `bronivik_crm` (Бот 2 — кабинеты).
-  - Рекомендации:
-    - Выделить общие модули (напоминания, аудит, access control) в `shared/` или `common/`.
-    - Использовать единую схему конфигурации (`.env`, `config.yaml`).
-    - Документировать API-контракты между ботами (OpenAPI/Swagger).
-
-### 0.2 База данных
-- [x] **Спроектировать схему БД для обоих ботов** ✅ (13.01.2026)
-  - Описание: Таблицы для заявок, пользователей, аппаратов, кабинетов, расписаний, настроек напоминаний, чёрного списка, менеджеров.
-  - Рекомендации:
-    - Использовать PostgreSQL или SQLite (для MVP).
-    - Добавить поле `created_at` для политики удаления (31 день).
-    - Предусмотреть soft-delete или архивирование перед жёстким удалением.
-
----
-
-## I. ОБЩИЕ ТРЕБОВАНИЯ (ОБА БОТА)
-
-### 1.1 Система напоминаний о бронировании
-
-#### 1.1.1 Автоматическая отправка напоминаний
-- [x] **Реализовать планировщик напоминаний** ✅ (13.01.2026)
-  - Описание: За 24 часа до начала брони отправлять пользователю сообщение с информацией о бронировании.
-  - Рекомендации:
-    - Использовать `cron`-задачу или встроенный scheduler (APScheduler для Python, `time.Ticker` для Go).
-    - Запускать проверку каждые 15-30 минут, искать заявки с `start_time - now() <= 24h` и `reminder_sent = false`.
-    - После отправки ставить флаг `reminder_sent = true`.
-
-#### 1.1.2 Кнопка «Настройки напоминаний»
-- [x] **Добавить inline-кнопку в напоминание** ✅ (13.01.2026)
-  - Описание: Вместе с текстом напоминания отправлять кнопку для перехода в настройки.
-  - Рекомендации:
-    - Использовать `InlineKeyboardMarkup` (Telegram Bot API).
-    - Callback: `settings_reminders`.
-
-#### 1.1.3 Управление настройками напоминаний
-- [x] **Создать таблицу `user_settings`** ✅ (13.01.2026)
-  - Поля: `user_id`, `reminders_enabled` (bool, default=true).
-- [x] **Реализовать UI для вкл/выкл напоминаний** ✅ (13.01.2026)
-  - Описание: В разделе «Мои заявки» добавить переключатель.
-  - Рекомендации:
-    - Использовать inline toggle-кнопку: 🔔 Напоминания: ВКЛ / ВЫКЛ.
-    - При нажатии — инвертировать значение в БД и обновить текст кнопки.
-
----
-
-### 1.2 Расширенная система напоминаний (NEW)
-
-> Эпик на основе features2.md — улучшение системы напоминаний с учётом масштабирования
-
-#### 1.2.1 Доработка модели напоминаний
-- [x] **Расширить таблицу напоминаний** ✅ (13.01.2026)
-  - Описание: Добавить поля для гибкого управления и отслеживания статуса.
-  - Реализовано в `shared/reminders/interfaces.go`:
-    - Модель `Reminder` с полями: ID, UserID, BookingID, ReminderType, ScheduledAt, SentAt, Status, Enabled, RetryCount, LastError
-    - Типы напоминаний: `24h_before`, `day_of_booking`, `custom`
-    - Статусы: `pending`, `scheduled`, `processing`, `sent`, `failed`, `cancelled`
-    - Интерфейс `ReminderRepository` с методами CRUD и фильтрации
-
-#### 1.2.2 Cron-задача ежедневной отправки в 12:00
-- [x] **Реализовать планировщик "ежедневный проход в 12:00"** ✅ (13.01.2026)
-  - Реализовано в `shared/reminders/scheduler.go`:
-    - `Scheduler` с настраиваемым временем запуска (по умолчанию 12:00 МСК)
-    - Поддержка таймзон через `time.Location`
-    - Метод `RunNow()` для ручного запуска
-    - Автоматическая очистка старых напоминаний после обработки
-
-#### 1.2.3 Rate Limiter для отправки
-- [x] **Реализовать ограничение скорости отправки** ✅ (13.01.2026)
-  - Реализовано в `shared/reminders/ratelimit.go`:
-    - Token bucket алгоритм с jitter
-    - Параметры: 20 msg/sec, burst 30, jitter 50-150ms
-    - Методы: `Wait()`, `TryAcquire()`, `Available()`
-
-#### 1.2.4 Retry и обработка ошибок
-- [x] **Реализовать механизм повторных попыток** ✅ (13.01.2026)
-  - Реализовано в `shared/reminders/sender.go`:
-    - `ReminderSender` с exponential backoff (1s, 5s, 30s)
-    - Обработка Telegram ошибок: 429 (rate limit), 403 (blocked), 400 (bad request)
-    - Автоматическая пометка как `failed` после исчерпания попыток
-
-#### 1.2.5 Идемпотентность и дедупликация
-- [x] **Гарантировать отсутствие дублей** ✅ (13.01.2026)
-  - Реализовано:
-    - Уникальный ключ `(user_id, booking_id, reminder_type)` в интерфейсе `ReminderRepository`
-    - Метод `TryAcquireReminder()` для атомарного захвата
-    - Статус `processing` блокирует параллельную обработку
-
-#### 1.2.6 Очистка таблицы напоминаний
-- [x] **Реализовать ежедневную очистку старых записей** ✅ (13.01.2026)
-  - Реализовано в `shared/reminders/scheduler.go`:
-    - `cleanupOldReminders()` вызывается после основной рассылки
-    - Удаление `sent` старше 1 дня, `failed` старше 3 дней
-    - Конфигурируемый retention период
-
-#### 1.2.7 Метрики и логирование
-- [x] **Добавить observability для напоминаний** ✅ (13.01.2026)
-  - Реализовано в `shared/reminders/metrics.go`:
-    - `reminders_sent_total` — счётчик отправленных (по статусу и типу)
-    - `reminders_queue_size` — текущий размер очереди
-    - `reminder_send_duration_seconds` — гистограмма времени отправки
-    - `reminders_cleaned_up_total` — счётчик очищенных
-    - `reminder_retries_total` — счётчик повторных попыток
-        })
-    }
-    ```
-  - Запуск: после основной рассылки или отдельным cron job
-  - Логирование: количество удалённых записей
-
-#### 1.2.7 Метрики и логирование
-- [x] **Добавить observability для напоминаний** ✅ (13.01.2026)
-  - Реализовано в `shared/reminders/metrics.go`:
-    - `reminders_sent_total` (counter) — отправленные напоминания по статусу и типу
-    - `reminders_queue_size` (gauge) — размер очереди напоминаний
-    - `reminder_send_duration_seconds` (histogram) — время отправки
-    - `reminders_cleaned_up_total` (counter) — очищенные записи
-    - `reminder_retries_total` (counter) — количество retry
-    - `rate_limit_waits_total` (counter) — ожидания rate limit
-  - Helper методы: IncSent, SetQueueSize, ObserveSendDuration, IncCleanedUp, IncRetries, IncRateLimitWaits
-
----
-
-### 1.3 Ежемесячный аудит и экспорт данных
-
-#### 1.3.1 Генерация XLS-отчёта
-- [x] **Реализовать задачу экспорта** ✅ (13.01.2026)
-  - Описание: 1-го числа каждого месяца формировать Excel-файл со всеми таблицами БД.
-  - Реализовано:
-    - Модуль `shared/audit/` с интерфейсами и сервисом.
-    - `shared/audit/excel.go` — ExcelWriter на базе excelize.
-    - `shared/audit/service.go` — AuditScheduler с автозапуском 1-го числа.
-    - `bronivik_jr/internal/database/audit.go` — TableExporter для Бота 1.
-    - `bronivik_crm/internal/db/audit.go` — TableExporter для Бота 2.
-    - Имя файла: `{Месяц}_{Год}.xlsx` на русском языке.
-
-#### 1.3.2 Отправка отчёта менеджеру
-- [x] **Отправить файл в чат менеджера** ✅ (13.01.2026)
-  - Описание: После генерации отправить документ через Telegram Bot API.
-  - Реализовано:
-    - Интерфейс `TelegramSender` в `shared/audit/interfaces.go`.
-    - Метод `sendReportToManagers()` в `AuditScheduler`.
-    - Получение менеджеров через `ManagerProvider` interface.
-
-#### 1.3.3 Автоудаление старых заявок
-- [x] **Реализовать очистку данных старше 31 дня** ✅ (13.01.2026)
-  - Описание: После экспорта (или отдельной задачей) удалять записи.
-  - Реализовано:
-    - Интерфейс `DataCleaner` с методом `DeleteOldBookings(ctx, days int)`.
-    - Вызов после успешного экспорта в `runMonthlyAudit()`.
-    - Логирование количества удалённых записей через zerolog.
-
----
-
-### 1.4 Система управления доступом
-
-#### 1.4.1 Чёрный список (blocklist)
-- [x] **Создать таблицу `blocked_users`** ✅ (13.01.2026)
-  - Поля: `user_id`, `blocked_at`, `reason` (optional), `blocked_by`.
-  - Реализовано в обеих БД: bronivik_jr и bronivik_crm.
-- [x] **Проверять пользователя при любом действии** ✅ (13.01.2026)
-  - Описание: Если `user_id` в чёрном списке — отклонять запрос с сообщением.
-  - Реализовано:
-    - `shared/access/service.go` — AccessService с Middleware().
-    - `shared/access/interfaces.go` — BlocklistRepository, AccessChecker.
-    - `bronivik_jr/internal/database/access.go` — реализация для Бота 1.
-    - `bronivik_crm/internal/db/access.go` — реализация для Бота 2.
-
-#### 1.4.2 Список менеджеров
-- [x] **Создать таблицу `managers`** ✅ (13.01.2026)
-  - Поля: `user_id`, `chat_id`, `name`, `added_at`, `added_by`.
-  - Реализовано в обеих БД.
-- [x] **Реализовать проверку прав** ✅ (13.01.2026)
-  - Описание: Админ-команды доступны только пользователям из `managers`.
-  - Реализовано:
-    - `shared/access/service.go` — ManagerMiddleware().
-    - AccessDeniedError для обработки ошибок доступа.
-
----
-
-## II. Данные и миграции (NEW)
-
-> Эпик на основе features2.md — доработка модели данных для поддержки диапазонных бронирований
-
-### 2.1 Документирование текущей схемы
-
-#### 2.1.1 Аудит текущих таблиц
-- [x] **Описать текущие таблицы и поля** ✅ (13.01.2026)
-  - Описание: Зафиксировать актуальную схему БД для bookings/requests, reminders.
-  - Реализовано:
-    - Обновлён `docs/DATABASE_SCHEMA.md` с полным описанием таблиц
-    - Добавлено описание таблицы `reminders`
-    - Документированы статусы и типы напоминаний
-    - Сверены модели Go с фактической схемой
-
-### 2.2 Доработка модели бронирования под диапазоны
-
-#### 2.2.1 Добавление поля end_time
-- [x] **Расширить модель бронирования для диапазонов** ✅ (13.01.2026)
-  - Описание: Добавить поддержку "вечной/долгой аренды" через поле `end_time`.
-  - Реализовано:
-    - Модель `Booking` в `bronivik_jr/internal/models/booking.go`:
-      - Поле `EndTime *time.Time` (nullable)
-      - Методы: `GetEffectiveEndTime()`, `IsRangeBooking()`, `OverlapsWith()`, `ContainsDate()`
-    - Модель `HourlyBooking` в `bronivik_crm/internal/model/hourly_booking.go`:
-      - Методы: `Duration()`, `SlotCount()`, `IsRangeBooking()`, `OverlapsWith()`, `ContainsTime()`, `ContainsDate()`
-    - Миграция `bronivik_jr/migrations/001_add_end_time.up.sql`
-    - Rollback `bronivik_jr/migrations/001_add_end_time.down.sql`
-  - Правило: `end_time IS NULL` → одноразовая заявка (end_time = date)
-
-#### 2.2.2 Определить хранение "пула дат" от менеджера
-- [x] **Выбрать способ хранения диапазонов** ✅ (13.01.2026)
-  - **Решение**: Вариант A — одна запись с диапазоном (start_time, end_time)
-  - Обоснование:
-    - Простота реализации для MVP
-    - Один запрос для проверки пересечений
-    - Достаточно для текущих требований
-  - Компромисс: При необходимости отмены отдельных дней — создавать отдельные записи или использовать исключения
-
-### 2.3 Миграции данных
-
-#### 2.3.1 Backfill существующих записей
-- [x] **Обновить существующие записи** ✅ (13.01.2026)
-  - Решение: Оставить NULL для существующих записей
-  - Обоснование: Код корректно обрабатывает NULL как end_time = start_time
-  - Миграция не требует backfill — поведение обратно совместимо
-
-#### 2.3.2 Обновление индексов
-- [x] **Создать индексы для диапазонных запросов** ✅ (13.01.2026)
-  - Реализовано в миграции `001_add_end_time.up.sql`:
-    - `idx_bookings_time_range ON bookings(date, end_time)`
-    - `idx_bookings_item_time ON bookings(item_id, date, end_time)`
-  - Запрос на пересечение диапазонов использует метод `OverlapsWith()` в модели
-
-### 2.4 Доработка таблицы напоминаний
-
-#### 2.4.1 Проверка и расширение схемы
-- [x] **Убедиться в наличии необходимых полей** ✅ (13.01.2026)
-  - Реализовано:
-    - Миграции созданы для обоих ботов:
-      - `bronivik_jr/migrations/002_create_reminders.up.sql`
-      - `bronivik_crm/migrations/001_create_reminders.up.sql`
-    - Таблица `reminders` содержит все необходимые поля:
-      - id, user_id, booking_id, reminder_type
-      - scheduled_at, sent_at, status, enabled
-      - retry_count, last_error, created_at, updated_at
-    - Уникальный индекс `(user_id, booking_id, reminder_type)` для дедупликации
-    - Индексы для производительности запросов
-
----
-
-## III. БОТ 1: Бронирование аппаратов (`bronivik_jr`)
-
-### 3.1 Управление аппаратами
-
-#### 3.1.1 «Вечная аренда» аппаратов
-- [x] **Добавить поле `permanent_reserved` в таблицу `devices`** ✅ (13.01.2026)
-  - Тип: `boolean`, default=false.
-  - Реализовано в models/item.go и database schema.
-- [x] **Реализовать команду менеджера для резервирования** ✅ (13.01.2026)
-  - Описание: Менеджер отмечает аппарат как «забронированный навсегда» для нужд Бота 2.
-  - Реализовано:
-    - `database/items_api.go` — SetItemPermanentReserved(), ListPermanentReservedItems().
-    - GET /api/devices с параметром include_reserved=true.
-    - Такие аппараты исключаются из обычного бронирования по умолчанию.
-
----
-
-### 3.2 API для интеграции с Ботом 2
-
-#### 3.2.1 Эндпоинт `GET /api/devices`
-- [x] **Реализовать HTTP-сервер (если ещё нет)** ✅ (13.01.2026)
-  - HTTP-сервер уже существовал в api/http_server.go.
-- [x] **Реализовать endpoint** ✅ (13.01.2026)
-  - Описание: Возвращает JSON-список доступных аппаратов.
-  - URL: GET /api/devices?date=YYYY-MM-DD&include_reserved=true
-  - Response:
-    ```json
-    {
-      "devices": [
-        {"id": 1, "name": "Аппарат A", "available": true, "permanent_reserved": false}
-      ]
-    }
-    ```
-  - Реализовано в api/devices_api.go — handleDevices().
-
-#### 3.2.2 Эндпоинт `POST /api/book-device`
-- [x] **Реализовать endpoint бронирования** ✅ (13.01.2026)
-  - Описание: Бот 2 отправляет запрос на бронирование аппарата.
-  - URL: POST /api/book-device
-  - Request:
-    ```json
-    {
-      "device_id": 1,
-      "date": "2026-01-15",
-      "external_booking_id": "crm-12345",
-      "client_name": "Иванов Иван",
-      "client_phone": "+79991234567"
-    }
-    ```
-  - Response (success):
-    ```json
-    {"success": true, "booking_id": 789}
-    ```
-  - Response (error):
-    ```json
-    {"success": false, "error": "device not available"}
-    ```
-  - Реализовано:
-    - api/devices_api.go — handleBookDevice(), handleCancelExternalBooking().
-    - database/items_api.go — CreateExternalBooking(), CancelExternalBooking().
-    - Проверка доступности и транзакционное создание.
-    - DELETE /api/book-device/{external_id} для отмены.
-
-### 3.3 API занятости/доступности items (NEW)
-
-> Эпик на основе features2.md — унификация API для проверки занятости
-
-#### 3.3.1 Унификация контракта API
-- [x] **Привести API к единому контракту** ✅ (13.01.2026)
-  - Реализован новый endpoint: `POST /api/items/availability`
-  - Request body с фильтрами по item_ids, cabinet_id, category
-  - Валидация диапазона дат (max 90 дней)
-  - Обновлён `docs/openapi.yaml` с новыми схемами
-
-#### 3.3.2 Реализация endpoint занятости
-- [x] **Реализовать POST /api/items/availability** ✅ (13.01.2026)
-  - Создан `bronivik_jr/internal/api/availability_api.go`:
-    - `AvailabilityRequest` с полями start_date, end_date, item_ids, cabinet_id, category
-    - `DateAvailability` с полями date, available, reason
-    - `ItemAvailability` с массивом дат для каждого item
-    - `AvailabilityResponse` с items и period
-  - Обработка диапазонных бронирований через `GetItemAvailabilityByName()`
-  - Поддержка permanent_reserved items
-
-#### 3.3.3 Авторизация API key
-- [x] **Добавить проверку API ключа** ✅ (13.01.2026)
-  - Добавлена проверка прав `read:availability` для нового endpoint
-  - Обновлён `requiredPermissionHTTP()` в http_server.go
-  - CORS middleware обновлён для DELETE метода
-
-#### 3.3.4 Контракт бронирования
-- [x] **Обновить DTO/Swagger с полем comment** ✅ (13.01.2026)
-  - Обновлён `docs/openapi.yaml`:
-    - Добавлены схемы `ItemsAvailabilityRequest`, `ItemsAvailabilityResponse`
-    - Добавлены `ItemAvailabilityDetail`, `DateAvailability`
-    - Документированы все поля и примеры запросов/ответов
-
----
-
-## IV. БОТ 2: Бронирование кабинетов (`bronivik_crm`)
-
-### 4.1 Гибкое управление расписанием
-
-#### 4.1.1 Расписание по умолчанию
-- [x] **Создать таблицу `default_schedule`** ✅ (13.01.2026)
-  - Уже реализовано в cabinet_schedules с полями: day_of_week, start_time, end_time, lunch_start, lunch_end.
-  - Значения по умолчанию: 10:00–22:00, slot_duration=30 мин.
-  - Реализовано: db/schedule.go — DefaultScheduleConfig, EnsureDefaultSchedules().
-
-#### 4.1.2 Особое расписание на конкретные даты
-- [x] **Создать таблицу `special_schedule`** ✅ (13.01.2026)
-  - Уже реализовано в cabinet_schedule_overrides с полями: date, is_closed, start_time, end_time, lunch_start, lunch_end, reason.
-- [x] **Реализовать функцию получения расписания на дату** ✅ (13.01.2026)
-  - Логика: Сначала проверить override, затем cabinet_schedules.
-  - Реализовано: db/schedule.go — GetScheduleForDate(), GetScheduleByDay(), GetScheduleOverride().
-
-#### 4.1.3 Команды менеджера для управления расписанием
-- [x] **Изменение дефолтного расписания** ✅ (13.01.2026)
-  - Реализовано: UpdateScheduleHours(), UpdateScheduleLunch().
-- [x] **Установка особого расписания** ✅ (13.01.2026)
-  - Реализовано: CreateScheduleOverride(), SetDayOff(), SetSpecialHours().
-- [x] **Валидация: запрет изменения при активных заявках** ✅ (13.01.2026)
-  - Реализовано: HasActiveBookingsOnDate(), GetActiveBookingsOnDate().
-
----
-
-### 4.2 Диалог бронирования для пользователя
-
-#### 4.2.1 Сбор данных клиента
-- [x] **Реализовать пошаговый диалог (FSM)** ✅ (13.01.2026)
-  - Шаги: ФИО → Дата → Время начала → Длительность → Аппарат → Подтверждение.
-  - Реализовано:
-    - `booking/fsm.go` — State, Session, SessionStore, FSM.
-    - `booking/handler.go` — DefaultHandler с обработкой каждого шага.
-    - Поддержка команд /cancel, /back, валидация ввода.
-
-#### 4.2.2 Слоты по 30 минут
-- [x] **Генерировать доступные слоты на основе расписания** ✅ (13.01.2026)
-  - Реализовано в slots/generator.go — GenerateSlots().
-  - Учёт обеденного перерыва, исключение занятых слотов.
-
-#### 4.2.3 Выбор нескольких последовательных слотов
-- [x] **Позволить выбрать 1–N слотов подряд** ✅ (13.01.2026)
-  - Реализовано:
-    - GetDurationOptions() — доступные варианты длительности.
-    - CanBookConsecutive() — проверка последовательных слотов.
-    - FindConsecutiveSlots() — группировка свободных слотов.
-
-#### 4.2.4 Интеграция с API Бота 1
-- [x] **Получить список аппаратов через `GET /api/devices`** ✅ (13.01.2026)
-  - Реализовано: crmapi/client.go — GetDevices(), GetAvailableDevicesForDate().
-- [x] **Забронировать аппарат через `POST /api/book-device`** ✅ (13.01.2026)
-  - Реализовано: BookDevice(), BookDeviceSimple(), CancelDeviceBooking().
-
-#### 4.2.5 Проверка доступности кабинета
-- [x] **Проверить, свободен ли кабинет в выбранное время** ✅ (13.01.2026)
-  - Реализовано: db/schedule.go — IsSlotBooked(), CheckSlotAvailability().
-
-#### 4.2.6 Создание заявки со статусом «ожидает подтверждения»
-- [x] **Создать запись в таблице `bookings`** ✅ (13.01.2026)
-  - Статус: `pending`. Время блокируется для других пользователей.
-  - Реализовано: CreateHourlyBookingWithChecks().
-
-#### 4.2.7 Информационное предупреждение
-- [x] **Показать disclaimer перед подтверждением** ✅ (13.01.2026)
-  - Текст включён в StatePrompts[StateConfirm].
-
----
-
-### 4.3 Расширенный функционал менеджера
-
-#### 4.3.1 Просмотр заявок
-- [x] **Команда `/bookings` — список всех заявок** ✅ (13.01.2026)
-  - Реализовано: manager/service.go — ListBookings(), FormatBookingList().
-  - BookingFilter для фильтрации по статусу, датам, пользователю.
-  - Пагинация через Limit/Offset.
-
-#### 4.3.2 Редактирование заявки
-- [x] **Перенос на другую дату/время** ✅ (13.01.2026)
-  - Реализовано: RescheduleBooking() — проверка слотов, уведомление пользователя.
-  - Автоматическая отмена старой брони аппарата и создание новой.
-
-- [x] **Изменение длительности (количества слотов)** ✅ (13.01.2026)
-  - Реализовано через RescheduleBooking() с новым end_time.
-
-- [x] **Изменение аппарата** ✅ (13.01.2026)
-  - Реализовано: ChangeDevice() — освобождение старого, бронирование нового.
-
-#### 4.3.3 Управление статусами заявки
-- [x] **Согласовать (одобрить)** ✅ (13.01.2026)
-  - Реализовано: ApproveBooking() → статус 'approved', уведомление пользователю.
-
-- [x] **Отклонить** ✅ (13.01.2026)
-  - Реализовано: RejectBooking() → статус 'rejected', освобождение слотов, уведомление.
-
-- [x] **Вернуть на доработку** ✅ (13.01.2026)
-  - Реализовано: RequestRevision() → статус 'needs_revision', комментарий пользователю.
-
----
-
-### 4.4 Конфигурация кабинетов (NEW)
-
-> Эпик на основе features2.md — централизованная конфигурация кабинетов
-
-#### 4.4.1 Формат конфигурации кабинетов
-- [x] **Определить и реализовать cabinets.yaml** ✅ (13.01.2026)
-  - Создан `bronivik_crm/configs/cabinets.yaml`:
-    - Список кабинетов с id, name, number, address, description, floor, capacity
-    - default_schedule для каждого кабинета (start_time, end_time, slot_duration, lunch)
-    - Глобальные defaults для schedule и days_off
-    - Праздничные дни (holidays) с датой и названием
-
-#### 4.4.2 Загрузка и валидация конфигурации
-- [x] **Реализовать загрузку cabinets.yaml** ✅ (13.01.2026)
-  - Создан `bronivik_crm/internal/config/cabinets.go`:
-    - Структуры: CabinetConfig, CabinetScheduleConfig, HolidayConfig, CabinetsConfig
-    - LoadCabinetsConfig() с чтением и парсингом YAML
-    - Validate() с проверкой уникальности id/name, форматов времени
-    - validateSchedule() для проверки расписания
-    - applyDefaults() для применения значений по умолчанию
-  - Helper методы: GetCabinetByID(), GetCabinetByName(), GetActiveCabinets()
-  - IsHoliday(), IsDayOff() для проверки выходных
-  - Интеграция с основным Config через LoadCabinets()
-
-#### 4.4.3 Привязка items к кабинетам
-- [x] **Добавить cabinet_id к items** ✅ (13.01.2026)
-  - Реализовано: cabinet_id в схеме items, фильтрация в API availability, поддержка в items.yaml.
-
-#### 4.4.4 Горячая перезагрузка конфигурации
-- [x] **Реализовать hot reload для кабинетов** ✅ (13.01.2026)
-  - Реализовано: WatchCabinets с интервальным опросом и SyncCabinetsFromConfig для обновления БД без перезапуска.
-
----
-
-### 4.5 Интеграции
-
-#### 4.5.1 Настройка количества кабинетов
-- [x] **Параметр конфигурации `ROOMS_COUNT`** ✅ (13.01.2026)
-  - Реализовано через cabinets таблицу.
-  - EnsureDefaultSchedules() создаёт расписание для всех кабинетов.
-
-#### 4.5.2 Интеграция с Google Таблицами
-- [x] **Код интеграции с Google Sheets API** ✅ (13.01.2026)
-  - Реализовано:
-    - `bronivik_jr/internal/google/` — SheetsService
-    - `bronivik_jr/internal/bot/sync.go` — SyncBookingsToSheets
-    - `bronivik_jr/internal/bot/manager_sync.go` — SyncScheduleToSheets
-    - `bronivik_jr/internal/worker/sheets_worker.go` — фоновая синхронизация
-  - Конфигурация через переменные окружения:
-    - `GOOGLE_CREDENTIALS_FILE` — путь к credentials.json
-    - `GOOGLE_SPREADSHEET_ID` — ID таблицы
-  - **TODO конфигурации:** Требуется настройка сервисного аккаунта (см. docs/MANAGER_GUIDE.md)
-
-#### 4.5.3 Интеграция с Ботом 1
-- [x] **Настроить URL и авторизацию для API Бота 1** ✅ (13.01.2026)
-  - Реализовано: crmapi/client.go — BronivikClient.
-  - Конфигурация: BOT1_API_URL, x-api-key, x-api-extra.
-  - HealthCheck() при старте.
-  - Методы: GetDevices(), BookDevice(), CancelDeviceBooking().
-
----
-
-## V. Тестирование (NEW)
-
-> Эпик на основе features2.md — расширенное тестирование
-
-### 5.1 Unit-тесты
-
-#### 5.1.1 Тесты существующей логики
-- [x] **Unit-тесты для бизнес-логики** ✅ (13.01.2026)
-  - Генерация слотов: slots/generator_test.go
-  - Проверка пересечений, валидация расписания
-  - FSM бронирования: booking/fsm_test.go
-  - Хранилище сессий, переходы состояний
-
-#### 5.1.2 Тесты пересечения диапазонов
-- [x] **Тесты для диапазонных бронирований** ✅ (13.01.2026)
-  - Создан `bronivik_jr/internal/models/booking_test.go`:
-    - TestBooking_GetEffectiveEndTime
-    - TestBooking_IsRangeBooking
-    - TestBooking_OverlapsWith (14 тест-кейсов)
-    - TestBooking_ContainsDate
-  - Создан `bronivik_crm/internal/model/hourly_booking_test.go`:
-    - TestHourlyBooking_Duration
-    - TestHourlyBooking_SlotCount
-    - TestHourlyBooking_IsRangeBooking
-    - TestHourlyBooking_OverlapsWith
-    - TestHourlyBooking_ContainsTime
-    - TestHourlyBooking_ContainsDate
-
-#### 5.1.3 Тесты дедупликации напоминаний
-- [x] **Тесты идемпотентности отправки** ✅ (13.01.2026)
-  - Создан `shared/reminders/reminders_test.go`:
-    - MockReminderRepository — полная реализация интерфейса
-    - TestReminderDeduplication — проверка уникальности (user_id, booking_id, type)
-    - TestTryAcquireReminder — тест атомарного захвата
-    - TestDeleteOldReminders — тест очистки старых записей
-    - TestGetPending — тест выборки ожидающих напоминаний
-
-### 5.2 Интеграционные тесты
-
-#### 5.2.1 Тесты API
-- [x] **Integration-тесты для API** ✅ (13.01.2026)
-  - api/devices_api_test.go — тесты для GET /api/devices, POST /api/book-device
-  - Тесты аутентификации, health endpoints
-
-#### 5.2.2 Тесты cron-задач
-- [x] **Тесты для cron job напоминаний** ✅ (13.01.2026)
-  - Создан `bronivik_jr/internal/bot/reminder_test.go`:
-    - TestTimeUntilNextHour — расчёт времени до следующего запуска
-    - TestShouldRemindStatus — фильтрация статусов для напоминаний
-    - TestFormatReminderMessage — форматирование сообщений
-    - TestReminderCronSchedule — проверка cron-расписания
-    - TestCronReminderSelection — выборка бронирований для напоминаний
-    - TestReminderDeduplicationLogic — логика дедупликации
-    - TestRateLimiterLogic — параметры rate limiter
-
-#### 5.2.3 Тесты API availability
-- [x] **Тесты для POST /api/items/availability** ✅ (13.01.2026)
-  - Создан `bronivik_jr/internal/api/availability_api_test.go`:
-    - TestHandleItemsAvailability_Validation — валидация входных данных
-    - TestHandleItemsAvailability_MethodNotAllowed — проверка HTTP метода
-    - TestHandleItemsAvailability_EmptyPeriod — пустой период
-    - TestHandleItemsAvailability_FilterByItemIDs — фильтрация по ID
-    - TestHandleItemsAvailability_SingleDay — один день
-    - TestHandleItemsAvailability_MaxRange — максимальный диапазон 90 дней
-    - TestDateAvailability_Reasons — проверка причин недоступности
-    - TestAvailabilityRequest_JSONSerialization — сериализация JSON
-
-### 5.3 E2E-тесты
-
-#### 5.3.1 Тесты диалогов бота
-- [~] **E2E-тесты для ботов**
-  - Эмуляция диалога с пользователем.
-  - Подготовка: Введена абстракция telegramClient для внедрения моков в тестах.
-  - Варианты реализации:
-    - A) Mock Telegram API (в процессе)
-    - B) Тестовый бот с отдельным токеном
-    - C) Selenium/Puppeteer для веб-версии
-
----
-
-## VI. Документация
-
-### 6.1 Существующая документация
-- [x] **README для каждого бота** ✅ (13.01.2026)
-  - Установка, настройка, запуск.
-  - README уже существуют и поддерживаются актуальными.
-- [x] **OpenAPI/Swagger для API Бота 1** ✅ (13.01.2026)
-  - Описание эндпоинтов, примеры запросов/ответов.
-  - Реализовано: docs/openapi.yaml — полная OpenAPI 3.1 спецификация.
-- [x] **Инструкция для менеджера** ✅ (13.01.2026)
-  - Список команд, сценарии использования.
-  - Реализовано: docs/MANAGER_GUIDE.md — подробное руководство.
-
----
-
-## VII. Деплой и DevOps
-
-### 7.1 Существующая инфраструктура
-- [x] **Docker-образы для обоих ботов** ✅ (13.01.2026)
-  - Dockerfile для bronivik_jr (multi-stage build, bot + api)
-  - Dockerfile для bronivik_crm (multi-stage build)
-  - Оптимизация размера образов, non-root user, healthcheck
-- [x] **docker-compose для локальной разработки** ✅ (13.01.2026)
-  - docker-compose.yml в корне проекта
-  - Сервисы: bronivik-jr-bot, bronivik-jr-api, bronivik-crm-bot, redis
-  - Опциональный профиль monitoring (prometheus, grafana)
-  - Volumes для данных, сетей, health checks
-  - .env.example с описанием переменных
-- [x] **CI/CD pipeline (GitHub Actions)** ✅ (13.01.2026)
-  - .github/workflows/ci.yml
-  - Jobs: lint, test, build, docker, security, deploy
-  - Matrix strategy для обоих модулей
-  - Code coverage upload (codecov)
-  - Security scan (Trivy)
-  - Docker image push to ghcr.io
-- [x] **Настройка продакшен-окружения** ✅ (13.01.2026)
-  - Prometheus конфигурация (monitoring/prometheus.yml)
-  - Grafana datasources provisioning
-  - Deploy job с SSH (шаблон)
-
-### 7.2 Деплой worker/cron (NEW)
-
-#### 7.2.1 Worker контейнер для напоминаний
-- [x] **Добавить отдельный worker контейнер** ✅ (13.01.2026)
-  - Добавлен сервис `bronivik-jr-worker` в docker-compose.yml:
-    - Команда: `["./bot", "worker", "--job=reminders"]`
-    - Таймзона: `TZ=Europe/Moscow`
-    - Cron расписание: `REMINDER_CRON=0 12 * * *` (12:00 ежедневно)
-    - Rate limiter: `RATE_LIMIT_PER_SEC=20`, `RATE_LIMIT_BURST=30`
-    - Retry: `RETRY_MAX_ATTEMPTS=3`, `RETRY_DELAYS=1s,5s,30s`
-    - Health check: `/healthz` endpoint на порту 8091
-  - Зависит от `bronivik-jr-bot` и `redis`
-
-#### 7.2.2 Настройка расписания и таймзоны
-- [x] **Конфигурация cron schedule** ✅ (13.01.2026)
-  - Переменные окружения:
-    - `TZ=Europe/Moscow` — таймзона для cron
-    - `REMINDER_CRON=0 12 * * *` — расписание (настраивается)
-    - `REMINDER_ENABLED=true` — флаг включения
-
-#### 7.2.3 Алерты для worker
-- [x] **Настроить алерты мониторинга** ✅ (13.01.2026)
-  - Создан `monitoring/alerts.yml` с группами:
-    - **reminders**: ReminderFailureRateHigh, ReminderBacklogGrowing, NoRemindersSentInExpectedWindow, ReminderWorkerDown
-    - **api**: APIHighLatency, APIHighErrorRate, APIDown
-    - **bots**: BotDown, TelegramRateLimited, HighBookingFailureRate
-    - **database**: DatabaseConnectionErrors, DatabaseSlowQueries
-    - **redis**: RedisDown, RedisHighMemory
-    - **resources**: HighCPUUsage, HighMemoryUsage, ContainerRestarting
-    - **sync**: SyncTaskBacklogGrowing, SyncTaskFailures, GoogleSheetsAPIErrors
-  - Обновлён `monitoring/prometheus.yml`:
-    - Добавлен `rule_files: ["alerts.yml"]`
-    - Добавлен scrape job для `bronivik-jr-worker`
-
-### 7.3 Миграции и обратимость
-
-#### 7.3.1 Скрипты миграции
-- [x] **Создать систему миграций** ✅ (13.01.2026)
-  - Создан `scripts/migrate.sh` с поддержкой:
-    - up/down для применения/отката миграций
-    - version для проверки текущей версии
-    - force для принудительной установки версии
-    - backup для создания резервных копий
-    - status для списка доступных миграций
-    - all для операций на всех сервисах
-  - Инструмент: `golang-migrate/migrate` с поддержкой sqlite3
-  - Автоматическое создание backup перед миграциями
-
-#### 7.3.2 Rollback-план
-- [x] **Документировать план отката** ✅ (13.01.2026)
-  - Создан `docs/ROLLBACK.md` с разделами:
-    - General Rollback Procedures (backup, version tracking)
-    - Database Migrations (команды migrate)
-    - Migration-Specific Rollbacks (для каждой миграции)
-    - Configuration Changes (cabinets.yaml, env vars)
-    - Container Deployments (docker rollback)
-    - Emergency Procedures (corruption, rate limits)
-
----
-
-## VIII. Приоритеты (обновлённый порядок)
-
-### Фаза 0: Архитектурные решения (БЛОКИРУЮЩАЯ)
-1. Зафиксировать политику напоминаний (типы, таймзоны)
-2. Определить rate limits для Telegram
-3. Принять решение по БД (SQLite vs PostgreSQL)
-4. Определить стратегию TTL
-
-### Фаза 1: Данные и миграции
-5. Аудит текущей схемы БД
-6. Добавить поле `end_time` для диапазонов
-7. Обновить индексы
-8. Расширить таблицу напоминаний
-
-### Фаза 2: Система напоминаний
-9. Реализовать cron-задачу отправки
-10. Добавить rate limiter
-11. Реализовать retry и дедупликацию
-12. Добавить метрики и логирование
-
-### Фаза 3: API и конфигурация
-13. Реализовать POST /api/items/availability
-14. Добавить авторизацию API key
-15. Создать cabinets.yaml
-
-### Фаза 4: Тестирование
-16. Unit-тесты для диапазонов
-17. Тесты дедупликации напоминаний
-18. Интеграционные тесты cron
-19. Тесты API availability
-
-### Фаза 5: Деплой
-20. Worker контейнер
-21. Алерты мониторинга
-22. Система миграций
-23. Rollback-план
-
----
-
-*Последнее обновление: 13 января 2026*
+# TODO по результатам аудита от 2026-03-07
+
+Этот файл превращает findings из `AUDIT_2026-03-07.md` в рабочий backlog. Приоритеты и порядок ниже отражают риск для продакшена, а не только удобство реализации.
+
+## Правила выполнения
+
+- Для каждого пункта ниже требуется не только код-фикс, но и тесты.
+- Если задача затрагивает два сервиса, изменения должны выходить одним согласованным контрактом.
+- Если исправление временно невозможно, нужно явно снять функцию из поддерживаемых сценариев и обновить документацию/конфиги.
+- После закрытия каждого крупного блока нужно прогонять как минимум `go test ./...`, `go test -race ./...` и целевые интеграционные тесты затронутых модулей.
+
+## P0. Критические исправления
+
+### [ ] P0-1. Убрать двойные бронирования между `bronivik_crm` и `bronivik_jr`
+
+Проблема:
+- `CreateExternalBooking()` в `bronivik_jr` считает занятыми только записи со статусом `"approved"`.
+- Внутренние заявки используют статусы `pending/confirmed/canceled/changed/completed`.
+- В результате внешняя бронь из CRM может пройти поверх уже существующей заявки из JR.
+
+Затронутые файлы:
+- `bronivik_jr/internal/database/items_api.go`
+- `bronivik_jr/internal/database/bookings.go`
+- `bronivik_jr/internal/models/constants.go`
+
+Что нужно сделать:
+- Ввести единый контракт статусов между сервисами.
+- Убрать отдельную логику доступности в `CreateExternalBooking()` и переиспользовать общий путь расчёта занятости.
+- Явно определить, какие статусы блокируют слот, а какие нет.
+- Привести именование статусов к одному набору и убрать магические строковые литералы из SQL/кода.
+- Проверить, что HTTP/gRPC/API-пути и внутренние сценарии используют одну и ту же модель занятости.
+
+Критерии готовности:
+- `pending` и `confirmed` заявки из `bronivik_jr` блокируют внешнюю бронь из `bronivik_crm`.
+- `canceled` и другие неблокирующие статусы не мешают созданию новой брони.
+- В проекте остаётся один источник истины для проверки доступности слота.
+
+Обязательные проверки:
+- Интеграционный тест на внешний booking поверх существующего `pending`.
+- Интеграционный тест на внешний booking поверх существующего `confirmed`.
+- Негативный тест на допустимое создание брони после `canceled`.
+
+### [ ] P0-2. Починить multi-slot бронирование в `bronivik_crm`
+
+Проблема:
+- UI предлагает длительности `30/60/90/120/150/180` минут.
+- БД при сохранении принимает только один слот (`end-start == slotDuration`).
+- Пользователь доходит до конца сценария и получает ошибку только на финальном шаге.
+
+Затронутые файлы:
+- `bronivik_crm/internal/bot/bot.go`
+- `bronivik_crm/internal/db/database.go`
+
+Что нужно сделать:
+- Выбрать единый продуктовый вариант:
+  - либо реально поддержать диапазон `n * slotDuration` при непрерывной доступности;
+  - либо убрать из UI все длительности больше одного слота.
+- Если сохраняется поддержка multi-slot:
+  - переписать `validateSlotAlignmentTx()` под диапазоны длиной в несколько слотов;
+  - проверять, что весь диапазон подряд свободен;
+  - исключить частичное пересечение с существующими бронями;
+  - синхронизировать UI, валидацию и БД-слой.
+- Если multi-slot временно отключается:
+  - убрать длинные длительности из UI и тестов;
+  - обновить конфиги/тексты бота, чтобы не обещать неработающую функцию.
+
+Критерии готовности:
+- Поведение UI и БД полностью совпадает.
+- Пользователь не может выбрать длительность, которая гарантированно упадёт на сохранении.
+- Если multi-slot поддерживается, бронь на 60/90/120 минут успешно создаётся при свободном диапазоне.
+
+Обязательные проверки:
+- Тест на успешное создание брони на 60 минут.
+- Тест на успешное создание брони на 90 или 120 минут.
+- Тест на отказ при частично занятом диапазоне.
+
+### [ ] P0-3. Разделить `worker mode` и `bot mode` в `bronivik_jr`
+
+Проблема:
+- Контейнер `bronivik-jr-worker` запускается как worker, но поднимает API, backup loop, Sheets worker и reminder loop.
+- На одной SQLite БД одновременно стартуют лишние фоновые процессы.
+
+Затронутые файлы:
+- `bronivik_jr/cmd/bot/main.go`
+- `docker-compose.yml`
+
+Что нужно сделать:
+- Перестроить `main.go`, чтобы разделение режимов происходило до тяжёлой инициализации.
+- Ввести явный `switch`/dispatch по подкомандам и job-типам.
+- Для `worker --job=reminders` поднимать только reminder job и его зависимости.
+- Не запускать HTTP API, backup service и Sheets worker в процессе, который заявлен как worker-only.
+- Проверить, что compose-описание и фактическое поведение совпадают.
+
+Критерии готовности:
+- Worker-контейнер выполняет только один целевой job.
+- Bot-контейнер поднимает только те сервисы, которые нужны интерактивному приложению.
+- На SQLite больше нет лишней конкуренции от второго процесса.
+
+Обязательные проверки:
+- Тест/проверка старта `./bot worker --job=reminders`.
+- Тест/проверка старта основного `./bot`.
+- Ревизия `docker-compose.yml` на соответствие новым режимам.
+
+### [ ] P0-4. Довести PostgreSQL-поддержку до рабочего состояния или официально снять её
+
+Проблема:
+- В обоих сервисах миграции частично SQLite-специфичны.
+- Ошибки изменения схемы местами проглатываются.
+- Во внешнем бронировании используется `user_id = 0`, что конфликтует с PostgreSQL FK.
+
+Затронутые файлы:
+- `bronivik_jr/internal/database/database.go`
+- `bronivik_jr/internal/database/items_api.go`
+- `bronivik_crm/internal/db/database.go`
+
+Что нужно сделать:
+- Разделить миграции SQLite и PostgreSQL по явным код-путям.
+- Убрать best-effort schema drift там, где схема не может быть безопасно продолжена.
+- Пересмотреть модель внешних бронирований:
+  - либо убрать жёсткую зависимость от `users(telegram_id)`;
+  - либо ввести технического пользователя;
+  - либо разделить внутренние и внешние сущности владельца.
+- Проверить типы колонок, default values, индексы и ограничения отдельно для PostgreSQL.
+- Если полная поддержка сейчас не входит в объём работ, явно убрать PostgreSQL из заявленных возможностей, compose/docs/config examples и CI.
+
+Критерии готовности:
+- Миграции на PostgreSQL проходят без проглоченных ошибок.
+- Внешние бронирования не падают на FK/типах.
+- Поддерживаемые СУБД явно перечислены и реально работоспособны.
+
+Обязательные проверки:
+- Чистый прогон миграций на PostgreSQL.
+- Интеграционный тест создания внешней брони на PostgreSQL.
+- Проверка обратной совместимости на SQLite.
+
+### [ ] P0-5. Привести расчёт слотов в `bronivik_crm` к единому источнику истины и учесть обед
+
+Проблема:
+- Runtime-логика доступности игнорирует `lunch_start/lunch_end`, хотя схема и конфиг их поддерживают.
+- Параллельно существует альтернативная реализация генерации слотов с другой логикой.
+
+Затронутые файлы:
+- `bronivik_crm/internal/db/database.go`
+- `bronivik_crm/configs/cabinets.yaml`
+- `bronivik_crm/internal/slots/generator.go`
+
+Что нужно сделать:
+- Выбрать один модуль как единственный source of truth для расчёта слотов.
+- Встроить поддержку `lunch_start/lunch_end`, day overrides и рабочих окон в этот модуль.
+- Удалить или отключить конкурирующую реализацию, если она не используется.
+- Синхронизировать UI, DB-валидацию и генерацию доступных интервалов.
+
+Критерии готовности:
+- Система не предлагает и не сохраняет записи во время обеда.
+- Правила расписания одинаковы везде: UI, runtime и БД.
+- В кодовой базе не остаются две расходящиеся реализации расчёта слотов.
+
+Обязательные проверки:
+- Тест на блокировку слотов внутри `lunch_start/lunch_end`.
+- Тест на корректную генерацию слотов до и после обеда.
+- Тест на `override`/выходной день.
+
+## P1. Высокий приоритет
+
+### [ ] P1-1. Убрать stale cache аппаратов из gRPC availability API
+
+Проблема:
+- `AvailabilityService` кеширует `itemsByName` только при старте.
+- HTTP API читает актуальные данные из БД, а gRPC остаётся на старом snapshot.
+
+Затронутые файлы:
+- `bronivik_jr/internal/api/handlers.go`
+- `bronivik_jr/internal/database/items.go`
+
+Что нужно сделать:
+- Убрать долгоживущий локальный snapshot.
+- Читать актуальный список аппаратов из БД на каждый запрос или внедрить безопасный refresh-механизм.
+- Синхронизировать поведение HTTP и gRPC путей.
+
+Критерии готовности:
+- Добавление, переименование и деактивация аппаратов видны без рестарта сервера.
+- HTTP и gRPC возвращают согласованные данные.
+
+Обязательные проверки:
+- Тест на появление нового аппарата без перезапуска.
+- Тест на деактивацию/переименование аппарата.
+
+### [ ] P1-2. Исправить auth-конфиг и health endpoints в `bronivik_jr`
+
+Проблема:
+- `API.Auth.Enabled = false` невозможно корректно задать через конфиг.
+- `/healthz` и `/readyz` завернуты в auth middleware.
+- Docker healthcheck зависит от хардкоженных ключей.
+
+Затронутые файлы:
+- `bronivik_jr/internal/config/config.go`
+- `bronivik_jr/internal/api/http_server.go`
+- `docker-compose.yml`
+
+Что нужно сделать:
+- Разделить состояния "значение не задано" и "явно false".
+- Вывести `/healthz` и `/readyz` из auth middleware.
+- Убрать хардкод auth-ключей из healthcheck.
+- Привести env/yaml/defaults к предсказуемому поведению.
+
+Критерии готовности:
+- Auth можно реально отключить конфигом.
+- Health/readiness доступны без боевых ключей.
+- Compose healthcheck работает с любыми валидными runtime-настройками.
+
+Обязательные проверки:
+- Тест/проверка запуска с `auth.enabled=false`.
+- Тест на доступность `/healthz` и `/readyz` без авторизации.
+
+### [ ] P1-3. Свести конфиги, `.env.example` и `docker-compose.yml` к одному контракту
+
+Проблема:
+- Имена и смысл env-переменных расходятся между примерами, YAML-конфигами и compose.
+- Часть переменных не влияет на реальное поведение.
+
+Затронутые файлы:
+- `.env.example`
+- `bronivik_jr/configs/config.yaml`
+- `bronivik_crm/configs/config.yaml`
+- `docker-compose.yml`
+
+Что нужно сделать:
+- Составить единый список поддерживаемых env-переменных для обоих сервисов.
+- Переименовать расходящиеся переменные к одному контракту.
+- Удалить мёртвые или неиспользуемые переменные.
+- Обновить `.env.example`, compose, документацию и fallback defaults.
+- Добавить smoke-test загрузки конфигурации в CI.
+
+Критерии готовности:
+- Один и тот же набор env-переменных реально работает в локальном запуске, compose и CI.
+- В `.env.example` нет переменных, которые приложение не читает.
+- Нет переменных, которые приложение читает, но они не документированы.
+
+Обязательные проверки:
+- Smoke-test инициализации конфигурации.
+- Проверка запуска обоих сервисов только через env/yaml из актуального примера.
+
+### [ ] P1-4. Исправить failover пользовательских состояний и TTL в memory fallback
+
+Проблема:
+- После отказа Redis состояние начинает жить в памяти, но после восстановления не возвращается в primary.
+- `ttl` в memory fallback не применяется.
+- Возможны гонки вокруг rate-limit записей.
+
+Затронутые файлы:
+- `bronivik_jr/internal/repository/failover.go`
+- `bronivik_jr/internal/repository/memory.go`
+- `bronivik_jr/internal/bot/bot.go`
+
+Что нужно сделать:
+- Реализовать TTL cleanup в memory fallback.
+- Определить стратегию синхронизации данных обратно в Redis после recovery.
+- Сделать хранение rate-limit записей потокобезопасным.
+- Добавить явные тесты на failover/recovery сценарии.
+
+Критерии готовности:
+- Временный сбой Redis не приводит к split-brain состояния.
+- У временных записей есть реальный срок жизни.
+- Поведение rate limit детерминировано под конкуренцией.
+
+Обязательные проверки:
+- Тест на failover с записью состояния в memory.
+- Тест на recovery и перенос обратно в primary.
+- Тест на очистку по TTL.
+
+### [ ] P1-5. Не подтверждать бронь в CRM, если статус не сохранился в БД
+
+Проблема:
+- Ошибка `UpdateHourlyBookingStatus()` игнорируется.
+- Бот может отправить подтверждение менеджеру и пользователю даже при провале записи в БД.
+
+Затронутые файлы:
+- `bronivik_crm/internal/bot/bot.go`
+
+Что нужно сделать:
+- Перестать игнорировать ошибку обновления статуса.
+- Прерывать сценарий при неуспешном сохранении.
+- Логировать booking id и контекст ошибки.
+- Отправлять уведомления только после подтверждённого коммита.
+
+Критерии готовности:
+- Ложные подтверждения больше не отправляются.
+- Ошибки статуса отражаются в логах и доступны для диагностики.
+
+Обязательные проверки:
+- Тест/мок на ошибку `UpdateHourlyBookingStatus()`.
+- Проверка, что уведомления не отправляются при провале БД.
+
+### [ ] P1-6. Перестать тихо игнорировать ошибки конфигурационной синхронизации и обновления профиля
+
+Проблема:
+- Ошибки `SetDayOff` при sync-конфига игнорируются.
+- Ошибки `UPDATE users ...` в `GetOrCreateUserByTelegramID()` игнорируются.
+
+Затронутые файлы:
+- `bronivik_crm/internal/db/config_sync.go`
+- `bronivik_crm/internal/db/database.go`
+
+Что нужно сделать:
+- Убрать `_ =` и best-effort без отчёта там, где данные должны быть консистентны.
+- Возвращать частичные ошибки вызывающему слою.
+- Добавить structured logs на каждый пропуск/сбой.
+- Определить, должен ли sync быть атомарным, и зафиксировать это в коде.
+
+Критерии готовности:
+- Неполная конфигурационная синхронизация не маскируется под успех.
+- Ошибки обновления профиля пользователя явно видны вызывающему коду.
+
+Обязательные проверки:
+- Тест на ошибку `SetDayOff`.
+- Тест на ошибку обновления существующего пользователя.
+
+### [ ] P1-7. Оптимизировать `/api/items/availability` в `bronivik_jr`
+
+Проблема:
+- Сейчас endpoint делает отдельный запрос для каждого аппарата и каждой даты.
+- На больших диапазонах это превращается в тысячи SQL-вызовов.
+
+Затронутые файлы:
+- `bronivik_jr/internal/api/availability_api.go`
+
+Что нужно сделать:
+- Перевести расчёт на batched SQL по `item_id/date`.
+- Переиспользовать `GetAvailabilityForPeriod()` или внедрить агрегирующий запрос с `GROUP BY`.
+- При необходимости добавить короткий read-through cache для read-heavy запросов.
+- Зафиксировать разумные лимиты на диапазон/объём ответа.
+
+Критерии готовности:
+- Один HTTP-запрос больше не вызывает `N * D` обращений к БД.
+- Латентность предсказуемо растёт с диапазоном и количеством аппаратов.
+
+Обязательные проверки:
+- Тест/benchmark на диапазон 30-90 дней.
+- Проверка количества SQL-запросов или косвенная профилировка на batched path.
+
+## P2. Архитектурные и эксплуатационные исправления
+
+### [ ] P2-1. Добавить корректное завершение фоновых goroutine в Google Sheets service
+
+Проблема:
+- Фоновые refresh-циклы живут на `context.Background()` и не останавливаются вместе с приложением.
+
+Затронутые файлы:
+- `bronivik_jr/internal/google/sheets_simple.go`
+
+Что нужно сделать:
+- Передавать родительский `context.Context` в сервис.
+- Прекращать `WarmUpCache` и периодические refresh-loop на shutdown.
+- Проверить повторную инициализацию сервиса в тестах.
+
+Критерии готовности:
+- При завершении приложения не остаётся висящих goroutine этого сервиса.
+
+### [ ] P2-2. Удалить или унифицировать дублирующую booking/schedule-логику в `bronivik_crm`
+
+Проблема:
+- В проекте сосуществуют несколько реализаций расчёта расписания и бронирований.
+- Это уже привело к дрейфу правил между UI, DB и альтернативными пакетами.
+
+Затронутые каталоги:
+- `bronivik_crm/internal/booking/`
+- `bronivik_crm/internal/slots/`
+- `bronivik_crm/internal/manager/`
+
+Что нужно сделать:
+- Провести ревизию, какой код реально используется в production path.
+- Удалить мёртвый код.
+- Если альтернативный модуль нужен, сделать его единственным используемым путём и переподключить runtime на него.
+- Свести длительности, статусы и slot generation к одной реализации.
+
+Критерии готовности:
+- В рантайме нет конкурирующих реализаций одного и того же бизнес-правила.
+- Ревью и поддержка больше не требуют проверять несколько расходящихся путей.
+
+### [ ] P2-3. Почистить и выровнять CI/CD workflow
+
+Проблема:
+- Версии Go в workflow расходятся с `go.mod`.
+- Есть дублирующий workflow внутри `bronivik_jr`.
+- Линтерный слой устарел и не верифицируется локально.
+
+Затронутые файлы:
+- `.github/workflows/ci.yml`
+- `bronivik_jr/.github/workflows/ci.yml`
+
+Что нужно сделать:
+- Синхронизировать версии Go с `go.mod` обоих модулей.
+- Оставить один authoritative CI workflow.
+- Зафиксировать версию `golangci-lint`.
+- Добавить удобную локальную цель для повторения CI-проверок.
+
+Критерии готовности:
+- CI повторяем локально.
+- Нет дублирующихся workflow с расходящимся поведением.
+
+## P3. Дополнительные обязательные hardening-задачи
+
+### [ ] P3-1. Уменьшить избыточное создание goroutine в `trackActivity()`
+
+Проблема:
+- На каждый update создаётся отдельная goroutine, что даёт лишнюю нагрузку на scheduler и БД.
+
+Затронутые файлы:
+- `bronivik_jr/internal/bot/middleware.go`
+
+Что нужно сделать:
+- Уменьшить частоту обновления activity.
+- Рассмотреть батчинг, debounce или ограничение по интервалу.
+- Проверить, что активность пользователя не пишет в БД чаще, чем это реально нужно.
+
+### [ ] P3-2. Перестать глотать ошибки в event bus и Google Sheets sync
+
+Проблема:
+- Ошибки подписчиков только логируются и теряются.
+- Это может приводить к silent data loss при синхронизации.
+
+Затронутые файлы:
+- `bronivik_jr/internal/events/events.go`
+- `bronivik_jr/cmd/bot/main.go`
+
+Что нужно сделать:
+- Ввести стратегию обработки ошибок подписчиков.
+- Решить, какие ошибки должны ретраиться, а какие должны поднимать alert/metric.
+- Добавить наблюдаемость для неуспешной синхронизации.
+
+### [ ] P3-3. Убрать жёсткую зависимость от `.env` и поддержать env-only deployment
+
+Проблема:
+- Текущая загрузка конфигурации зависит от наличия `.env`, что ломает env-only запуск.
+
+Затронутые файлы:
+- `bronivik_jr/internal/config/config.go`
+
+Что нужно сделать:
+- Сначала читать реальные env vars.
+- `.env` делать опциональным источником локальной разработки.
+- Проверить совместимость с Docker/CI/production deployment.
+
+### [ ] P3-4. Добавить конкурентные ограничения уровня БД для PostgreSQL
+
+Проблема:
+- Текущая защита от гонок опирается на транзакционную логику приложения.
+- Для PostgreSQL этого недостаточно без явных DB-level ограничений.
+
+Затронутые файлы:
+- `bronivik_jr/internal/database/bookings.go`
+- `bronivik_crm/internal/db/database.go`
+
+Что нужно сделать:
+- Добавить ограничения или locking-стратегию, которая реально защищает слоты на уровне БД.
+- Пересмотреть индексы, уникальные ограничения, `SELECT ... FOR UPDATE`, exclusion constraints или эквивалентный механизм.
+- Отдельно проверить поведение под конкурентной нагрузкой на PostgreSQL.
+
+## Порядок выполнения
+
+1. Закрыть весь блок `P0`.
+2. Затем закрыть `P1-1` ... `P1-6`, потому что это влияет на корректность данных и эксплуатацию.
+3. После стабилизации логики заняться `P1-7` и блоком `P2/P3`.
+
+## Definition of Done для всего файла
+
+- Все пункты либо исправлены, либо официально выведены из поддерживаемого сценария с обновлением документации.
+- Конфиги, compose, примеры env и рантайм-код больше не расходятся.
+- Оба сервиса проходят актуальные тесты после изменений.
+- Для критичных бизнес-правил есть интеграционные тесты, а не только unit-тесты.
