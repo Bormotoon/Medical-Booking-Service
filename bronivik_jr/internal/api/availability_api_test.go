@@ -2,11 +2,20 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
+
+	"bronivik/internal/database"
+	"bronivik/internal/models"
+
+	"github.com/rs/zerolog"
 )
 
 const testAPIKey = "valid-key"
@@ -280,6 +289,131 @@ func TestHandleItemsAvailability_MaxRange(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Errorf("status = %d for 90-day range, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestHandleItemsAvailability_BatchedResults(t *testing.T) {
+	db := newTestDB(t)
+	camera := createTestItem(t, db, "camera", 1)
+	createTestItem(t, db, "lens", 2)
+
+	bookingDate := time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC)
+	insertTestBooking(t, db, &camera, bookingDate, models.StatusConfirmed)
+
+	server := newTestHTTPServer(db)
+	handler := server.server.Handler
+
+	body := AvailabilityRequest{
+		StartDate: "2025-01-15",
+		EndDate:   "2025-01-16",
+	}
+	jsonBody, _ := json.Marshal(body)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/items/availability", bytes.NewReader(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+
+	var resp AvailabilityResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+
+	itemsByName := make(map[string]ItemAvailability, len(resp.Items))
+	for _, item := range resp.Items {
+		itemsByName[item.Name] = item
+	}
+
+	cameraResp, ok := itemsByName["camera"]
+	if !ok {
+		t.Fatal("camera item missing from response")
+	}
+	if len(cameraResp.Availability) != 2 {
+		t.Fatalf("camera availability length = %d, want 2", len(cameraResp.Availability))
+	}
+	if cameraResp.Availability[0].Available || cameraResp.Availability[0].Reason != "booked" {
+		t.Fatalf("expected booked camera on first date, got %+v", cameraResp.Availability[0])
+	}
+	if !cameraResp.Availability[1].Available || cameraResp.Availability[1].Reason != "" {
+		t.Fatalf("expected available camera on second date, got %+v", cameraResp.Availability[1])
+	}
+
+	lensResp, ok := itemsByName["lens"]
+	if !ok {
+		t.Fatal("lens item missing from response")
+	}
+	for _, availability := range lensResp.Availability {
+		if !availability.Available || availability.Reason != "" {
+			t.Fatalf("expected free lens availability, got %+v", availability)
+		}
+	}
+}
+
+func BenchmarkHandleItemsAvailability_90Days(b *testing.B) {
+	dbPath := filepath.Join(b.TempDir(), "bench.db")
+	logger := zerolog.New(io.Discard)
+	db, err := database.NewDB(dbPath, &logger)
+	if err != nil {
+		b.Fatalf("new db: %v", err)
+	}
+	b.Cleanup(func() { _ = db.Close() })
+
+	ctx := context.Background()
+	baseDate := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	for i := 0; i < 25; i++ {
+		item := models.Item{
+			Name:          "item-" + strconv.Itoa(i),
+			TotalQuantity: 2,
+			SortOrder:     int64(i),
+			IsActive:      true,
+		}
+		if err := db.CreateItem(ctx, &item); err != nil {
+			b.Fatalf("create item %d: %v", i, err)
+		}
+		for day := 0; day < 90; day += 7 {
+			if _, err := db.ExecContext(ctx, `
+				INSERT INTO bookings (
+					user_id, user_name, user_nickname, phone,
+					item_id, item_name, date, status, comment,
+					created_at, updated_at, version
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 1)
+			`,
+				int64(1),
+				"bench",
+				"bench_nick",
+				"+100000000",
+				item.ID,
+				item.Name,
+				baseDate.AddDate(0, 0, day).Format("2006-01-02"),
+				models.StatusConfirmed,
+			); err != nil {
+				b.Fatalf("insert booking: %v", err)
+			}
+		}
+	}
+
+	server := newTestHTTPServer(db)
+	handler := server.server.Handler
+	body := AvailabilityRequest{
+		StartDate: baseDate.Format("2006-01-02"),
+		EndDate:   baseDate.AddDate(0, 0, 89).Format("2006-01-02"),
+	}
+	jsonBody, _ := json.Marshal(body)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/api/items/availability", bytes.NewReader(jsonBody))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			b.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+		}
 	}
 }
 

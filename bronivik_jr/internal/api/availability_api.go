@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"bronivik/internal/metrics"
@@ -79,20 +80,18 @@ func (s *HTTPServer) handleItemsAvailability(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusInternalServerError, "failed to load items")
 		return
 	}
-	filteredItems := make([]ItemAvailability, 0)
-
+	filtered := make([]*models.Item, 0, len(items))
 	for _, item := range items {
 		if !s.shouldIncludeItem(item, &req) {
 			continue
 		}
+		filtered = append(filtered, item)
+	}
 
-		availability := s.getItemAvailabilityDates(r.Context(), item, startDate, endDate)
-		filteredItems = append(filteredItems, ItemAvailability{
-			ID:           item.ID,
-			Name:         item.Name,
-			CabinetID:    item.CabinetID,
-			Availability: availability,
-		})
+	filteredItems, err := s.buildItemAvailability(r.Context(), filtered, startDate, endDate)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to calculate availability")
+		return
 	}
 
 	response := AvailabilityResponse{
@@ -194,4 +193,123 @@ func (s *HTTPServer) getItemAvailabilityDates(ctx context.Context, item *models.
 		})
 	}
 	return availability
+}
+
+func (s *HTTPServer) buildItemAvailability(
+	ctx context.Context,
+	items []*models.Item,
+	start, end time.Time,
+) ([]ItemAvailability, error) {
+	if len(items) == 0 {
+		return nil, nil
+	}
+
+	dateLabels := make([]string, 0)
+	for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
+		dateLabels = append(dateLabels, d.Format("2006-01-02"))
+	}
+
+	bookedCounts, err := s.loadBookedCountsByItemAndDate(ctx, items, start, end)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]ItemAvailability, 0, len(items))
+	for _, item := range items {
+		itemAvailability := ItemAvailability{
+			ID:        item.ID,
+			Name:      item.Name,
+			CabinetID: item.CabinetID,
+		}
+
+		perDate := make([]DateAvailability, 0, len(dateLabels))
+		for _, dateLabel := range dateLabels {
+			if item.PermanentReserved {
+				perDate = append(perDate, DateAvailability{
+					Date:      dateLabel,
+					Available: false,
+					Reason:    "reserved",
+				})
+				continue
+			}
+
+			booked := bookedCounts[item.ID][dateLabel]
+			available := booked < int(item.TotalQuantity)
+			reason := ""
+			if !available {
+				reason = "booked"
+			}
+
+			perDate = append(perDate, DateAvailability{
+				Date:      dateLabel,
+				Available: available,
+				Reason:    reason,
+			})
+		}
+
+		itemAvailability.Availability = perDate
+		result = append(result, itemAvailability)
+	}
+
+	return result, nil
+}
+
+func (s *HTTPServer) loadBookedCountsByItemAndDate(
+	ctx context.Context,
+	items []*models.Item,
+	start, end time.Time,
+) (map[int64]map[string]int, error) {
+	counts := make(map[int64]map[string]int, len(items))
+	itemIDs := make([]any, 0, len(items))
+	queryItemIDs := make([]int64, 0, len(items))
+	for _, item := range items {
+		counts[item.ID] = make(map[string]int)
+		if item.PermanentReserved {
+			continue
+		}
+		queryItemIDs = append(queryItemIDs, item.ID)
+		itemIDs = append(itemIDs, item.ID)
+	}
+	if len(queryItemIDs) == 0 {
+		return counts, nil
+	}
+
+	placeholders := strings.TrimRight(strings.Repeat("?,", len(queryItemIDs)), ",")
+	query := fmt.Sprintf(`
+		SELECT item_id, date(date) AS booking_date, COUNT(*) AS booked_count
+		FROM bookings
+		WHERE item_id IN (%s)
+		  AND date(date) BETWEEN date(?) AND date(?)
+		  AND status NOT IN (?, ?)
+		GROUP BY item_id, booking_date
+	`, placeholders)
+
+	args := append(itemIDs,
+		start.Format("2006-01-02"),
+		end.Format("2006-01-02"),
+		models.StatusCanceled,
+		models.StatusRejectedLegacy,
+	)
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			itemID int64
+			date   string
+			booked int
+		)
+		if err := rows.Scan(&itemID, &date, &booked); err != nil {
+			return nil, err
+		}
+		counts[itemID][date] = booked
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return counts, nil
 }
