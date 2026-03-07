@@ -2,6 +2,8 @@ package bot
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"path/filepath"
 	"testing"
 	"time"
@@ -9,8 +11,33 @@ import (
 	"bronivik/bronivik_crm/internal/db"
 	"bronivik/bronivik_crm/internal/model"
 
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 )
+
+type fakeTelegramClient struct {
+	sentTexts []string
+}
+
+func (f *fakeTelegramClient) Send(msg tgbotapi.Chattable) (tgbotapi.Message, error) {
+	if textMsg, ok := msg.(tgbotapi.MessageConfig); ok {
+		f.sentTexts = append(f.sentTexts, textMsg.Text)
+	}
+	return tgbotapi.Message{}, nil
+}
+
+func (f *fakeTelegramClient) Request(msg tgbotapi.Chattable) (*tgbotapi.APIResponse, error) {
+	return &tgbotapi.APIResponse{Ok: true}, nil
+}
+
+func (f *fakeTelegramClient) GetUpdatesChan(cfg tgbotapi.UpdateConfig) tgbotapi.UpdatesChannel {
+	return make(tgbotapi.UpdatesChannel)
+}
+
+func (f *fakeTelegramClient) SelfUser() tgbotapi.User {
+	return tgbotapi.User{UserName: "crm-test-bot"}
+}
 
 func TestNormalizeAndValidatePhone(t *testing.T) {
 	tests := []struct {
@@ -131,4 +158,52 @@ func TestAvailableDurationOptionsStopAtBusyRange(t *testing.T) {
 	}
 
 	assert.Equal(t, []int{30, 60}, options)
+}
+
+func TestHandleManagerDecision_DoesNotNotifyOnStatusUpdateError(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "crm.db")
+	crmDB, err := db.NewDB(dbPath)
+	if err != nil {
+		t.Fatalf("NewDB: %v", err)
+	}
+
+	ctx := context.Background()
+	user, err := crmDB.GetOrCreateUserByTelegramID(ctx, 123, "u", "First", "Last", "")
+	if err != nil {
+		t.Fatalf("GetOrCreateUserByTelegramID: %v", err)
+	}
+
+	cab := &model.Cabinet{Name: "Cab1", Description: ""}
+	if err = crmDB.CreateCabinet(ctx, cab); err != nil {
+		t.Fatalf("CreateCabinet: %v", err)
+	}
+
+	booking := &model.HourlyBooking{
+		UserID:     user.ID,
+		CabinetID:  cab.ID,
+		ClientName: "Client",
+		StartTime:  time.Now().Add(2 * time.Hour),
+		EndTime:    time.Now().Add(3 * time.Hour),
+		Status:     "pending",
+	}
+	if err = crmDB.CreateHourlyBooking(ctx, booking); err != nil {
+		t.Fatalf("CreateHourlyBooking: %v", err)
+	}
+
+	tg := &fakeTelegramClient{}
+	logger := zerolog.New(io.Discard)
+	b := &Bot{
+		db:       crmDB,
+		managers: map[int64]struct{}{999: {}},
+		tg:       tg,
+		logger:   &logger,
+	}
+
+	if err := crmDB.Close(); err != nil {
+		t.Fatalf("Close DB: %v", err)
+	}
+
+	b.handleManagerDecision(ctx, 999, 999, fmt.Sprintf("mgr:approve:%d", booking.ID))
+
+	assert.Empty(t, tg.sentTexts)
 }

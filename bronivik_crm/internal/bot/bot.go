@@ -648,21 +648,31 @@ func (b *Bot) handleManagerDecision(ctx context.Context, chatID, userID int64, d
 		if err != nil {
 			return
 		}
-		_ = b.db.UpdateHourlyBookingStatus(ctx, bid, "approved", "")
-		metrics.IncManagerDecision("approved")
-		b.reply(chatID, fmt.Sprintf("Бронирование #%d подтверждено", bid))
-		b.notifyBookingStatus(ctx, bid, "approved")
+		b.applyManagerDecision(ctx, chatID, userID, bid, "approved", "подтверждено")
 	case strings.HasPrefix(data, "mgr:reject:"):
 		idStr := strings.TrimPrefix(data, "mgr:reject:")
 		bid, err := strconv.ParseInt(idStr, 10, 64)
 		if err != nil {
 			return
 		}
-		_ = b.db.UpdateHourlyBookingStatus(ctx, bid, "rejected", "")
-		metrics.IncManagerDecision("rejected")
-		b.reply(chatID, fmt.Sprintf("Бронирование #%d отклонено", bid))
-		b.notifyBookingStatus(ctx, bid, "rejected")
+		b.applyManagerDecision(ctx, chatID, userID, bid, "rejected", "отклонено")
 	}
+}
+
+func (b *Bot) applyManagerDecision(ctx context.Context, chatID, managerID, bookingID int64, status, confirmationText string) {
+	if err := b.db.UpdateHourlyBookingStatus(ctx, bookingID, status, ""); err != nil {
+		b.logger.Error().
+			Err(err).
+			Int64("booking_id", bookingID).
+			Int64("manager_id", managerID).
+			Str("status", status).
+			Msg("failed to update hourly booking status")
+		return
+	}
+
+	metrics.IncManagerDecision(status)
+	b.reply(chatID, fmt.Sprintf("Бронирование #%d %s", bookingID, confirmationText))
+	b.notifyBookingStatus(ctx, bookingID, status)
 }
 
 func (b *Bot) validateBookingTime(start time.Time) error {

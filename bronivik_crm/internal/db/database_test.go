@@ -108,6 +108,15 @@ func TestGetAvailableSlots_RespectsBookings(t *testing.T) {
 	}
 }
 
+func TestUpdateHourlyBookingStatus_ReturnsNotFoundWhenMissing(t *testing.T) {
+	db, _, _, _ := setupHourlyBookingTestDB(t, "09:00", "12:00", 60)
+
+	err := db.UpdateHourlyBookingStatus(context.Background(), 999999, "approved", "")
+	if err != ErrBookingNotFound {
+		t.Fatalf("expected ErrBookingNotFound, got %v", err)
+	}
+}
+
 func TestCreateHourlyBookingWithChecks_BusySlot(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "crm.db")
 	db, err := NewDB(dbPath)

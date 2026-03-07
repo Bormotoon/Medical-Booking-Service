@@ -982,10 +982,20 @@ func (db *DB) ListUserBookings(ctx context.Context, userID int64, limit int, inc
 
 // UpdateHourlyBookingStatus updates status/comment and updated_at.
 func (db *DB) UpdateHourlyBookingStatus(ctx context.Context, id int64, status, comment string) error {
-	_, err := db.ExecContext(ctx, `
+	res, err := db.ExecContext(ctx, `
 		UPDATE hourly_bookings SET status = ?, comment = ?, updated_at = ? 
 		WHERE id = ?`, status, comment, time.Now(), id)
-	return err
+	if err != nil {
+		return err
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrBookingNotFound
+	}
+	return nil
 }
 
 // DeleteHourlyBooking removes booking by id.
