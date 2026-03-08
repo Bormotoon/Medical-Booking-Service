@@ -185,6 +185,16 @@ func (m *MockRepository) UpdateBookingItemAndStatusWithVersion(
 	return args.Error(0)
 }
 
+func (m *MockRepository) UpdateBookingDateAndStatusWithVersion(
+	ctx context.Context,
+	id, version int64,
+	date time.Time,
+	status string,
+) error {
+	args := m.Called(ctx, id, version, date, status)
+	return args.Error(0)
+}
+
 func (m *MockRepository) SetItems(items []*models.Item) {
 	m.Called(items)
 }

@@ -302,6 +302,19 @@ func (db *DB) UpdateBookingItemAndStatusWithVersion(ctx context.Context, id, fro
 	return nil
 }
 
+func (db *DB) UpdateBookingDateAndStatusWithVersion(ctx context.Context, id, fromVersion int64, date time.Time, status string) error {
+	query := `UPDATE bookings SET date = ?, status = ?, version = version + 1, updated_at = ? WHERE id = ? AND version = ?`
+	result, err := db.ExecContext(ctx, query, date.Format("2006-01-02"), status, time.Now(), id, fromVersion)
+	if err != nil {
+		return fmt.Errorf("failed to update booking date and status: %w", err)
+	}
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return ErrConcurrentModification
+	}
+	return nil
+}
+
 func (db *DB) GetUserBookings(ctx context.Context, userID int64) ([]*models.Booking, error) {
 	// Get bookings for the last 2 weeks and future ones
 	twoWeeksAgo := time.Now().AddDate(0, 0, -14).Format("2006-01-02")

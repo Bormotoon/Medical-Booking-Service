@@ -393,6 +393,22 @@ func TestBookingUpdateExtras(t *testing.T) {
 		err = db.UpdateBookingItemWithVersion(ctx, booking.ID, v, 4, "Item 4")
 		assert.ErrorIs(t, err, ErrConcurrentModification)
 	})
+
+	t.Run("UpdateDateAndStatusWithVersion", func(t *testing.T) {
+		current, _ := db.GetBooking(ctx, booking.ID)
+		v := current.Version
+		newDate := time.Date(2026, 4, 15, 0, 0, 0, 0, time.UTC)
+
+		err := db.UpdateBookingDateAndStatusWithVersion(ctx, booking.ID, v, newDate, models.StatusChanged)
+		require.NoError(t, err)
+
+		updated, _ := db.GetBooking(ctx, booking.ID)
+		assert.Equal(t, newDate.Format("2006-01-02"), updated.Date.Format("2006-01-02"))
+		assert.Equal(t, models.StatusChanged, updated.Status)
+
+		err = db.UpdateBookingDateAndStatusWithVersion(ctx, booking.ID, v, newDate.AddDate(0, 0, 1), models.StatusChanged)
+		assert.ErrorIs(t, err, ErrConcurrentModification)
+	})
 }
 
 func TestGetBookingWithAvailability(t *testing.T) {

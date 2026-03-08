@@ -184,6 +184,41 @@ func (s *BookingService) ChangeBookingItem(ctx context.Context, bookingID, versi
 	return nil
 }
 
+func (s *BookingService) ChangeBookingDate(ctx context.Context, bookingID, version int64, newDate time.Time, managerID int64) error {
+	if err := s.ValidateBookingDate(newDate); err != nil {
+		return err
+	}
+
+	booking, err := s.repo.GetBooking(ctx, bookingID)
+	if err != nil {
+		return err
+	}
+
+	available, err := s.repo.CheckAvailability(ctx, booking.ItemID, newDate)
+	if err != nil {
+		return err
+	}
+	if !available {
+		return database.ErrNotAvailable
+	}
+
+	err = s.repo.UpdateBookingDateAndStatusWithVersion(ctx, bookingID, version, newDate, models.StatusChanged)
+	if err != nil {
+		return err
+	}
+
+	updatedBooking, err := s.repo.GetBooking(ctx, bookingID)
+	if err == nil {
+		s.publishEvent(events.EventBookingDateChange, updatedBooking, "manager", managerID)
+		s.enqueueSync(ctx, updatedBooking, "upsert")
+		if err := s.sheetsWorker.EnqueueSyncSchedule(ctx, time.Time{}, time.Time{}); err != nil {
+			s.logger.Error().Err(err).Msg("failed to enqueue sync schedule")
+		}
+	}
+
+	return nil
+}
+
 func (s *BookingService) RescheduleBooking(ctx context.Context, bookingID, managerID int64) error {
 	err := s.repo.UpdateBookingStatus(ctx, bookingID, "rescheduled")
 	if err != nil {

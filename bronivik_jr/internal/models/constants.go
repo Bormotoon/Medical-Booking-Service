@@ -60,6 +60,7 @@ const (
 	StateManagerWaitingEndDate       = "manager_waiting_end_date"
 	StateManagerWaitingComment       = "manager_waiting_comment"
 	StateManagerConfirmBooking       = "manager_confirm_booking"
+	StateManagerWaitingBookingDate   = "manager_waiting_booking_date"
 )
 
 const (

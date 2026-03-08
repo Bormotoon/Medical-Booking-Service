@@ -470,6 +470,60 @@ func (b *Bot) startChangeItem(ctx context.Context, booking *models.Booking, mana
 	}
 }
 
+func (b *Bot) startChangeDate(ctx context.Context, booking *models.Booking, managerChatID int64) {
+	b.setUserState(ctx, managerChatID, models.StateManagerWaitingBookingDate, map[string]interface{}{
+		"booking_id": booking.ID,
+		"version":    booking.Version,
+	})
+
+	b.sendMessage(
+		managerChatID,
+		fmt.Sprintf("🗓 Введите новую дату для заявки #%d в формате ДД.ММ.ГГГГ.\nТекущая дата: %s", booking.ID, booking.Date.Format("02.01.2006")),
+	)
+}
+
+func (b *Bot) handleManagerBookingDateChange(ctx context.Context, update *tgbotapi.Update, dateStr string, state *models.UserState) {
+	newDate, err := time.Parse("02.01.2006", dateStr)
+	if err != nil {
+		b.sendMessage(update.Message.Chat.ID, "Неверный формат даты. Используйте ДД.ММ.ГГГГ (например, 25.12.2024)")
+		return
+	}
+
+	bookingID := state.GetInt64("booking_id")
+	version := state.GetInt64("version")
+	booking, err := b.bookingService.GetBooking(ctx, bookingID)
+	if err != nil {
+		b.sendMessage(update.Message.Chat.ID, "Заявка не найдена. Начните заново из списка заявок.")
+		b.clearUserState(ctx, update.Message.From.ID)
+		return
+	}
+
+	err = b.bookingService.ChangeBookingDate(ctx, bookingID, version, newDate, update.Message.From.ID)
+	if err != nil {
+		b.sendMessage(update.Message.Chat.ID, "Ошибка при изменении даты: "+b.getErrorMessage(err))
+		return
+	}
+
+	b.clearUserState(ctx, update.Message.From.ID)
+
+	updatedBooking, err := b.bookingService.GetBooking(ctx, bookingID)
+	if err != nil {
+		b.sendMessage(update.Message.Chat.ID, "✅ Дата заявки изменена")
+		return
+	}
+
+	userMsg := tgbotapi.NewMessage(
+		booking.UserID,
+		fmt.Sprintf("🗓 Менеджер изменил дату вашей заявки #%d. Новая дата: %s", updatedBooking.ID, updatedBooking.Date.Format("02.01.2006")),
+	)
+	if _, err := b.tgService.Send(userMsg); err != nil {
+		b.logger.Error().Err(err).Int64("booking_id", updatedBooking.ID).Msg("Failed to send user notification in handleManagerBookingDateChange")
+	}
+
+	b.sendMessage(update.Message.Chat.ID, "✅ Дата заявки изменена")
+	b.sendManagerBookingDetail(ctx, update.Message.Chat.ID, updatedBooking)
+}
+
 // handleChangeItem обработка выбора нового аппарата С ПРОВЕРКОЙ ДОСТУПНОСТИ
 func (b *Bot) handleChangeItem(ctx context.Context, update *tgbotapi.Update) {
 	callback := update.CallbackQuery
@@ -576,6 +630,10 @@ func (b *Bot) sendManagerBookingDetail(_ context.Context, chatID int64, booking 
 		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("✅ Подтвердить", fmt.Sprintf("confirm_%d", booking.ID)),
 			tgbotapi.NewInlineKeyboardButtonData("❌ Отклонить", fmt.Sprintf("reject_%d", booking.ID)),
+		))
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🗓 Изменить дату", fmt.Sprintf("change_date_%d", booking.ID)),
+			tgbotapi.NewInlineKeyboardButtonData("✏️ Изменить аппарат", fmt.Sprintf("change_item_%d", booking.ID)),
 		))
 	}
 
@@ -747,7 +805,10 @@ func (b *Bot) notifyManagers(booking *models.Booking) {
 				tgbotapi.NewInlineKeyboardButtonData("❌ Отклонить", fmt.Sprintf("reject_%d", booking.ID)),
 			),
 			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("🗓 Изменить дату", fmt.Sprintf("change_date_%d", booking.ID)),
 				tgbotapi.NewInlineKeyboardButtonData("✏️ Изменить аппарат", fmt.Sprintf("change_item_%d", booking.ID)),
+			),
+			tgbotapi.NewInlineKeyboardRow(
 				tgbotapi.NewInlineKeyboardButtonData("🔄 Предложить другую дату", fmt.Sprintf("reschedule_%d", booking.ID)),
 			),
 			tgbotapi.NewInlineKeyboardRow(

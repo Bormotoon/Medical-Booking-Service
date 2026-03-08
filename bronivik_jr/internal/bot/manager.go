@@ -127,6 +127,9 @@ func (b *Bot) handleManagerStateCommands(ctx context.Context, update *tgbotapi.U
 	case models.StateManagerWaitingComment:
 		b.handleManagerComment(ctx, update, text, state)
 		return true
+	case models.StateManagerWaitingBookingDate:
+		b.handleManagerBookingDateChange(ctx, update, text, state)
+		return true
 	case models.StateManagerConfirmBooking:
 		if text == btnConfirmCreate {
 			b.createManagerBookings(ctx, update, state)
@@ -220,7 +223,7 @@ func (b *Bot) handleManagerBookingActions(ctx context.Context, update *tgbotapi.
 	var bookingID int64
 	var action string
 
-	actions := []string{"confirm_", "reject_", "reschedule_", "change_item_", "reopen_", "complete_"}
+	actions := []string{"confirm_", "reject_", "reschedule_", "change_item_", "change_date_", "reopen_", "complete_"}
 	for _, act := range actions {
 		if strings.HasPrefix(data, act) {
 			idStr := strings.TrimPrefix(data, act)
@@ -252,13 +255,15 @@ func (b *Bot) handleManagerBookingActions(ctx context.Context, update *tgbotapi.
 		b.rescheduleBooking(ctx, booking, callback.Message.Chat.ID)
 	case "change_item_":
 		b.startChangeItem(ctx, booking, callback.Message.Chat.ID)
+	case "change_date_":
+		b.startChangeDate(ctx, booking, callback.Message.Chat.ID)
 	case "reopen_":
 		b.reopenBooking(ctx, booking, callback.Message.Chat.ID)
 	case "complete_":
 		b.completeBooking(ctx, booking, callback.Message.Chat.ID)
 	}
 
-	if action != "change_item_" {
+	if action != "change_item_" && action != "change_date_" {
 		editMsg := tgbotapi.NewEditMessageText(callback.Message.Chat.ID, callback.Message.MessageID,
 			fmt.Sprintf("✅ Заявка #%d обработана\nДействие: %s", bookingID, action))
 		if _, err := b.tgService.Send(editMsg); err != nil {

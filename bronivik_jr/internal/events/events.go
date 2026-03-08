@@ -14,6 +14,7 @@ const (
 	EventBookingCanceled   = "booking_canceled"
 	EventBookingCompleted  = "booking_completed"
 	EventBookingItemChange = "booking_item_changed"
+	EventBookingDateChange = "booking_date_changed"
 )
 
 // BookingEventPayload describes the minimal booking snapshot for event consumers.

@@ -591,6 +591,18 @@ func (m *mockBookingService) ChangeBookingItem(ctx context.Context, bookingID, v
 	return nil
 }
 
+func (m *mockBookingService) ChangeBookingDate(ctx context.Context, bookingID, version int64, newDate time.Time, managerID int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if b, ok := m.bookings[bookingID]; ok {
+		b.Date = newDate
+		b.Status = models.StatusChanged
+		b.Version++
+		return nil
+	}
+	return nil
+}
+
 func (m *mockBookingService) RescheduleBooking(ctx context.Context, bookingID, managerID int64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -2021,6 +2033,19 @@ func TestManagerBookingActions(t *testing.T) {
 	}
 	b.handleChangeItem(ctx, &callbackUpdate)
 	assert.Equal(t, models.StatusChanged, booking.Status)
+
+	// Test startChangeDate and handleManagerBookingDateChange
+	b.startChangeDate(ctx, booking, 123)
+	state := mocks.state.getStates()[123]
+	require.NotNil(t, state)
+	assert.Equal(t, models.StateManagerWaitingBookingDate, state.CurrentStep)
+	b.handleManagerBookingDateChange(ctx, &tgbotapi.Update{
+		Message: &tgbotapi.Message{
+			Chat: &tgbotapi.Chat{ID: 123},
+			From: &tgbotapi.User{ID: 123},
+		},
+	}, "15.03.2026", state)
+	assert.Equal(t, "15.03.2026", booking.Date.Format("02.01.2006"))
 
 	// Test rescheduleBooking
 	b.rescheduleBooking(ctx, booking, 123)

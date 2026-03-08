@@ -35,6 +35,7 @@ type Repository interface {
 	GetBookedCount(ctx context.Context, itemID int64, date time.Time) (int, error)
 	GetBookingWithAvailability(ctx context.Context, id int64, newItemID int64) (*models.Booking, bool, error)
 	UpdateBookingItemAndStatusWithVersion(ctx context.Context, id int64, version int64, itemID int64, itemName string, status string) error
+	UpdateBookingDateAndStatusWithVersion(ctx context.Context, id int64, version int64, date time.Time, status string) error
 	SetItems(items []*models.Item)
 	GetActiveUsers(ctx context.Context, days int) ([]*models.User, error)
 	GetUsersByManagerStatus(ctx context.Context, isManager bool) ([]*models.User, error)
@@ -109,6 +110,7 @@ type BookingService interface {
 	CompleteBooking(ctx context.Context, bookingID int64, version int64, managerID int64) error
 	ReopenBooking(ctx context.Context, bookingID int64, version int64, managerID int64) error
 	ChangeBookingItem(ctx context.Context, bookingID int64, version int64, newItemID int64, managerID int64) error
+	ChangeBookingDate(ctx context.Context, bookingID int64, version int64, newDate time.Time, managerID int64) error
 	RescheduleBooking(ctx context.Context, bookingID int64, managerID int64) error
 	GetAvailability(ctx context.Context, itemID int64, startDate time.Time, days int) ([]*models.Availability, error)
 	CheckAvailability(ctx context.Context, itemID int64, date time.Time) (bool, error)

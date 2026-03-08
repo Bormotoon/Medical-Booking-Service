@@ -138,6 +138,9 @@ func (m *mockRepo) GetBookingWithAvailability(ctx context.Context, id, nid int64
 func (m *mockRepo) UpdateBookingItemAndStatusWithVersion(ctx context.Context, id, v, iid int64, in, s string) error {
 	return m.Called(ctx, id, v, iid, in, s).Error(0)
 }
+func (m *mockRepo) UpdateBookingDateAndStatusWithVersion(ctx context.Context, id, v int64, date time.Time, status string) error {
+	return m.Called(ctx, id, v, date, status).Error(0)
+}
 func (m *mockRepo) SetItems(items []*models.Item) { m.Called(items) }
 func (m *mockRepo) GetActiveUsers(ctx context.Context, d int) ([]*models.User, error) {
 	args := m.Called(ctx, d)
@@ -270,6 +273,25 @@ func TestBookingService(t *testing.T) {
 		worker.On("EnqueueSyncSchedule", ctx, mock.Anything, mock.Anything).Return(nil).Once()
 
 		err := svc.RescheduleBooking(ctx, 15, 100)
+		assert.NoError(t, err)
+		repo.AssertExpectations(t)
+	})
+
+	t.Run("ChangeBookingDate", func(t *testing.T) {
+		oldDate := time.Date(2026, 3, 10, 0, 0, 0, 0, time.UTC)
+		newDate := time.Date(2026, 3, 12, 0, 0, 0, 0, time.UTC)
+		oldBooking := &models.Booking{ID: 16, ItemID: 2, Date: oldDate, Status: models.StatusPending}
+		updatedBooking := &models.Booking{ID: 16, ItemID: 2, Date: newDate, Status: models.StatusChanged}
+
+		repo.On("GetBooking", ctx, int64(16)).Return(oldBooking, nil).Once()
+		repo.On("CheckAvailability", ctx, int64(2), newDate).Return(true, nil).Once()
+		repo.On("UpdateBookingDateAndStatusWithVersion", ctx, int64(16), int64(7), newDate, models.StatusChanged).Return(nil).Once()
+		repo.On("GetBooking", ctx, int64(16)).Return(updatedBooking, nil).Once()
+		bus.On("PublishJSON", mock.Anything, mock.Anything).Return(nil).Once()
+		worker.On("EnqueueTask", ctx, "upsert", int64(16), updatedBooking, "").Return(nil).Once()
+		worker.On("EnqueueSyncSchedule", ctx, mock.Anything, mock.Anything).Return(nil).Once()
+
+		err := svc.ChangeBookingDate(ctx, 16, 7, newDate, 100)
 		assert.NoError(t, err)
 		repo.AssertExpectations(t)
 	})
