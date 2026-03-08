@@ -45,7 +45,7 @@ cd bronivik_crm
 cp .env.example .env
 ```
 
-2. Отредактируйте `.env`:
+1. Отредактируйте `.env`:
 
 ```env
 CRM_BOT_TOKEN=your_telegram_bot_token
@@ -54,7 +54,7 @@ CRM_API_EXTRA=your_extra_key
 MANAGERS=123456789
 ```
 
-3. При необходимости настройте `configs/config.yaml`
+1. При необходимости настройте `configs/config.yaml`
 
 ### Запуск с Docker Compose (рекомендуется)
 
@@ -63,6 +63,7 @@ docker compose up -d --build
 ```
 
 Это запустит:
+
 - `bronivik-crm-bot`: основной бот (порт 8090 для health check)
 - `bronivik-crm-redis`: Redis для кэширования
 
@@ -82,7 +83,7 @@ make build
 
 ## Архитектура
 
-```
+```text
 bronivik_crm/
 ├── cmd/
 │   └── bot/          # Точка входа приложения
@@ -124,7 +125,7 @@ bronivik_crm/
 - `/list_cabinets` — просмотр всех кабинетов
 - `/set_schedule <cab_id> <day> <start> <end>` — настройка расписания
 
-## Конфигурация
+## Пример конфигурации
 
 Основные разделы `configs/config.yaml`:
 
@@ -201,7 +202,7 @@ make clean
 
 ## Лицензия
 
-MIT License
+GNU General Public License v3.0. Подробности в корневом файле `../LICENSE`.
 
 ## Контакты
 

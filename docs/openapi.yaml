@@ -20,8 +20,8 @@ info:
     name: API Support
     email: support@bronivik.local
   license:
-    name: MIT
-    url: https://opensource.org/licenses/MIT
+    name: GPL-3.0
+    url: https://www.gnu.org/licenses/gpl-3.0.html
 
 servers:
   - url: http://localhost:8080

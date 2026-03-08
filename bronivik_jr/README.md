@@ -187,4 +187,4 @@ make lint          # Запуск линтера (golangci-lint)
 
 ## Лицензия
 
-МПЛ 2.0
+GNU General Public License v3.0. Подробности в корневом файле `../LICENSE`.
