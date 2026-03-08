@@ -19,9 +19,10 @@ services:
       context: ../bronivik_crm
       dockerfile: Dockerfile
     environment:
-      - BOT_TOKEN=${CRM_BOT_TOKEN}
-      - API_KEY=secret-key-for-crm-bot
-      - API_BASE_URL=http://bronivik-jr:8081
+      - CRM_BOT_TOKEN=${CRM_BOT_TOKEN}
+      - CRM_API_KEY=${CRM_API_KEY}
+      - CRM_API_EXTRA=${CRM_API_EXTRA}
+      - JR_API_BASE_URL=${JR_API_BASE_URL:-http://bronivik-jr:8081}
     depends_on:
       - bronivik-jr
     volumes:

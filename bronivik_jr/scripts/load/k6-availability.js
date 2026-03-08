@@ -3,8 +3,8 @@ import { check, sleep } from 'k6';
 
 // Configure target and credentials via env vars
 const BASE_URL = __ENV.BASE_URL || 'http://localhost:8080'; // HTTP API port
-const API_KEY = __ENV.API_KEY || 'secret-key-for-crm-bot';
-const API_EXTRA = __ENV.API_EXTRA || 'bronivik_crm_extra';
+const API_KEY = __ENV.API_KEY || 'set-me';
+const API_EXTRA = __ENV.API_EXTRA || 'set-me';
 
 export const options = {
   scenarios: {
@@ -43,4 +43,4 @@ export default function () {
 }
 
 // Example run:
-// BASE_URL=http://localhost:8080 API_KEY=secret API_EXTRA=extra ITEM=camera RATE=100 DURATION=2m k6 run scripts/load/k6-availability.js
+// BASE_URL=http://localhost:8080 API_KEY=your_api_key API_EXTRA=your_api_extra ITEM=camera RATE=100 DURATION=2m k6 run scripts/load/k6-availability.js

@@ -101,7 +101,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run Trivy vulnerability scanner (bronivik_jr)
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.28.0
         with:
           scan-type: 'fs'
           scan-ref: './bronivik_jr'
@@ -110,7 +110,7 @@ jobs:
           severity: 'CRITICAL,HIGH'
 
       - name: Run Trivy vulnerability scanner (bronivik_crm)
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.28.0
         with:
           scan-type: 'fs'
           scan-ref: './bronivik_crm'
@@ -120,14 +120,14 @@ jobs:
 
       - name: Upload Trivy scan results (bronivik_jr)
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false)
         with:
           sarif_file: 'trivy-jr-results.sarif'
           category: bronivik_jr
 
       - name: Upload Trivy scan results (bronivik_crm)
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false)
         with:
           sarif_file: 'trivy-crm-results.sarif'
           category: bronivik_crm

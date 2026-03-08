@@ -9,11 +9,12 @@ telegram:
   debug: true
 
 managers:
-  - 1295070216
+  - 123456789
+  - 987654321
 
 managers_contacts:
-  - "Иван: +7-900-123-45-67 @gerruda"
-  - "Мария: +7-900-765-43-21"
+  - "Manager One: set a private contact in a local override"
+  - "Manager Two: set a private contact in a local override"
 
 blacklist:
   - 111111111
