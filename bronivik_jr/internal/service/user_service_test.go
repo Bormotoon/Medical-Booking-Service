@@ -41,6 +41,11 @@ func (m *MockRepository) UpdateBookingStatus(ctx context.Context, id int64, stat
 	return args.Error(0)
 }
 
+func (m *MockRepository) UpdateBookingComment(ctx context.Context, id int64, comment string) error {
+	args := m.Called(ctx, id, comment)
+	return args.Error(0)
+}
+
 func (m *MockRepository) UpdateBookingStatusWithVersion(ctx context.Context, id, version int64, status string) error {
 	args := m.Called(ctx, id, version, status)
 	return args.Error(0)

@@ -482,6 +482,22 @@ func (b *Bot) startChangeDate(ctx context.Context, booking *models.Booking, mana
 	)
 }
 
+func (b *Bot) startEditBookingComment(ctx context.Context, booking *models.Booking, managerChatID int64) {
+	b.setUserState(ctx, managerChatID, models.StateManagerWaitingBookingComment, map[string]interface{}{
+		"booking_id": booking.ID,
+	})
+
+	message := fmt.Sprintf("💬 Введите комментарий для заявки #%d.", booking.ID)
+	if strings.TrimSpace(booking.Comment) != "" {
+		message += fmt.Sprintf("\n\nТекущий комментарий:\n%s\n\nНовый текст заменит текущий комментарий.", booking.Comment)
+	} else {
+		message += "\n\nКомментарий будет сохранен в заявке."
+	}
+	message += "\n\nДля отмены используйте кнопку «❌ Отмена»."
+
+	b.sendMessage(managerChatID, message)
+}
+
 func (b *Bot) handleManagerBookingDateChange(ctx context.Context, update *tgbotapi.Update, dateStr string, state *models.UserState) {
 	newDate, err := time.Parse("02.01.2006", dateStr)
 	if err != nil {
@@ -521,6 +537,38 @@ func (b *Bot) handleManagerBookingDateChange(ctx context.Context, update *tgbota
 	}
 
 	b.sendMessage(update.Message.Chat.ID, "✅ Дата заявки изменена")
+	b.sendManagerBookingDetail(ctx, update.Message.Chat.ID, updatedBooking)
+}
+
+func (b *Bot) handleManagerBookingComment(ctx context.Context, update *tgbotapi.Update, comment string, state *models.UserState) {
+	sanitizedComment := b.sanitizeInput(comment)
+	if sanitizedComment == "" {
+		b.sendMessage(update.Message.Chat.ID, "Комментарий не может быть пустым. Отправьте текст или нажмите «❌ Отмена».")
+		return
+	}
+
+	bookingID := state.GetInt64("booking_id")
+	if bookingID == 0 {
+		b.sendMessage(update.Message.Chat.ID, "Сессия устарела. Откройте заявку заново.")
+		b.clearUserState(ctx, update.Message.From.ID)
+		return
+	}
+
+	if err := b.bookingService.UpdateBookingComment(ctx, bookingID, sanitizedComment); err != nil {
+		b.logger.Error().Err(err).Int64("booking_id", bookingID).Msg("Error updating booking comment")
+		b.sendMessage(update.Message.Chat.ID, "Ошибка при сохранении комментария")
+		return
+	}
+
+	b.clearUserState(ctx, update.Message.From.ID)
+	b.sendMessage(update.Message.Chat.ID, "✅ Комментарий сохранен")
+
+	updatedBooking, err := b.bookingService.GetBooking(ctx, bookingID)
+	if err != nil {
+		b.logger.Error().Err(err).Int64("booking_id", bookingID).Msg("Error getting booking after comment update")
+		return
+	}
+
 	b.sendManagerBookingDetail(ctx, update.Message.Chat.ID, updatedBooking)
 }
 
@@ -635,6 +683,10 @@ func (b *Bot) sendManagerBookingDetail(_ context.Context, chatID int64, booking 
 			tgbotapi.NewInlineKeyboardButtonData("🗓 Изменить дату", fmt.Sprintf("change_date_%d", booking.ID)),
 			tgbotapi.NewInlineKeyboardButtonData("✏️ Изменить аппарат", fmt.Sprintf("change_item_%d", booking.ID)),
 		))
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("💬 Комментарий", fmt.Sprintf("edit_comment_%d", booking.ID)),
+			tgbotapi.NewInlineKeyboardButtonData("📞 Позвонить", fmt.Sprintf("call_booking:%d", booking.ID)),
+		))
 	}
 
 	if booking.Status == models.StatusConfirmed {
@@ -648,6 +700,7 @@ func (b *Bot) sendManagerBookingDetail(_ context.Context, chatID int64, booking 
 				tgbotapi.NewInlineKeyboardButtonData("🔄 Предложить выбрать другую дату", fmt.Sprintf("reschedule_%d", booking.ID)),
 			),
 			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("💬 Комментарий", fmt.Sprintf("edit_comment_%d", booking.ID)),
 				tgbotapi.NewInlineKeyboardButtonData("📞 Позвонить", fmt.Sprintf("call_booking:%d", booking.ID)),
 			),
 		)
@@ -812,6 +865,7 @@ func (b *Bot) notifyManagers(booking *models.Booking) {
 				tgbotapi.NewInlineKeyboardButtonData("🔄 Предложить другую дату", fmt.Sprintf("reschedule_%d", booking.ID)),
 			),
 			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("💬 Комментарий", fmt.Sprintf("edit_comment_%d", booking.ID)),
 				tgbotapi.NewInlineKeyboardButtonData("📞 Позвонить", fmt.Sprintf("call_booking:%d", booking.ID)),
 			),
 		)

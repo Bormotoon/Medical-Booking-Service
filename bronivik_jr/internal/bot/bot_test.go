@@ -529,6 +529,16 @@ func (m *mockBookingService) CreateBooking(ctx context.Context, booking *models.
 	return nil
 }
 
+func (m *mockBookingService) UpdateBookingComment(ctx context.Context, bookingID int64, comment string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if b, ok := m.bookings[bookingID]; ok {
+		b.Comment = comment
+		b.UpdatedAt = time.Now()
+	}
+	return nil
+}
+
 func (m *mockBookingService) ValidateBookingDate(date time.Time) error {
 	if m.ExpectedCalls == nil {
 		return nil
@@ -2055,6 +2065,54 @@ func TestManagerBookingActions(t *testing.T) {
 	callbackUpdate.CallbackQuery.Data = "call_booking:1"
 	b.handleCallButton(ctx, &callbackUpdate)
 	assert.True(t, len(mocks.tg.sentMessages) > 0)
+}
+
+func TestManagerBookingCommentFlow(t *testing.T) {
+	b, mocks := setupTestBot()
+	ctx := context.Background()
+	managerID := int64(123)
+
+	booking := &models.Booking{
+		ID:       1,
+		UserID:   1,
+		ItemID:   1,
+		ItemName: "Item 1",
+		Status:   models.StatusPending,
+		Date:     time.Now(),
+		Comment:  "Старый комментарий",
+	}
+	mocks.booking.setBookings(map[int64]*models.Booking{1: booking})
+
+	callbackUpdate := tgbotapi.Update{
+		CallbackQuery: &tgbotapi.CallbackQuery{
+			ID:   "cb",
+			From: &tgbotapi.User{ID: managerID},
+			Message: &tgbotapi.Message{
+				Chat:      &tgbotapi.Chat{ID: managerID},
+				MessageID: 1,
+			},
+			Data: "edit_comment:1",
+		},
+	}
+	callbackUpdate.CallbackQuery.Data = "edit_comment_1"
+
+	b.handleManagerCallback(ctx, &callbackUpdate)
+
+	state := mocks.state.getStates()[managerID]
+	require.NotNil(t, state)
+	assert.Equal(t, models.StateManagerWaitingBookingComment, state.CurrentStep)
+	assert.Equal(t, int64(1), state.GetInt64("booking_id"))
+
+	b.handleManagerBookingComment(ctx, &tgbotapi.Update{
+		Message: &tgbotapi.Message{
+			Chat: &tgbotapi.Chat{ID: managerID},
+			From: &tgbotapi.User{ID: managerID},
+		},
+	}, "Новый комментарий менеджера", state)
+
+	assert.Equal(t, "Новый комментарий менеджера", booking.Comment)
+	_, exists := mocks.state.getStates()[managerID]
+	assert.False(t, exists)
 }
 
 func TestManagerMoreActions(t *testing.T) {

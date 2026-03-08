@@ -100,6 +100,22 @@ func (s *BookingService) CreateBooking(ctx context.Context, booking *models.Book
 	return nil
 }
 
+func (s *BookingService) UpdateBookingComment(ctx context.Context, bookingID int64, comment string) error {
+	if err := s.repo.UpdateBookingComment(ctx, bookingID, comment); err != nil {
+		return err
+	}
+
+	booking, err := s.repo.GetBooking(ctx, bookingID)
+	if err == nil {
+		s.enqueueSync(ctx, booking, "upsert")
+		if err := s.sheetsWorker.EnqueueSyncSchedule(ctx, time.Time{}, time.Time{}); err != nil {
+			s.logger.Error().Err(err).Msg("failed to enqueue sync schedule")
+		}
+	}
+
+	return nil
+}
+
 func (s *BookingService) ConfirmBooking(ctx context.Context, bookingID, version, managerID int64) error {
 	return s.updateStatusAndSync(ctx, bookingID, version, models.StatusConfirmed, events.EventBookingConfirmed, "manager", managerID)
 }

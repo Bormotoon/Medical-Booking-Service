@@ -33,6 +33,9 @@ func (m *mockRepo) CreateBookingWithLock(ctx context.Context, b *models.Booking)
 func (m *mockRepo) UpdateBookingStatus(ctx context.Context, id int64, s string) error {
 	return m.Called(ctx, id, s).Error(0)
 }
+func (m *mockRepo) UpdateBookingComment(ctx context.Context, id int64, comment string) error {
+	return m.Called(ctx, id, comment).Error(0)
+}
 func (m *mockRepo) UpdateBookingStatusWithVersion(ctx context.Context, id, v int64, s string) error {
 	return m.Called(ctx, id, v, s).Error(0)
 }
@@ -216,6 +219,19 @@ func TestBookingService(t *testing.T) {
 		worker.On("EnqueueSyncSchedule", ctx, mock.Anything, mock.Anything).Return(nil).Once()
 
 		err := svc.CreateBooking(ctx, booking)
+		assert.NoError(t, err)
+		repo.AssertExpectations(t)
+	})
+
+	t.Run("UpdateBookingComment", func(t *testing.T) {
+		booking := &models.Booking{ID: 1, Comment: "Новый комментарий"}
+
+		repo.On("UpdateBookingComment", ctx, int64(1), "Новый комментарий").Return(nil).Once()
+		repo.On("GetBooking", ctx, int64(1)).Return(booking, nil).Once()
+		worker.On("EnqueueTask", ctx, "upsert", int64(1), booking, "").Return(nil).Once()
+		worker.On("EnqueueSyncSchedule", ctx, mock.Anything, mock.Anything).Return(nil).Once()
+
+		err := svc.UpdateBookingComment(ctx, 1, "Новый комментарий")
 		assert.NoError(t, err)
 		repo.AssertExpectations(t)
 	})

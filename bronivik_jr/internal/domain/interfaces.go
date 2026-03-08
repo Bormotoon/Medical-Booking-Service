@@ -13,6 +13,7 @@ type Repository interface {
 	GetBooking(ctx context.Context, id int64) (*models.Booking, error)
 	CreateBooking(ctx context.Context, booking *models.Booking) error
 	CreateBookingWithLock(ctx context.Context, booking *models.Booking) error
+	UpdateBookingComment(ctx context.Context, id int64, comment string) error
 	UpdateBookingStatus(ctx context.Context, id int64, status string) error
 	UpdateBookingStatusWithVersion(ctx context.Context, id int64, version int64, status string) error
 	GetBookingsByDateRange(ctx context.Context, start, end time.Time) ([]*models.Booking, error)
@@ -105,6 +106,7 @@ type TelegramService interface {
 type BookingService interface {
 	ValidateBookingDate(date time.Time) error
 	CreateBooking(ctx context.Context, booking *models.Booking) error
+	UpdateBookingComment(ctx context.Context, bookingID int64, comment string) error
 	ConfirmBooking(ctx context.Context, bookingID int64, version int64, managerID int64) error
 	RejectBooking(ctx context.Context, bookingID int64, version int64, managerID int64) error
 	CompleteBooking(ctx context.Context, bookingID int64, version int64, managerID int64) error
