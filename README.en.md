@@ -186,6 +186,12 @@ This repository now includes:
 - `.github/PULL_REQUEST_TEMPLATE.md`
 - `.github/ISSUE_TEMPLATE/*`
 
+## Support the Project
+
+If this service saves time for you and your clients — support development:
+
+[![Support the project](docs/images/donate_banner.png)](https://dalink.to/bormotoon)
+
 ## License
 
 This repository is prepared for publication under the [GNU General Public License v3.0](LICENSE).

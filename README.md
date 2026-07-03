@@ -186,6 +186,12 @@ cd bronivik_crm && go run ./cmd/bot
 - `.github/PULL_REQUEST_TEMPLATE.md`
 - `.github/ISSUE_TEMPLATE/*`
 
+## Поддержать проект
+
+Если сервис экономит время вам и вашим клиентам — поддержите разработку:
+
+[![Поддержать проект](docs/images/donate_banner.png)](https://dalink.to/bormotoon)
+
 ## Лицензия
 
 Проект подготовлен к публикации под лицензией [GNU General Public License v3.0](LICENSE).
