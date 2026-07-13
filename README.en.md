@@ -9,6 +9,8 @@
 
 Medical Booking Service is a monorepo for Telegram-based medical resource booking. It combines two domain services, shared libraries, monitoring assets, and operational documentation.
 
+🌐 **Project page:** [педобраз.рф/projects/bronivik](https://xn--80abidn3bem.xn--p1ai/projects/bronivik/)
+
 ## Repository Contents
 
 - `bronivik_jr` — primary equipment booking service with a Telegram bot, HTTP/gRPC API, and background workers.
