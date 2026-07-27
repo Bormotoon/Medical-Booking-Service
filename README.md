@@ -192,7 +192,7 @@ cd bronivik_crm && go run ./cmd/bot
 
 Если сервис экономит время вам и вашим клиентам — поддержите разработку:
 
-[![Поддержать проект](docs/images/donate_banner.png)](https://dalink.to/bormotoon)
+[![Поддержать проект](docs/images/donate_banner_ru.png)](https://dalink.to/bormotoon)
 
 ## Лицензия
 
