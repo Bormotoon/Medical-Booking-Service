@@ -100,8 +100,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # Тег БЕЗ префикса `v` (0.28.0) upstream снёс — job падал на
+      # «Unable to resolve action ... unable to find version». Живые теги
+      # только вида vX.Y.Z; закреплены на актуальном v0.36.0.
       - name: Run Trivy vulnerability scanner (bronivik_jr)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: 'fs'
           scan-ref: './bronivik_jr'
@@ -110,7 +113,7 @@ jobs:
           severity: 'CRITICAL,HIGH'
 
       - name: Run Trivy vulnerability scanner (bronivik_crm)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: 'fs'
           scan-ref: './bronivik_crm'
