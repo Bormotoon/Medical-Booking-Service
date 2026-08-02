@@ -294,8 +294,12 @@ func TestBookingService(t *testing.T) {
 	})
 
 	t.Run("ChangeBookingDate", func(t *testing.T) {
-		oldDate := time.Date(2026, 3, 10, 0, 0, 0, 0, time.UTC)
-		newDate := time.Date(2026, 3, 12, 0, 0, 0, 0, time.UTC)
+		// Даты ОТНОСИТЕЛЬНЫЕ: раньше здесь были прибитые 10 и 12 марта 2026,
+		// и с наступлением этой даты ValidateBookingDate стал возвращать
+		// ErrPastDate — тест начал падать сам по себе, а CI покраснел.
+		// Остальные подтесты уже считают дату от time.Now(); делаем так же.
+		oldDate := time.Now().AddDate(0, 0, 3)
+		newDate := time.Now().AddDate(0, 0, 5)
 		oldBooking := &models.Booking{ID: 16, ItemID: 2, Date: oldDate, Status: models.StatusPending}
 		updatedBooking := &models.Booking{ID: 16, ItemID: 2, Date: newDate, Status: models.StatusChanged}
 
